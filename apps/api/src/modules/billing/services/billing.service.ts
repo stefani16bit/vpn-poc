@@ -1,23 +1,28 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
 
-import { DATABASE, ENV } from '@vpn-poc/adapters';
-import { billingEvents, subscriptions, type Database } from '@vpn-poc/database';
+import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 import type { PlanId, SubscriptionResponse } from '@vpn/contracts';
 import {
 	BILLING_PROVIDER,
-	EMAIL_SENDER,
 	IDENTITY_PROVIDER,
 	type IBillingProvider,
-	type IEmailSender,
 	type IIdentityProvider,
 	type NormalizedBillingEvent,
 } from '@vpn/ports';
 
 import { AppError } from '../../../shared/errors/app-error.js';
+import { BillingEventRepository } from '../repositories/billing-event.repository.js';
+import { SubscriptionRepository } from '../repositories/subscription.repository.js';
+import { BillingMailer } from './billing-mailer.service.js';
 
 const SOURCE = 'stripe';
+
+const NO_SUBSCRIPTION: SubscriptionResponse = {
+	status: 'none',
+	currentPeriodEnd: null,
+	cancelAtPeriodEnd: false,
+};
 
 @Injectable()
 export class BillingService {
@@ -26,21 +31,20 @@ export class BillingService {
 	constructor(
 		@Inject(BILLING_PROVIDER) private readonly billing: IBillingProvider,
 		@Inject(IDENTITY_PROVIDER) private readonly identity: IIdentityProvider,
-		@Inject(EMAIL_SENDER) private readonly email: IEmailSender,
-		@Inject(DATABASE) private readonly db: Database,
 		@Inject(ENV) private readonly env: Env,
+		private readonly subscriptions: SubscriptionRepository,
+		private readonly events: BillingEventRepository,
+		private readonly mailer: BillingMailer,
 	) {}
 
 	async createCheckout(accountId: string, plan: PlanId): Promise<string> {
 		const account = await this.identity.findById(accountId);
 		if (!account) throw new AppError('UNAUTHENTICATED', 'account no longer exists');
 
-		const priceId = this.#priceFor(plan);
-
 		const session = await this.billing.createCheckout({
 			accountId,
 			email: account.email,
-			priceId,
+			priceId: this.#priceFor(plan),
 			successUrl: `${this.env.WEB_ORIGIN}/billing/success`,
 			cancelUrl: `${this.env.WEB_ORIGIN}/billing/cancel`,
 			idempotencyKey: `checkout:${accountId}:${plan}`,
@@ -50,14 +54,8 @@ export class BillingService {
 	}
 
 	async currentSubscription(accountId: string): Promise<SubscriptionResponse> {
-		const rows = await this.db
-			.select()
-			.from(subscriptions)
-			.where(eq(subscriptions.accountId, accountId))
-			.limit(1);
-
-		const row = rows[0];
-		if (!row) return { status: 'none', currentPeriodEnd: null, cancelAtPeriodEnd: false };
+		const row = await this.subscriptions.findByAccount(accountId);
+		if (!row) return NO_SUBSCRIPTION;
 
 		return {
 			status: row.status,
@@ -67,21 +65,12 @@ export class BillingService {
 	}
 
 	async cancel(accountId: string): Promise<void> {
-		const rows = await this.db
-			.select({ externalId: subscriptions.externalId })
-			.from(subscriptions)
-			.where(eq(subscriptions.accountId, accountId))
-			.limit(1);
-
-		const externalId = rows[0]?.externalId;
+		const externalId = await this.subscriptions.findExternalId(accountId);
 		if (!externalId) throw new AppError('NOT_FOUND', 'no subscription to cancel');
 
 		const updated = await this.billing.cancelSubscription(externalId, 'period_end');
 
-		await this.db
-			.update(subscriptions)
-			.set({ cancelAtPeriodEnd: updated.cancelAtPeriodEnd, updatedAt: new Date() })
-			.where(eq(subscriptions.accountId, accountId));
+		await this.subscriptions.setCancelAtPeriodEnd(accountId, updated.cancelAtPeriodEnd);
 	}
 
 	async handleWebhook(rawBody: string, signature: string): Promise<boolean> {
@@ -92,15 +81,8 @@ export class BillingService {
 		const event = this.billing.parseWebhookEvent(rawBody);
 		if (!event) return false;
 
-		const claimed = await this.db
-			.insert(billingEvents)
-			.values({ source: SOURCE, externalEventId: event.externalEventId, kind: event.kind })
-			.onConflictDoNothing({
-				target: [billingEvents.source, billingEvents.externalEventId],
-			})
-			.returning({ id: billingEvents.id });
-
-		if (claimed.length === 0) {
+		const claimed = await this.events.claim(SOURCE, event.externalEventId, event.kind);
+		if (!claimed) {
 			this.#logger.debug(
 				{ event: 'billing.webhook.duplicate', externalEventId: event.externalEventId },
 				'ignoring redelivered webhook',
@@ -117,53 +99,23 @@ export class BillingService {
 			const account = await this.identity.findById(event.accountId);
 			if (!account) return;
 
-			await this.email.send({
-				to: account.email,
-				template: 'payment_failed',
-				locale: 'pt-BR',
-				variables: { url: `${this.env.WEB_ORIGIN}/billing` },
-				idempotencyKey: `payment-failed:${event.externalEventId}`,
-			});
+			await this.mailer.sendPaymentFailed(account, event.externalEventId);
 			return;
 		}
 
 		const { subscription } = event;
 
-		await this.db
-			.insert(subscriptions)
-			.values({
-				accountId: event.accountId,
-				externalId: subscription.externalId,
-				externalCustomerId: subscription.externalCustomerId,
-				status: subscription.status,
-				currentPeriodEnd: subscription.currentPeriodEnd,
-				cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-			})
-			.onConflictDoUpdate({
-				target: subscriptions.accountId,
-				set: {
-					externalId: subscription.externalId,
-					externalCustomerId: subscription.externalCustomerId,
-					status: subscription.status,
-					currentPeriodEnd: subscription.currentPeriodEnd,
-					cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-					updatedAt: new Date(),
-				},
-			});
+		await this.subscriptions.upsert(event.accountId, subscription);
 
 		if (event.kind === 'subscription_canceled') {
 			const account = await this.identity.findById(event.accountId);
 			if (!account) return;
 
-			await this.email.send({
-				to: account.email,
-				template: 'subscription_canceled',
-				locale: 'pt-BR',
-				variables: {
-					endsAt: subscription.currentPeriodEnd?.toISOString() ?? 'o fim do período vigente',
-				},
-				idempotencyKey: `subscription-canceled:${event.externalEventId}`,
-			});
+			await this.mailer.sendSubscriptionCanceled(
+				account,
+				subscription.currentPeriodEnd,
+				event.externalEventId,
+			);
 		}
 	}
 
