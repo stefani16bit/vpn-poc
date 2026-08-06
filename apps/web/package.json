@@ -37,6 +37,7 @@
     "@types/react-dom": "^19.0.2",
     "@types/redux-state-sync": "^3.1.10",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vpn/config": "^0.1.0",
     "jsdom": "^25.0.1",
     "shadcn": "^4.16.1",
     "tailwindcss": "^4.3.3",
