@@ -17,7 +17,7 @@ clearApiCache.startListening({
 	},
 });
 
-const rootReducer = combineReducers({
+export const rootReducer = combineReducers({
 	[api.reducerPath]: api.reducer,
 	auth: authReducer,
 });
