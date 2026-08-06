@@ -2,12 +2,9 @@
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Provider } from 'react-redux';
 
 import { App } from './app/app.tsx';
-import { store } from './app/store/index.js';
-import { LocaleProvider } from './i18n/locale-context.tsx';
-import { ThemeProvider } from './theme/theme-provider.tsx';
+import { Providers } from './app/providers.tsx';
 import './styles.css';
 
 const container = document.getElementById('root');
@@ -15,13 +12,9 @@ if (!container) throw new Error('#root is missing from index.html');
 
 createRoot(container).render(
 	<StrictMode>
-		<Provider store={store}>
-			<LocaleProvider>
-				<ThemeProvider>
-					<App />
-				</ThemeProvider>
-			</LocaleProvider>
-		</Provider>
+		<Providers>
+			<App />
+		</Providers>
 	</StrictMode>,
 );
 
