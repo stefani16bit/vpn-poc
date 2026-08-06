@@ -2,28 +2,21 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
-import {
-	FALLBACK_LOCALE,
-	type AuthenticatedUser,
-	type SessionResponse,
-	type SupportedLocale,
-} from '@vpn/contracts';
-import { isSupportedLocale } from '@vpn/i18n';
+import { type AuthenticatedUser, type SessionResponse, type SupportedLocale } from '@vpn/contracts';
 import {
 	CLOCK,
-	EMAIL_SENDER,
 	IDENTITY_PROVIDER,
 	type Account,
 	type IClock,
-	type IEmailSender,
 	type IIdentityProvider,
 } from '@vpn/ports';
 
 import { AppError } from '../../../shared/errors/app-error.js';
-import { currentLocale } from '../../../shared/http/request-context.js';
 import { AccessTokenService } from '../../../shared/access-control/access-token.service.js';
 import { RateLimitService } from '../../../shared/rate-limit/rate-limit.service.js';
 import { RATE_LIMITS } from '../auth.rate-limits.js';
+import { toAuthenticatedUser } from '../mappers/authenticated-user.mapper.js';
+import { AuthMailer } from './auth-mailer.service.js';
 import { VerificationTokenService } from './verification-token.service.js';
 
 export interface IssuedSession {
@@ -38,12 +31,12 @@ export class AuthService {
 
 	constructor(
 		@Inject(IDENTITY_PROVIDER) private readonly identity: IIdentityProvider,
-		@Inject(EMAIL_SENDER) private readonly email: IEmailSender,
 		@Inject(CLOCK) private readonly clock: IClock,
 		@Inject(ENV) private readonly env: Env,
 		private readonly accessTokens: AccessTokenService,
 		private readonly verificationTokens: VerificationTokenService,
 		private readonly rateLimit: RateLimitService,
+		private readonly mailer: AuthMailer,
 	) {}
 
 	async register(email: string, password: string, locale: SupportedLocale): Promise<void> {
@@ -92,7 +85,7 @@ export class AuthService {
 
 		return {
 			response: {
-				user: toUser(account),
+				user: toAuthenticatedUser(account),
 				accessToken: await this.accessTokens.issue({
 					accountId: account.id,
 					sessionId: outcome.session.sessionId,
@@ -116,13 +109,7 @@ export class AuthService {
 		const account = await this.identity.findById(accountId);
 		if (!account) return;
 
-		await this.email.send({
-			to: account.email,
-			template: 'welcome',
-			locale: localeOf(account),
-			variables: {},
-			idempotencyKey: `welcome:${accountId}`,
-		});
+		await this.mailer.sendWelcome(account);
 	}
 
 	async resendVerification(email: string): Promise<void> {
@@ -148,16 +135,7 @@ export class AuthService {
 		const ttl = this.env.AUTH_PASSWORD_RESET_TTL;
 		const issued = await this.verificationTokens.issue(account.id, 'password_reset', ttl);
 
-		await this.email.send({
-			to: account.email,
-			template: 'reset_password',
-			locale: localeOf(account),
-			variables: {
-				url: `${this.env.WEB_ORIGIN}/reset-password?token=${issued.token}`,
-				expiresInHours: String(Math.max(1, Math.round(ttl / 3600))),
-			},
-			idempotencyKey: `reset:${issued.token.slice(0, 16)}`,
-		});
+		await this.mailer.sendPasswordReset(account, issued.token, ttl);
 	}
 
 	async resetPassword(token: string, newPassword: string): Promise<void> {
@@ -168,19 +146,13 @@ export class AuthService {
 		const account = await this.identity.findById(accountId);
 		if (!account) return;
 
-		await this.email.send({
-			to: account.email,
-			template: 'password_changed',
-			locale: localeOf(account),
-			variables: {},
-			idempotencyKey: `password-changed:${accountId}:${Math.floor(this.clock.now().getTime() / 1000)}`,
-		});
+		await this.mailer.sendPasswordChanged(account, this.clock.now());
 	}
 
 	async currentUser(accountId: string): Promise<AuthenticatedUser> {
 		const account = await this.identity.findById(accountId);
 		if (!account) throw new AppError('UNAUTHENTICATED', 'account no longer exists');
-		return toUser(account);
+		return toAuthenticatedUser(account);
 	}
 
 	async #issueSession(account: Account): Promise<IssuedSession> {
@@ -188,7 +160,7 @@ export class AuthService {
 
 		return {
 			response: {
-				user: toUser(account),
+				user: toAuthenticatedUser(account),
 				accessToken: await this.accessTokens.issue({
 					accountId: account.id,
 					sessionId: session.sessionId,
@@ -205,31 +177,6 @@ export class AuthService {
 		const ttl = this.env.AUTH_EMAIL_VERIFICATION_TTL;
 		const issued = await this.verificationTokens.issue(account.id, 'email_verification', ttl);
 
-		await this.email.send({
-			to: account.email,
-			template: 'verify_email',
-			locale: localeOf(account),
-			variables: {
-				url: `${this.env.WEB_ORIGIN}/verify-email?token=${issued.token}`,
-				expiresInHours: String(Math.max(1, Math.round(ttl / 3600))),
-			},
-			idempotencyKey: `verify:${issued.token.slice(0, 16)}`,
-		});
+		await this.mailer.sendVerification(account, issued.token, ttl);
 	}
-}
-
-function toUser(account: Account): AuthenticatedUser {
-	return {
-		id: account.id,
-		email: account.email,
-		emailVerified: account.emailVerifiedAt !== null,
-		locale: localeOf(account),
-		createdAt: account.createdAt.toISOString(),
-	};
-}
-
-function localeOf(account: Account): SupportedLocale {
-	if (isSupportedLocale(account.locale)) return account.locale;
-	const negotiated = currentLocale();
-	return isSupportedLocale(negotiated) ? negotiated : FALLBACK_LOCALE;
 }
