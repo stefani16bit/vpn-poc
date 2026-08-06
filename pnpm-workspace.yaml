@@ -13,3 +13,4 @@ allowBuilds:
   nx: true
   '@sentry/cli': true
   msgpackr-extract: true
+  unrs-resolver: true

@@ -1,6 +1,8 @@
 import js from '@eslint/js';
 import globals from 'globals';
 import nx from '@nx/eslint-plugin';
+import { createTypeScriptImportResolver } from 'eslint-import-resolver-typescript';
+import { createNodeResolver, importX } from 'eslint-plugin-import-x';
 import tseslint from 'typescript-eslint';
 
 export default [
@@ -46,6 +48,51 @@ export default [
 						{
 							sourceTag: 'type:infra',
 							onlyDependOnLibsWithTags: [],
+						},
+					],
+				},
+			],
+		},
+	},
+
+	{
+		files: ['apps/api/src/**/*.ts'],
+		plugins: { 'import-x': importX },
+		settings: {
+			'import-x/resolver-next': [
+				createTypeScriptImportResolver({ project: ['apps/api/tsconfig.json'] }),
+				createNodeResolver(),
+			],
+		},
+		rules: {
+			'import-x/no-restricted-paths': [
+				'error',
+				{
+					basePath: import.meta.dirname,
+					zones: [
+						{
+							target: './apps/api/src/shared',
+							from: './apps/api/src/modules',
+							message:
+								'shared/ is the kernel: every module may depend on it, and it may depend on no module.',
+						},
+						{
+							target: './apps/api/src/modules/auth/**',
+							from: './apps/api/src/modules/billing/**',
+							message:
+								'A module never reaches into another module. Move what is shared into shared/.',
+						},
+						{
+							target: './apps/api/src/modules/billing/**',
+							from: './apps/api/src/modules/auth/**',
+							message:
+								'A module never reaches into another module. Move what is shared into shared/.',
+						},
+						{
+							target: './apps/api/src/modules/*/controllers/**',
+							from: './apps/api/src/modules/*/repositories/**',
+							message:
+								'A controller validates, calls a service and formats. Persistence is the service business.',
 						},
 					],
 				},
