@@ -331,3 +331,326 @@ checagem não descreve este workspace. `pnpm lint` entra no `verify`.
 classes injetadas para `import type`, o que apaga o `emitDecoratorMetadata` e
 derruba o container no boot — a suíte e2e pegou. A regra continua ligada no
 resto do workspace, onde não há DI por metadata.
+
+---
+
+### DEC-018 — `vite-node` como runner de dev da API, e pm2 via `sh -c`
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** `pnpm dev:apps` não subia. Três falhas empilhadas: (1) o pm2 não
+consegue lançar `pnpm` no Windows, onde ele resolve para um `.cmd` — o fork mode
+ou dá `require()` no arquivo, e `@ECHO off` vira `SyntaxError`, ou, com
+`interpreter: 'none'`, faz `spawn` sem shell, que o Node 22 recusa com `EINVAL`;
+(2) o `tsx` casa cada arquivo contra o `include` do tsconfig que resolve, e as
+libs ficam fora do `include` de `apps/api`, sendo transformadas sem
+`experimentalDecorators`; (3) mesmo com isso corrigido, o esbuild do `tsx` não
+implementa `emitDecoratorMetadata`, então toda injeção por tipo resolve
+`undefined` — o mesmo modo de falha do DEC-017, por outra causa.
+
+**Decisão.** O `dev` da API roda em `vite-node`, e o `ecosystem.config.cjs`
+lança cada app com `script: 'sh'`, `args: ['-c', 'pnpm --filter … dev']` e
+`interpreter: 'none'`.
+
+**Rationale.** O Vitest já provava que este código-fonte tem DI funcional: o
+e2e sobe a aplicação inteira e passa. Ele transforma com Vite 8 + oxc, que emite
+os metadados; o `tsx` transforma com esbuild, que não. Adotar `vite-node` faz o
+dev usar exatamente o pipeline que os testes validam, em vez de um segundo
+transformador com semântica própria de decorators. `sh` já é pré-requisito do
+devstack, então o `sh -c` não acrescenta dependência de máquina.
+
+**Consequências.** `vite-node` entra como devDependency de `apps/api`; o `tsx`
+continua no repo, mas só para `db:migrate`, que não tem decorators. Um runner de
+dev que divirja do transformador dos testes volta a ser capaz de esconder um
+erro de DI até o boot — a regra é que os dois andem juntos.
+
+---
+
+### DEC-019 — shadcn/ui copiado no repositório, sem pacote de UI
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** `apps/web` não tinha nenhuma dependência de UI: uma folha de estilo
+global de 163 linhas, sete variáveis CSS e ~12 nomes de classe aplicados como
+string literal no JSX. A duplicação era mensurável — `<section className="card">`
+nove vezes em cinco arquivos, a tela terminal de mensagem copiada cinco vezes, e
+`verify-email.page.tsx` reimplementando `Field` e `Submit` à mão porque seu
+formulário não é dirigido por react-hook-form.
+
+**Decisão.** Tailwind v4 + shadcn/ui + CVA + Radix, com os componentes
+**copiados para dentro** de `apps/web/src/components/ui/`. Não existe pacote
+`@vpn/ui`.
+
+**Rationale.** Um pacote publicado tem exatamente um consumidor hoje, e cada
+ajuste de componente custaria bump de versão, publicação no Verdaccio e
+`consumer-check` — que é um script de JS puro e não sabe verificar JSX nem CSS.
+A fronteira que DEC-002 protege é a de publicação, e não há nada para publicar.
+shadcn/ui em vez de uma biblioteca instalada porque o componente copiado é
+editável: a regra de i18n deste repositório proíbe literal voltado ao usuário, e
+isso é impossível de cumprir dentro de um `node_modules`.
+
+**Consequências.** Isto contradiz `apps/web/CLAUDE.md` ("Sem biblioteca de
+componentes: seis telas não pagam uma") e o comentário de cabeçalho de
+`styles.css` — ambos reescritos. **Código copiado de um registry é código
+nosso**: um literal nele é um literal no nosso app, e passa a valer a mesma
+regra de `t()`. `components/ui/**` fica fora da cobertura (DEC-028), e o motivo
+está em `apps/web/CLAUDE.md`, não implícito.
+
+---
+
+### DEC-020 — Alias `@/*` em `apps/web`
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** O repositório inteiro usa import relativo com extensão explícita.
+O CLI do shadcn emite `@/components/ui/...` e `@/lib/cn`, e reescrever cada
+componente gerado à mão anula o motivo de usar o gerador.
+
+**Decisão.** `paths: { "@/*": ["./src/*"] }` em `apps/web/tsconfig.json` e o
+alias correspondente em `resolve.alias` do `vite.config.mts`. Import relativo
+sobrevive só dentro de um mesmo diretório. `apps/api` **não** ganha alias.
+
+**Rationale.** `apps/web` resolve por `Bundler` e tem um bundler; `apps/api`
+resolve por `NodeNext` e roda em Node, onde `paths` do TypeScript não existe em
+runtime e precisaria de um resolver adicional para funcionar. O alias vale onde
+o bundler já o implementa, não como estética.
+
+**Consequências.** `"baseUrl": "."` precisa ser **redeclarado** em
+`apps/web/tsconfig.json`. `tsconfig.base.json` define `baseUrl: "."` relativo à
+raiz do repositório, e sem a redeclaração `@/lib/cn` resolve para
+`<repo>/src/lib/cn` — o erro aponta para o import, nunca para o config. `paths`
+substitui, não mescla: o mapa `@vpn-poc/*` herdado desaparece em `apps/web`, o
+que é inócuo porque `apps/web` não importa nenhum deles. O `vite.config.mts` é
+ESM e não tem `__dirname`; o alias usa `fileURLToPath(new URL(...))`.
+
+---
+
+### DEC-021 — Tema claro e escuro com tokens `@theme`, escuro por padrão
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** O app era escuro incondicional: `color-scheme: dark` num `:root`,
+sem `prefers-color-scheme`, sem alternância, e sem paleta clara para onde ir.
+
+**Decisão.** As sete variáveis viram um par de paletas em oklch declaradas em
+`:root` e `.dark`, expostas como utilitários por `@theme inline`. `<html>` nasce
+com `class="dark"` no markup; a preferência vive em `localStorage`.
+
+**Rationale.** shadcn/ui já entrega as duas paletas — adotar só metade custa o
+mesmo e entrega menos. A paleta clara mantém o matiz da escura e inverte a
+luminosidade, então são duas pontas de uma paleta, não duas paletas. `class` no
+markup em vez de aplicar no `useEffect` porque o efeito roda depois da primeira
+pintura, e um frame branco num app escuro é visível.
+
+**Consequências.** `color-scheme` passa a ser declarado por tema, não uma vez em
+`:root`, para que scrollbar e controles nativos sigam. Existe um script inline
+no `index.html` — o único do app — que remove `.dark` para quem escolheu claro;
+é pragma funcional, não prosa, e DEC-013 continua valendo. `--ring` passa a
+existir nos dois temas, o que fecha por construção a ausência de anel de foco em
+botão e link.
+
+---
+
+### DEC-022 — Sem Prettier; ordem de classe por lint
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** O repositório não tem formatador: nenhum `.prettierrc`, nenhum
+`.editorconfig`, nenhum script `format`, indentação por tab por convenção. Com
+Tailwind, a ordem das classes vira uma questão de diff.
+
+**Decisão.** `eslint-plugin-better-tailwindcss`, não Prettier e não
+`prettier-plugin-tailwindcss`.
+
+**Rationale.** `pnpm verify` já roda `pnpm lint`, então uma regra de lint torna
+a ordem de classes um portão com zero etapa nova de pipeline. Prettier não é um
+ordenador de classes que também formata — é uma reformatação do repositório
+inteiro, que reescreveria a quebra de linha manual do `eslint.config.mjs`, todo
+`.ts` de `apps/api`, `libs/` e `infra/`, e os blocos de código de sete
+documentos. Além disso o plugin do Prettier **só ordena**: não sabe dizer que
+`bg-surface` não é um token que definimos, que é exatamente o modo de falha de
+uma paleta customizada. `better-tailwindcss` dá ordenação **mais**
+`no-unknown-classes`, `no-conflicting-classes` e `no-duplicate-classes`.
+
+**Consequências.** `enforce-consistent-line-wrapping` fica **desligada**: ela
+briga com a indentação por tab e gera ruído a cada edição de `className`.
+Ordenar é o valor; quebrar linha é gosto.
+
+---
+
+### DEC-023 — `apps/web` por feature; RTK Query em base mais `injectEndpoints`
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** `app/store/api.ts` era um único `createApi` com todos os endpoints
+de auth e de cobrança. As páginas ficavam em pastas planas, e
+`password-reset.pages.tsx` continha dois componentes de página.
+
+**Decisão.** `features/<feature>/{api,components,hooks,pages}`. O `createApi`
+fica reduzido a transporte e `tagTypes`; cada feature injeta os seus endpoints
+com `api.injectEndpoints`.
+
+**Rationale.** `injectEndpoints` muta o mesmo objeto `api`, então **não há
+mudança de wiring**: o reducer já está montado em `api.reducerPath` e não existe
+lista de registro para manter em sincronia. O endpoint passa a existir no
+momento em que seu módulo é importado — e ele é importado porque a página
+importa o hook. `tagTypes` fica na base porque `injectEndpoints` não sabe
+acrescentar tag, e `enhanceEndpoints({ addTagTypes })` colocaria o vocabulário
+de tags em dois lugares.
+
+**Consequências.** O outro lado da mesma moeda: um endpoint cujo arquivo ninguém
+importa silenciosamente não existe. `overrideExisting: false` é explícito porque
+o default avisa em desenvolvimento quando o HMR reavalia o módulo.
+
+---
+
+### DEC-024 — `apps/api` em camadas com kernel `shared/`
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** `modules/auth/` eram sete arquivos sem subpasta. `auth.guard.ts`
+carregava quatro exports em 59 linhas; `auth.service.ts` misturava rate limit,
+identidade, sessão, composição de e-mail e mapeamento em 235.
+
+**Decisão.** Cada módulo ganha `controllers/`, `services/`, `repositories/` e
+`mappers/`. `common/` vira `shared/`.
+
+**Rationale.** "common" é onde as coisas vão quando ninguém decidiu. "Kernel
+compartilhado" nomeia uma regra de verdade — *a camada da qual todo módulo pode
+depender e que não pode depender de módulo nenhum* — e essa regra passa a ser
+verificada por lint (DEC-027). Sem a regra, o rename seria só gosto.
+
+**Consequências.** Isto contradiz `docs/05-PADROES-DE-CODIGO.md` §4, que
+documentava a forma plana como a convenção; a seção é reescrita e esta entrada
+diz que foi. `common.spec.ts`, que cobria quatro arquivos de uma vez, se divide
+em três specs colocalizados, e o `HealthController` declarado inline em
+`health.module.ts` vira arquivo — pelo mesmo motivo.
+
+---
+
+### DEC-025 — Controle de acesso é kernel, não domínio de auth
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** `AccessTokenGuard` morava em `modules/auth/`, e
+`billing.controller.ts` o importava por `../auth/auth.guard.js`. `BillingModule`
+importava `AuthModule` só por causa disso, e `apps/api/CLAUDE.md` registrava a
+exceção em vez de resolvê-la.
+
+**Decisão.** `AccessTokenService`, `AccessTokenGuard`, `@AllowUnverified()`,
+`@Auth()` e `AuthenticatedRequest` vão para `shared/access-control/`, atrás de
+um `AccessControlModule`. `BillingModule` deixa de importar `AuthModule`.
+
+**Rationale.** A premissa de que o guard precisa de conhecimento de domínio não
+sobrevive à leitura do código: `canActivate` lê `claims.emailVerified` — uma
+claim **dentro do JWT**, posta lá por `AccessTokenService.issue`. Ele nunca
+consulta uma conta, nunca toca `IIdentityProvider`, nunca importa `AuthService`.
+Sua única dependência é `AccessTokenService`, que é `jose` mais issuer, audience
+e TTL. É maquinaria de requisição da mesma espécie que `ZodBody` e
+`GlobalExceptionFilter`.
+
+**Consequências.** A linha do `apps/api/CLAUDE.md` sobre a exceção é
+**apagada**. A exceção existia porque o guard estava no lugar errado; corrigir o
+lugar é o que faz a regra "nenhum módulo importa outro" passar a ter zero
+exceções — e só uma regra sem exceção pode ser verificada por lint.
+`AccessControlModule` **não** é `@Global()`: `AdaptersModule` é global porque
+uma porta é um fato global; controle de acesso é dependência que se declara.
+
+---
+
+### DEC-026 — Repositório é código nosso e não ganha interface
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** Três estilos de persistência coexistiam: porta mais adapter
+(`IIdentityProvider`), drizzle direto em `billing.service.ts` e drizzle direto
+em `verification-token.service.ts`. Extrair os dois últimos levanta a pergunta
+de se eles viram portas.
+
+**Decisão.** `VerificationTokenRepository`, `SubscriptionRepository` e
+`BillingEventRepository` são classes injetáveis comuns em `repositories/`. Sem
+interface `I*`, sem porta, sem suíte de conformidade.
+
+**Rationale.** Pelo critério do inegociável nº 1 — *"eu teria que substituir
+isto?"*. A dependência externa é o Postgres, e ela **já** está atrás de uma
+fronteira: o token `DATABASE`, e para identidade a porta `IIdentityProvider` com
+duas implementações conformes. Um repositório é o nosso código de query em cima
+dessa fronteira — a mesma relação que `RateLimitService` tem com `ICacheStore`,
+que DEC-004 já resolveu como "não é porta". Fazer deles portas exigiria uma
+suíte de conformidade e uma implementação em memória para cada, para habilitar a
+troca "rodar `verification_tokens` em algo que não seja Postgres" enquanto
+`IIdentityProvider` continua Drizzle contra o mesmo banco. Metade da persistência
+atrás de porta e metade não é pior que qualquer um dos dois extremos, porque
+"você não sabe qual adapter recebeu" deixa de ser verdade e a garantia que a
+arquitetura de portas vende vira uma afirmação a conferir tabela a tabela.
+
+**Consequências.** A honesta: **repositório não tem teste unitário**. Fingir a
+cadeia fluente do drizzle produz um teste que afirma o formato de uma API
+fluente, não um comportamento. A corretude deles continua provada pelo e2e, que
+já cobre reentrega de webhook e uso único de token. O ganho é que a *política*
+sobe para classes que **são** testáveis — `VerificationTokenService` decide
+`TOKEN_INVALID` contra `TOKEN_EXPIRED`, e isso não tinha teste nenhum. Teste de
+integração de repositório entra no roadmap como dívida nomeada. O inegociável da
+idempotência é preservado textualmente: `BillingEventRepository.claim()` **é** o
+`onConflictDoNothing(...).returning()` que já existia, e o `false` é o índice
+único perdendo a corrida, não uma consulta.
+
+---
+
+### DEC-027 — Zonas de importação intra-app verificadas por lint
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** `@nx/enforce-module-boundaries` (DEC-017) opera por projeto, então
+todo `apps/api/src` é um nó só. Nada impedia mecanicamente `modules/billing` de
+importar `modules/auth/auth.service.js`, nem `common/` de importar `modules/`.
+
+**Decisão.** `eslint-plugin-import-x` com `no-restricted-paths`. Quatro zonas em
+`apps/api` (o kernel não importa módulo; os dois módulos não se importam;
+controller não importa repositório) e quatro em `apps/web` (`components/` não
+conhece `features/`; `components/ui` só importa `lib/`; as duas features não se
+importam).
+
+**Rationale.** `eslint-plugin-import` declara peer `eslint ^9` e este repositório
+é ESLint 10, então `import-x` é a única opção. O `no-restricted-imports` do core
+foi recusado porque casa contra a **string do especificador**: `../billing/x.js`
+e `../../billing/x.js` exigem regexes diferentes, e qualquer mudança de
+profundidade de pasta desarma a regra em silêncio.
+
+**Consequências.** `eslint-import-resolver-typescript` **não é opcional**: a
+regra resolve cada especificador para um caminho de arquivo e **não faz nada**
+quando a resolução falha — e todo import de `apps/api` é `'./foo.js'` apontando
+para `foo.ts`, que só o resolver do TypeScript mapeia. Pelo precedente de
+DEC-017, cada zona foi verificada com uma sonda: o import proibido acrescentado,
+`pnpm lint` falhando com a mensagem pretendida, e revertido. As zonas de par
+crescem em N·(N−1); a 2 módulos custa 2 zonas, e chegar a 5 é o sinal de
+promover módulo a projeto Nx. `app.module.ts` e `bootstrap.ts` ficam em `src/`,
+fora de todo `target`, porque são a composição.
+
+---
+
+### DEC-028 — O piso de cobertura de `@vpn/config` passa a ser aplicado
+
+**Data:** 2026-08-05 · **Status:** accepted
+
+**Contexto.** O `CLAUDE.md` promete 80% de cobertura com piso que só sobe.
+`createVitestConfig` e `resolveThresholds` existem em `@vpn/config` e
+implementam isso com `Math.max`. Nenhum `vitest.config.*` deste repositório
+**nem de `packages/`** passava `coverage.thresholds`. O piso era código morto.
+
+**Decisão.** `apps/api` e `apps/web` passam a usar o preset, e passam a usá-lo
+**antes** da massa de `.tsx` nova aterrissar.
+
+**Rationale.** `resolveThresholds` usa `Math.max(80, …)`, então não dá para
+ligar abaixo de 80 — se o número de hoje está abaixo, ligar fica bloqueado até
+os testes de extração existirem. Essa ordem é aritmética, não preferência.
+
+**Consequências.** Exclusões, cada uma com motivo: `*.module.ts` são
+declarações; `bootstrap.ts` só é exercitado pela corrida e2e, que não gera
+cobertura na corrida unitária; `components/ui/**` é código de registry cujo
+comportamento é do Radix e é coberto lá em cima — `select.tsx` sozinho são ~150
+linhas de subcomponentes que nunca renderizamos. `components/form/**` e
+`components/layout/**` **não** são excluídos: é onde mora comportamento nosso. A
+regra que de fato segura a linha não é config nenhuma, e vai no checklist de
+commit: **uma página não é convertida num commit que não acrescente o teste
+dela**. `packages/` continua sem thresholds — dívida nomeada no roadmap.

@@ -98,3 +98,24 @@ npm local por onde `@vpn/*` transita.
 
 **Correlation id** — o identificador que segue uma requisição pelos logs, volta
 no header e aparece no corpo de erro. É o que o usuário cita num relato de bug.
+
+**Kernel compartilhado** — `apps/api/src/shared/`: a camada da qual todo módulo
+pode depender e que não pode depender de módulo nenhum. A segunda metade da
+frase é a que tem conteúdo, e é verificada por lint.
+
+**Repository** — o nosso código de query em cima do token `DATABASE`. Não é uma
+porta: o banco já está atrás de uma fronteira, e um repositório mora em cima
+dela, não no lugar dela. Por isso não tem interface nem suíte de conformidade —
+e por isso também não tem teste unitário. Ver DEC-026.
+
+## Interface
+
+**Primitivo** — o componente copiado do registry para `components/ui/`. Não
+conhece o domínio, não traduz, não sabe o que é um erro da API.
+
+**Composto** — o componente nosso, em `components/form/` e `components/layout/`.
+Conhece `t()`, `NormalizedError` e o formato de um campo. A distinção decide
+onde uma string pode aparecer e o que entra na cobertura.
+
+**Token de tema** — a variável CSS que nomeia um papel (`--background`,
+`--destructive`), nunca uma cor. É o que permite duas paletas com um markup só.
