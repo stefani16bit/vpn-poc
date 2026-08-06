@@ -24,15 +24,15 @@ import {
 } from '@vpn/contracts';
 import { Inject } from '@nestjs/common';
 
-import { AppError } from '../../shared/errors/app-error.js';
-import { currentLocale } from '../../shared/http/request-context.js';
-import { ZodBody } from '../../shared/validation/zod-body.pipe.js';
-import type { AccessTokenClaims } from '../../shared/access-control/access-token.service.js';
-import { AccessTokenGuard } from '../../shared/access-control/access-token.guard.js';
-import { AllowUnverified } from '../../shared/access-control/allow-unverified.decorator.js';
-import { Auth } from '../../shared/access-control/current-auth.decorator.js';
-import type { IssuedSession } from './auth.service.js';
-import { AuthService } from './auth.service.js';
+import { AppError } from '../../../shared/errors/app-error.js';
+import { currentLocale } from '../../../shared/http/request-context.js';
+import { ZodBody } from '../../../shared/validation/zod-body.pipe.js';
+import type { AccessTokenClaims } from '../../../shared/access-control/access-token.service.js';
+import { AccessTokenGuard } from '../../../shared/access-control/access-token.guard.js';
+import { AllowUnverified } from '../../../shared/access-control/allow-unverified.decorator.js';
+import { Auth } from '../../../shared/access-control/current-auth.decorator.js';
+import type { IssuedSession } from '../services/auth.service.js';
+import { AuthService } from '../services/auth.service.js';
 
 const REFRESH_COOKIE = 'poc_vpn_refresh';
 const ACKNOWLEDGED: AcknowledgedResponse = { acknowledged: true };

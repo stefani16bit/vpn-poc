@@ -15,7 +15,7 @@ import {
 	type NormalizedBillingEvent,
 } from '@vpn/ports';
 
-import { AppError } from '../../shared/errors/app-error.js';
+import { AppError } from '../../../shared/errors/app-error.js';
 
 const SOURCE = 'stripe';
 
