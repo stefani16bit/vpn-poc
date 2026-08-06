@@ -1,8 +1,6 @@
 import { Body, Controller, Get, HttpCode, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 
-import { ENV } from '@vpn-poc/adapters';
-import type { Env } from '@vpn-poc/env';
 import {
 	forgotPasswordRequestSchema,
 	loginRequestSchema,
@@ -22,7 +20,6 @@ import {
 	type UpdateLocaleRequest,
 	type VerifyEmailRequest,
 } from '@vpn/contracts';
-import { Inject } from '@nestjs/common';
 
 import { AppError } from '../../../shared/errors/app-error.js';
 import { currentLocale } from '../../../shared/http/request-context.js';
@@ -31,17 +28,16 @@ import type { AccessTokenClaims } from '../../../shared/access-control/access-to
 import { AccessTokenGuard } from '../../../shared/access-control/access-token.guard.js';
 import { AllowUnverified } from '../../../shared/access-control/allow-unverified.decorator.js';
 import { Auth } from '../../../shared/access-control/current-auth.decorator.js';
-import type { IssuedSession } from '../services/auth.service.js';
 import { AuthService } from '../services/auth.service.js';
+import { RefreshCookie } from './refresh-cookie.js';
 
-const REFRESH_COOKIE = 'poc_vpn_refresh';
 const ACKNOWLEDGED: AcknowledgedResponse = { acknowledged: true };
 
 @Controller('auth')
 export class AuthController {
 	constructor(
 		private readonly auth: AuthService,
-		@Inject(ENV) private readonly env: Env,
+		private readonly refreshCookie: RefreshCookie,
 	) {}
 
 	@Post('register')
@@ -60,7 +56,7 @@ export class AuthController {
 		@Res({ passthrough: true }) response: Response,
 	): Promise<SessionResponse> {
 		const issued = await this.auth.login(body.email, body.password);
-		this.#setRefreshCookie(response, issued);
+		this.refreshCookie.set(response, issued.refreshToken, issued.refreshExpiresAt);
 		return issued.response;
 	}
 
@@ -70,11 +66,11 @@ export class AuthController {
 		@Req() request: Request,
 		@Res({ passthrough: true }) response: Response,
 	): Promise<SessionResponse> {
-		const token = this.#refreshCookie(request);
+		const token = this.refreshCookie.read(request);
 		if (!token) throw new AppError('UNAUTHENTICATED', 'no session cookie');
 
 		const issued = await this.auth.refresh(token);
-		this.#setRefreshCookie(response, issued);
+		this.refreshCookie.set(response, issued.refreshToken, issued.refreshExpiresAt);
 		return issued.response;
 	}
 
@@ -84,8 +80,8 @@ export class AuthController {
 		@Req() request: Request,
 		@Res({ passthrough: true }) response: Response,
 	): Promise<AcknowledgedResponse> {
-		await this.auth.logout(this.#refreshCookie(request));
-		response.clearCookie(REFRESH_COOKIE, this.#cookieOptions());
+		await this.auth.logout(this.refreshCookie.read(request));
+		this.refreshCookie.clear(response);
 		return ACKNOWLEDGED;
 	}
 
@@ -123,7 +119,7 @@ export class AuthController {
 		@Res({ passthrough: true }) response: Response,
 	): Promise<AcknowledgedResponse> {
 		await this.auth.resetPassword(body.token, body.password);
-		response.clearCookie(REFRESH_COOKIE, this.#cookieOptions());
+		this.refreshCookie.clear(response);
 		return ACKNOWLEDGED;
 	}
 
@@ -143,25 +139,5 @@ export class AuthController {
 		@Body(new ZodBody(updateLocaleRequestSchema)) body: UpdateLocaleRequest,
 	): Promise<AuthenticatedUser> {
 		return this.auth.setLocale(claims.accountId, body.locale);
-	}
-
-	#refreshCookie(request: Request): string | undefined {
-		return (request.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE];
-	}
-
-	#setRefreshCookie(response: Response, issued: IssuedSession): void {
-		response.cookie(REFRESH_COOKIE, issued.refreshToken, {
-			...this.#cookieOptions(),
-			expires: issued.refreshExpiresAt,
-		});
-	}
-
-	#cookieOptions() {
-		return {
-			httpOnly: true,
-			secure: this.env.NODE_ENV === 'production',
-			sameSite: 'lax' as const,
-			path: '/auth',
-		};
 	}
 }
