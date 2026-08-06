@@ -15,12 +15,14 @@
     "build": "pnpm -r --filter './apps/*' --filter './libs/*' run build",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
-    "verify": "node scripts/check-test-focus.mjs && pnpm lint && pnpm typecheck && pnpm test",
+    "verify": "node scripts/check-test-focus.mjs && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "packages:publish:local": "pnpm -C packages publish:local",
     "test:integration": "pnpm --filter @vpn-poc/adapters test:integration && pnpm --filter @vpn-poc/api test:e2e",
     "db:migrate": "pnpm --filter @vpn-poc/database db:migrate",
     "synth": "pnpm --filter @vpn-poc/infra synth",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -39,6 +41,7 @@
     "jsonc-eslint-parser": "^3.1.0",
     "nx": "^22.0.0",
     "pm2": "^5.4.3",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.5",
     "typescript": "^5.7.2",

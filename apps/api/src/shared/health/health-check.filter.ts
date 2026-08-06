@@ -16,10 +16,6 @@ export class HealthCheckFilter implements ExceptionFilter {
 
 		this.#logger.warn(report, 'readiness probe failed');
 
-		host
-			.switchToHttp()
-			.getResponse<Response>()
-			.status(exception.getStatus())
-			.json(report);
+		host.switchToHttp().getResponse<Response>().status(exception.getStatus()).json(report);
 	}
 }

@@ -21,16 +21,16 @@ em <http://localhost:28025>, registry em <http://localhost:24873>.
 
 ## Onde está o quê
 
-| | |
-|---|---|
-| [`CLAUDE.md`](CLAUDE.md) | Como trabalhar aqui. Comece por ele |
-| [`CONTEXT.md`](CONTEXT.md) | Glossário do domínio |
-| [`docs/`](docs/) | Arquitetura, decisões, roadmap, ambiente local |
-| `packages/` | Submodule: portas, contratos, suítes de conformidade |
-| `apps/` | `api` (Nest), `api-lambda`, `web` (Vite + React) |
-| `libs/` | `env`, `database` (Drizzle), `adapters` |
-| `infra/` | CDK — 6 stacks, esqueleto |
-| `devstack/` | 7 contêineres |
+|                            |                                                      |
+| -------------------------- | ---------------------------------------------------- |
+| [`CLAUDE.md`](CLAUDE.md)   | Como trabalhar aqui. Comece por ele                  |
+| [`CONTEXT.md`](CONTEXT.md) | Glossário do domínio                                 |
+| [`docs/`](docs/)           | Arquitetura, decisões, roadmap, ambiente local       |
+| `packages/`                | Submodule: portas, contratos, suítes de conformidade |
+| `apps/`                    | `api` (Nest), `api-lambda`, `web` (Vite + React)     |
+| `libs/`                    | `env`, `database` (Drizzle), `adapters`              |
+| `infra/`                   | CDK — 6 stacks, esqueleto                            |
+| `devstack/`                | 7 contêineres                                        |
 
 ## Stack
 

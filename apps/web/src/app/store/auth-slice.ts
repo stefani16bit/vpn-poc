@@ -39,7 +39,4 @@ const authSlice = createSlice({
 export const { sessionResolved, sessionCleared, sessionUnknown } = authSlice.actions;
 export const authReducer = authSlice.reducer;
 
-export const AUTH_SYNCED_ACTIONS = [
-	sessionResolved.type,
-	sessionCleared.type,
-] as const;
+export const AUTH_SYNCED_ACTIONS = [sessionResolved.type, sessionCleared.type] as const;

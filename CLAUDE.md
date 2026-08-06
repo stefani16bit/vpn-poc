@@ -59,7 +59,7 @@ funcionam perfeitamente. Só quebram para o consumidor.
   mensagens de commit em **inglês**.
 - **O código se explica sozinho.** Não há bloco de cabeçalho, não há comentário
   explicativo. Um comentário é permitido em exatamente dois casos: pragma
-  funcional (`v8 ignore`, `eslint-disable`) e uma linha curta onde o *valor* de
+  funcional (`v8 ignore`, `eslint-disable`) e uma linha curta onde o _valor_ de
   uma constante não se deduz do nome. Se você sente vontade de explicar um
   arquivo, o texto pertence ao `CLAUDE.md` daquele diretório; se é um caso de
   borda, ele vira teste. Ver DEC-013.
@@ -90,14 +90,14 @@ Add the shared port, contract and testing packages
 
 ## 6. Divergências conscientes de `convoy` e `poc`
 
-| Aqui | Lá | Por quê |
-|---|---|---|
-| Monorepo com `packages/` como submodule | `poc` é polyrepo | Escopo menor; a fronteira que importa é a de publicação, e o submodule a preserva sem o custo de sete repos |
-| `libs/adapters` (um pacote) | `convoy` tem `libs/providers/*` | Oito `package.json` para oito adapters não se paga nesta fase. A fronteira é a interface, não o pacote |
-| `ICacheStore` com `owner` | `convoy` usa `ICacheService` | Prefixo `I` explícito, e o dono da entrada faz parte do **tipo** da chave |
-| scrypt | Argon2id seria melhor | Sem addon nativo em três plataformas + build Lambda. DEC-007 |
-| `BILLING_DRIVER=memory` local | Stripe real | localstripe não tem Checkout Sessions. DEC-009 |
-| Sem `ValidationPipe` | `convoy` usa class-validator | Zod já valida, e os schemas são compartilhados com o front |
+| Aqui                                    | Lá                              | Por quê                                                                                                     |
+| --------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Monorepo com `packages/` como submodule | `poc` é polyrepo                | Escopo menor; a fronteira que importa é a de publicação, e o submodule a preserva sem o custo de sete repos |
+| `libs/adapters` (um pacote)             | `convoy` tem `libs/providers/*` | Oito `package.json` para oito adapters não se paga nesta fase. A fronteira é a interface, não o pacote      |
+| `ICacheStore` com `owner`               | `convoy` usa `ICacheService`    | Prefixo `I` explícito, e o dono da entrada faz parte do **tipo** da chave                                   |
+| scrypt                                  | Argon2id seria melhor           | Sem addon nativo em três plataformas + build Lambda. DEC-007                                                |
+| `BILLING_DRIVER=memory` local           | Stripe real                     | localstripe não tem Checkout Sessions. DEC-009                                                              |
+| Sem `ValidationPipe`                    | `convoy` usa class-validator    | Zod já valida, e os schemas são compartilhados com o front                                                  |
 
 ## 7. Armadilhas conhecidas deste projeto
 

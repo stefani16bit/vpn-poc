@@ -10,18 +10,18 @@ Este arquivo faz as vezes de issue tracker. Não abra issues; edite aqui.
 reset de senha e assinatura funcionando de ponta a ponta contra o devstack, em
 pt-BR e en.
 
-| Suíte | Testes | Precisa do devstack |
-| --- | --- | --- |
-| `packages/` — portas, contratos, i18n, fakes | 213 | não |
-| `libs/env` | 11 | não |
-| `libs/adapters` — render de e-mail/SMS, redação | 13 | não |
-| `apps/api` — AppError, ZodBody, filtro, health | 19 | não |
-| `apps/web` — store, normalização de erro, locale | 18 | não |
-| `infra` — validação de config CDK | 11 | não |
-| **Subtotal `pnpm verify`** | **285** | **não** |
-| `libs/adapters` — as mesmas suítes contra Redis, Postgres, mailpit, LocalStack, localstripe | 89 | sim |
-| `apps/api` — fluxo completo mais a matriz de locale | 47 | sim |
-| **Total** | **421** | |
+| Suíte                                                                                       | Testes  | Precisa do devstack |
+| ------------------------------------------------------------------------------------------- | ------- | ------------------- |
+| `packages/` — portas, contratos, i18n, fakes                                                | 213     | não                 |
+| `libs/env`                                                                                  | 11      | não                 |
+| `libs/adapters` — render de e-mail/SMS, redação                                             | 13      | não                 |
+| `apps/api` — AppError, ZodBody, filtro, health                                              | 19      | não                 |
+| `apps/web` — store, normalização de erro, locale                                            | 18      | não                 |
+| `infra` — validação de config CDK                                                           | 11      | não                 |
+| **Subtotal `pnpm verify`**                                                                  | **285** | **não**             |
+| `libs/adapters` — as mesmas suítes contra Redis, Postgres, mailpit, LocalStack, localstripe | 89      | sim                 |
+| `apps/api` — fluxo completo mais a matriz de locale                                         | 47      | sim                 |
+| **Total**                                                                                   | **421** |                     |
 
 `make check` 12/12 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.

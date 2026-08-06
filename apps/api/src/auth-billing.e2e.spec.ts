@@ -287,10 +287,7 @@ describe('session rotation', () => {
 			.expect(401);
 		expect(replay.body.code).toBe('SESSION_REUSE_DETECTED');
 
-		await request(app.getHttpServer())
-			.post('/auth/refresh')
-			.set('Cookie', legitimate)
-			.expect(401);
+		await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', legitimate).expect(401);
 	});
 
 	it('ends the session on logout', async () => {
@@ -399,10 +396,7 @@ describe('rate limiting', () => {
 		await registerAndVerify(email);
 
 		for (let attempt = 0; attempt < 3; attempt += 1) {
-			await request(app.getHttpServer())
-				.post('/auth/forgot-password')
-				.send({ email })
-				.expect(202);
+			await request(app.getHttpServer()).post('/auth/forgot-password').send({ email }).expect(202);
 		}
 
 		const blocked = await request(app.getHttpServer())
@@ -422,7 +416,11 @@ describe('billing', () => {
 		const email = freshEmail();
 		await registerAndVerify(email);
 		const login = await loginFor(email);
-		return { email, accessToken: login.body.accessToken as string, accountId: login.body.user.id as string };
+		return {
+			email,
+			accessToken: login.body.accessToken as string,
+			accountId: login.body.user.id as string,
+		};
 	}
 
 	it('creates a checkout session', async () => {

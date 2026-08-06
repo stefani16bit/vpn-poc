@@ -294,10 +294,7 @@ describe('AuthService', () => {
 	describe('forgotPassword', () => {
 		it('rate limits the address', async () => {
 			await service.forgotPassword('ada@example.com');
-			expect(rateLimit.consume).toHaveBeenCalledWith(
-				RATE_LIMITS.forgotPassword,
-				'ada@example.com',
-			);
+			expect(rateLimit.consume).toHaveBeenCalledWith(RATE_LIMITS.forgotPassword, 'ada@example.com');
 		});
 
 		it('sends nothing for an unknown address, and says so to nobody', async () => {

@@ -38,9 +38,7 @@ export class VerificationTokenRepository {
 		tokenHash: string,
 		expiresAt: Date,
 	): Promise<void> {
-		await this.db
-			.insert(verificationTokens)
-			.values({ tokenHash, accountId, purpose, expiresAt });
+		await this.db.insert(verificationTokens).values({ tokenHash, accountId, purpose, expiresAt });
 	}
 
 	async consume(

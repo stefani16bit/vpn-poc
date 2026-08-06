@@ -21,7 +21,10 @@ afterEach(() => {
 describe('VerifyEmailPage', () => {
 	it('redeems the token from the link on mount', async () => {
 		api.reply({ acknowledged: true });
-		renderWithProviders(<VerifyEmailPage />, { locale: 'en', route: `/verify-email?token=${TOKEN}` });
+		renderWithProviders(<VerifyEmailPage />, {
+			locale: 'en',
+			route: `/verify-email?token=${TOKEN}`,
+		});
 
 		await waitFor(() => expect(api.lastRequest()?.url).toContain('auth/verify-email'));
 		expect(api.lastRequest()?.body).toEqual({ token: TOKEN });
@@ -29,7 +32,10 @@ describe('VerifyEmailPage', () => {
 
 	it('redeems it exactly once, even though StrictMode runs effects twice', async () => {
 		api.reply({ acknowledged: true });
-		renderWithProviders(<VerifyEmailPage />, { locale: 'en', route: `/verify-email?token=${TOKEN}` });
+		renderWithProviders(<VerifyEmailPage />, {
+			locale: 'en',
+			route: `/verify-email?token=${TOKEN}`,
+		});
 
 		await waitFor(() => expect(api.requests.length).toBeGreaterThan(0));
 		expect(api.requests).toHaveLength(1);
@@ -37,7 +43,10 @@ describe('VerifyEmailPage', () => {
 
 	it('confirms success and offers the way to sign in', async () => {
 		api.reply({ acknowledged: true });
-		renderWithProviders(<VerifyEmailPage />, { locale: 'en', route: `/verify-email?token=${TOKEN}` });
+		renderWithProviders(<VerifyEmailPage />, {
+			locale: 'en',
+			route: `/verify-email?token=${TOKEN}`,
+		});
 
 		expect(await screen.findByText('E-mail confirmed')).toBeInTheDocument();
 		expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
@@ -45,7 +54,10 @@ describe('VerifyEmailPage', () => {
 
 	it('explains a spent token and offers a resend', async () => {
 		api.fail('TOKEN_INVALID', 400);
-		renderWithProviders(<VerifyEmailPage />, { locale: 'en', route: `/verify-email?token=${TOKEN}` });
+		renderWithProviders(<VerifyEmailPage />, {
+			locale: 'en',
+			route: `/verify-email?token=${TOKEN}`,
+		});
 
 		const alert = await screen.findByRole('alert');
 		expect(alert).toHaveTextContent('This link is not valid or has already been used.');

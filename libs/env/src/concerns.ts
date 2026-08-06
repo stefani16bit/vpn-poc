@@ -74,7 +74,8 @@ export function assertDriverConfiguration(env: {
 }): void {
 	const missing: string[] = [];
 
-	if (env.CACHE_DRIVER === 'redis' && !env.REDIS_URL) missing.push('REDIS_URL (CACHE_DRIVER=redis)');
+	if (env.CACHE_DRIVER === 'redis' && !env.REDIS_URL)
+		missing.push('REDIS_URL (CACHE_DRIVER=redis)');
 	if (env.EMAIL_DRIVER === 'smtp') {
 		if (!env.SMTP_HOST) missing.push('SMTP_HOST (EMAIL_DRIVER=smtp)');
 		if (!env.SMTP_PORT) missing.push('SMTP_PORT (EMAIL_DRIVER=smtp)');

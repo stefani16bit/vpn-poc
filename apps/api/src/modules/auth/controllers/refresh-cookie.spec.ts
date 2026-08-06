@@ -10,7 +10,11 @@ function cookieFor(nodeEnv: Env['NODE_ENV']): RefreshCookie {
 	return new RefreshCookie({ NODE_ENV: nodeEnv } as Env);
 }
 
-function responseSpy(): { response: Response; cookie: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> } {
+function responseSpy(): {
+	response: Response;
+	cookie: ReturnType<typeof vi.fn>;
+	clear: ReturnType<typeof vi.fn>;
+} {
 	const cookie = vi.fn();
 	const clear = vi.fn();
 	return { response: { cookie, clearCookie: clear } as unknown as Response, cookie, clear };
@@ -63,7 +67,10 @@ describe('RefreshCookie', () => {
 		subject.set(response, 'the-token', new Date());
 		subject.clear(response);
 
-		const { expires: _expires, ...setOptions } = cookie.mock.calls[0]?.[2] as Record<string, unknown>;
+		const { expires: _expires, ...setOptions } = cookie.mock.calls[0]?.[2] as Record<
+			string,
+			unknown
+		>;
 		expect(clear).toHaveBeenCalledWith(REFRESH_COOKIE, setOptions);
 	});
 });

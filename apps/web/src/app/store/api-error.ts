@@ -19,7 +19,9 @@ function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
 	);
 }
 
-export function normalizeError(error: FetchBaseQueryError | SerializedError | undefined): NormalizedError | null {
+export function normalizeError(
+	error: FetchBaseQueryError | SerializedError | undefined,
+): NormalizedError | null {
 	if (!error) return null;
 
 	if ('status' in error) {

@@ -2,13 +2,7 @@ import type { ReactNode } from 'react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 
-export function AuthCard({
-	title,
-	children,
-}: {
-	title: string;
-	children: ReactNode;
-}): ReactNode {
+export function AuthCard({ title, children }: { title: string; children: ReactNode }): ReactNode {
 	return (
 		<Card className="w-full max-w-md">
 			<CardHeader>

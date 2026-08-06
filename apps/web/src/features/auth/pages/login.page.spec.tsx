@@ -61,10 +61,7 @@ describe('LoginPage', () => {
 		renderWithProviders(<LoginPage />, { locale: 'en' });
 
 		expect(screen.getByLabelText('E-mail')).toHaveAttribute('autocomplete', 'email');
-		expect(screen.getByLabelText('Password')).toHaveAttribute(
-			'autocomplete',
-			'current-password',
-		);
+		expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'current-password');
 	});
 
 	it('shows the field error from the shared schema rather than submitting', async () => {

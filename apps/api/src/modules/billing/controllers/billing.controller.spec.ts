@@ -12,7 +12,11 @@ const CLAIMS: AccessTokenClaims = {
 	emailVerified: true,
 };
 
-const SUBSCRIPTION = { status: 'active', currentPeriodEnd: null, cancelAtPeriodEnd: false } as const;
+const SUBSCRIPTION = {
+	status: 'active',
+	currentPeriodEnd: null,
+	cancelAtPeriodEnd: false,
+} as const;
 
 type Mock = ReturnType<typeof vi.fn>;
 

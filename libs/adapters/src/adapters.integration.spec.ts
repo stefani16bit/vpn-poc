@@ -96,7 +96,10 @@ describe('ScryptPasswordHasher specifics', () => {
 	const hasher = new ScryptPasswordHasher();
 
 	it('produces a different hash for the same password each time', async () => {
-		const [first, second] = await Promise.all([hasher.hash('same-password'), hasher.hash('same-password')]);
+		const [first, second] = await Promise.all([
+			hasher.hash('same-password'),
+			hasher.hash('same-password'),
+		]);
 		expect(first).not.toBe(second);
 	});
 

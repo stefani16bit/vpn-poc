@@ -16,6 +16,7 @@ Se mexeu em `packages/`: `pnpm packages:publish:local` e `pnpm consumer-check`
 antes do passo 2.
 
 Depois confira:
+
 - Termo novo do domínio está em `CONTEXT.md`?
 - Decisão arquitetural virou um `DEC-NNN` em `docs/03-DECISION-LOG.md`?
 - `docs/04-ROADMAP.md` reflete o estado atual?

@@ -20,15 +20,15 @@ Se clonou sem `--recurse-submodules`: `git submodule update --init`.
 
 ## 2. Os contêineres
 
-| Serviço | Porta | Para quê |
-|---|---|---|
-| postgres 17 | 25432 | banco |
-| redis 7.4 | 26379 | `ICacheStore` |
-| verdaccio 6 | 24873 | registry de `@vpn/*` — <http://localhost:24873> |
-| localstack 4 | 24566 | S3, SQS, SNS, Secrets Manager |
-| localstripe | 28420 | API do Stripe (sem Checkout, DEC-009) |
-| mailpit | 21025 / 28025 | SMTP + caixa de entrada — <http://localhost:28025> |
-| caddy | 20080 / 20443 | TLS e roteamento por Host — `https://app.localhost:20443` |
+| Serviço      | Porta         | Para quê                                                  |
+| ------------ | ------------- | --------------------------------------------------------- |
+| postgres 17  | 25432         | banco                                                     |
+| redis 7.4    | 26379         | `ICacheStore`                                             |
+| verdaccio 6  | 24873         | registry de `@vpn/*` — <http://localhost:24873>           |
+| localstack 4 | 24566         | S3, SQS, SNS, Secrets Manager                             |
+| localstripe  | 28420         | API do Stripe (sem Checkout, DEC-009)                     |
+| mailpit      | 21025 / 28025 | SMTP + caixa de entrada — <http://localhost:28025>        |
+| caddy        | 20080 / 20443 | TLS e roteamento por Host — `https://app.localhost:20443` |
 
 Portas no intervalo 2xxxx de propósito (DEC-010): três projetos irmãos dividem
 esta máquina e todos queriam a 5432.

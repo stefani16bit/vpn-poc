@@ -21,8 +21,7 @@ export const SENSITIVE_KEYS = [
 ];
 
 export class NoopErrorReporter implements IErrorReporter {
-	capture(_error: unknown, _context?: ErrorContext): void {
-	}
+	capture(_error: unknown, _context?: ErrorContext): void {}
 }
 
 export interface SentryErrorReporterOptions {

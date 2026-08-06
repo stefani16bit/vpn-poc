@@ -36,11 +36,7 @@ export function runWithCorrelation<T>(correlationId: string, fn: () => T): T {
 	return storage.run({ correlationId, locale: FALLBACK_LOCALE }, fn);
 }
 
-export function requestContextMiddleware(
-	req: Request,
-	res: Response,
-	next: NextFunction,
-): void {
+export function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
 	const incoming = req.headers[CORRELATION_HEADER];
 	const correlationId =
 		typeof incoming === 'string' && incoming.length > 0 ? incoming : randomUUID();

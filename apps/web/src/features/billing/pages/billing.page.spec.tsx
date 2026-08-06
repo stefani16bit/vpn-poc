@@ -3,7 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { sessionResolved } from '@/app/store/auth-slice.js';
-import { makeStore, renderWithProviders, stubApi, type ApiStub, type TestStore } from '@/test-utils.tsx';
+import {
+	makeStore,
+	renderWithProviders,
+	stubApi,
+	type ApiStub,
+	type TestStore,
+} from '@/test-utils.tsx';
 import { BillingPage } from './billing.page.tsx';
 
 let api: ApiStub;
@@ -78,7 +84,9 @@ describe('BillingPage', () => {
 		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn() });
 
 		expect(
-			await screen.findByText('Cancellation is scheduled. Access continues until the end of the paid period.'),
+			await screen.findByText(
+				'Cancellation is scheduled. Access continues until the end of the paid period.',
+			),
 		).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled();
 	});

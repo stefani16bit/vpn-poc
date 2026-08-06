@@ -204,7 +204,9 @@ export class DrizzleIdentityProvider implements IIdentityProvider {
 		const refreshToken = randomBytes(32).toString('base64url');
 		const expiresAt = new Date(this.#clock.now().getTime() + this.#refreshTtlSeconds * 1000);
 
-		await tx.insert(refreshTokens).values({ tokenHash: hashToken(refreshToken), familyId, expiresAt });
+		await tx
+			.insert(refreshTokens)
+			.values({ tokenHash: hashToken(refreshToken), familyId, expiresAt });
 
 		return { accountId, sessionId: familyId, refreshToken, expiresAt };
 	}

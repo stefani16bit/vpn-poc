@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+coverage/
+logs/
+.nx/
+infra/cdk.out/
+devstack/verdaccio/storage/
+pnpm-lock.yaml
+packages/
+libs/database/migrations/

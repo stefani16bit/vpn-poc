@@ -9,14 +9,14 @@ diferentes para coisas diferentes.
 ## Identidade
 
 **Account** — quem se cadastra. Uma linha em `accounts`, identificada por
-e-mail. Deliberadamente não chamada de "user": *user* é quem está usando o
+e-mail. Deliberadamente não chamada de "user": _user_ é quem está usando o
 sistema agora, e a distinção importa quando aparecer acesso delegado.
 
 **E-mail normalizado** — minúsculo e sem espaços nas pontas. A normalização
 acontece no schema em `@vpn/contracts`, num lugar só, e o índice único em
 `accounts.email` é o que a torna obrigatória em vez de decorativa.
 
-**Verificado** — a conta provou controlar o endereço. É um *timestamp*
+**Verificado** — a conta provou controlar o endereço. É um _timestamp_
 (`email_verified_at`), não um booleano: "quando" responde perguntas de suporte
 que "se" não responde. Verificar de novo não move o timestamp.
 
@@ -27,7 +27,7 @@ login. Uma linha em `session_families`. É a unidade de revogação: logout,
 troca de senha e detecção de roubo matam a família, não um token.
 
 **Rotação** — cada uso de um refresh token emite um novo e marca o antigo como
-*gasto*. Um token gasto nunca volta a valer.
+_gasto_. Um token gasto nunca volta a valer.
 
 **Reuse detected** — alguém apresentou um token já gasto. O cliente legítimo já
 rotacionou, então isto é a assinatura de um token roubado sendo reproduzido. A

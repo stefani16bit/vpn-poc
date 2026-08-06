@@ -23,7 +23,13 @@ export class StripeBillingProvider implements IBillingProvider {
 
 	constructor(options: StripeBillingProviderOptions) {
 		this.#stripe = new Stripe(options.apiKey, {
-			...(options.apiBase ? { host: hostOf(options.apiBase), port: portOf(options.apiBase), protocol: protocolOf(options.apiBase) } : {}),
+			...(options.apiBase
+				? {
+						host: hostOf(options.apiBase),
+						port: portOf(options.apiBase),
+						protocol: protocolOf(options.apiBase),
+					}
+				: {}),
 			apiVersion: '2025-02-24.acacia',
 		});
 		this.#webhookSecret = options.webhookSecret;

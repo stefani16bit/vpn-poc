@@ -32,10 +32,7 @@ export function ResetPasswordPage() {
 			<MessageScreen title={t('auth.resetPassword.invalidLinkTitle')}>
 				<p>{t('auth.resetPassword.invalidLinkBody')}</p>
 				<p className="mt-4">
-					<Link
-						to="/forgot-password"
-						className="text-primary underline-offset-4 hover:underline"
-					>
+					<Link to="/forgot-password" className="text-primary underline-offset-4 hover:underline">
 						{t('auth.resetPassword.requestNew')}
 					</Link>
 				</p>

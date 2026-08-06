@@ -93,7 +93,7 @@ migrator precisa de `GRANT CREATE ON DATABASE` porque o Drizzle cria o schema
 **Data:** 2026-08-05 · **Status:** accepted
 
 **Decisão.** Access token é JWT curto e não revogável. Refresh token é opaco,
-guardado como SHA-256, pertence a uma *família*, e rotaciona a cada uso. Token
+guardado como SHA-256, pertence a uma _família_, e rotaciona a cada uso. Token
 gasto apresentado de novo → `reuse_detected` → família revogada.
 
 **Rationale.** Revogar só o token replayado deixa o ladrão com um token válido —
@@ -205,7 +205,7 @@ não óbvia. Ficou denso a ponto de o comentário competir com o código pela
 atenção de quem lê.
 
 **Decisão.** Comentário só em dois casos: pragma funcional (`v8 ignore`,
-`eslint-disable`, `@ts-expect-error`) e uma linha curta onde o *valor* de uma
+`eslint-disable`, `@ts-expect-error`) e uma linha curta onde o _valor_ de uma
 constante não se deduz do nome. Nada de bloco de cabeçalho.
 
 **Rationale.** O porquê não deixa de ser registrado — muda para um lugar com
@@ -516,8 +516,8 @@ identidade, sessão, composição de e-mail e mapeamento em 235.
 `mappers/`. `common/` vira `shared/`.
 
 **Rationale.** "common" é onde as coisas vão quando ninguém decidiu. "Kernel
-compartilhado" nomeia uma regra de verdade — *a camada da qual todo módulo pode
-depender e que não pode depender de módulo nenhum* — e essa regra passa a ser
+compartilhado" nomeia uma regra de verdade — _a camada da qual todo módulo pode
+depender e que não pode depender de módulo nenhum_ — e essa regra passa a ser
 verificada por lint (DEC-027). Sem a regra, o rename seria só gosto.
 
 **Consequências.** Isto contradiz `docs/05-PADROES-DE-CODIGO.md` §4, que
@@ -571,8 +571,8 @@ de se eles viram portas.
 `BillingEventRepository` são classes injetáveis comuns em `repositories/`. Sem
 interface `I*`, sem porta, sem suíte de conformidade.
 
-**Rationale.** Pelo critério do inegociável nº 1 — *"eu teria que substituir
-isto?"*. A dependência externa é o Postgres, e ela **já** está atrás de uma
+**Rationale.** Pelo critério do inegociável nº 1 — _"eu teria que substituir
+isto?"_. A dependência externa é o Postgres, e ela **já** está atrás de uma
 fronteira: o token `DATABASE`, e para identidade a porta `IIdentityProvider` com
 duas implementações conformes. Um repositório é o nosso código de query em cima
 dessa fronteira — a mesma relação que `RateLimitService` tem com `ICacheStore`,
@@ -587,7 +587,7 @@ arquitetura de portas vende vira uma afirmação a conferir tabela a tabela.
 **Consequências.** A honesta: **repositório não tem teste unitário**. Fingir a
 cadeia fluente do drizzle produz um teste que afirma o formato de uma API
 fluente, não um comportamento. A corretude deles continua provada pelo e2e, que
-já cobre reentrega de webhook e uso único de token. O ganho é que a *política*
+já cobre reentrega de webhook e uso único de token. O ganho é que a _política_
 sobe para classes que **são** testáveis — `VerificationTokenService` decide
 `TOKEN_INVALID` contra `TOKEN_EXPIRED`, e isso não tinha teste nenhum. Teste de
 integração de repositório entra no roadmap como dívida nomeada. O inegociável da
@@ -692,18 +692,18 @@ entra quando resolve um problema que temos, na forma em que o temos. Não entra
 por ser oficial, e não deixa de entrar por ser de terceiro — `nestjs-pino` e
 `@nestjs/terminus` (DEC-030) estão aqui. O veredito por pacote:
 
-| Pacote | Veredito | Motivo |
-|---|---|---|
-| `terminus` | **adotado** | DEC-030 |
-| `throttler` | rejeitado | ver abaixo |
-| `config` | rejeitado | `libs/env` é zod mais descoberta de `.env`, e é consumido fora do Nest — migrations e `infra`. `ConfigModule` só existe dentro do container |
-| `jwt` | rejeitado | é wrapper de `jsonwebtoken`; usamos `jose`, e `AccessTokenService` injeta a porta `CLOCK`, que um wrapper não aceita |
-| `passport` | rejeitado | abstrai *várias* estratégias; temos uma. O refresh é opaco com rotação por família (DEC-006) e não passa por strategy nenhuma |
-| `class-validator` / `ValidationPipe` | rejeitado | DEC-008 |
-| `cache-manager` | rejeitado | abstração concorrente com `ICacheStore`, que tem suíte de conformidade e chave estruturada em vez de string |
-| `axios` | rejeitado | não há HTTP de saída fora de SDK de vendor |
-| `schedule`, `bullmq`, `event-emitter` | não se aplica | não há cron nem fila; a stack `workers` está vazia (DEC-011) e a idempotência é índice único (DEC-026), não event bus |
-| `swagger` | adiado, com a forma já definida | não há OpenAPI hoje. `@ApiProperty` seria a segunda definição de "corpo válido" que DEC-008 rejeita; a forma aceitável é gerar o spec **a partir** de `@vpn/contracts` e usar `@nestjs/swagger` só para servir a UI |
+| Pacote                                | Veredito                        | Motivo                                                                                                                                                                                                              |
+| ------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `terminus`                            | **adotado**                     | DEC-030                                                                                                                                                                                                             |
+| `throttler`                           | rejeitado                       | ver abaixo                                                                                                                                                                                                          |
+| `config`                              | rejeitado                       | `libs/env` é zod mais descoberta de `.env`, e é consumido fora do Nest — migrations e `infra`. `ConfigModule` só existe dentro do container                                                                         |
+| `jwt`                                 | rejeitado                       | é wrapper de `jsonwebtoken`; usamos `jose`, e `AccessTokenService` injeta a porta `CLOCK`, que um wrapper não aceita                                                                                                |
+| `passport`                            | rejeitado                       | abstrai _várias_ estratégias; temos uma. O refresh é opaco com rotação por família (DEC-006) e não passa por strategy nenhuma                                                                                       |
+| `class-validator` / `ValidationPipe`  | rejeitado                       | DEC-008                                                                                                                                                                                                             |
+| `cache-manager`                       | rejeitado                       | abstração concorrente com `ICacheStore`, que tem suíte de conformidade e chave estruturada em vez de string                                                                                                         |
+| `axios`                               | rejeitado                       | não há HTTP de saída fora de SDK de vendor                                                                                                                                                                          |
+| `schedule`, `bullmq`, `event-emitter` | não se aplica                   | não há cron nem fila; a stack `workers` está vazia (DEC-011) e a idempotência é índice único (DEC-026), não event bus                                                                                               |
+| `swagger`                             | adiado, com a forma já definida | não há OpenAPI hoje. `@ApiProperty` seria a segunda definição de "corpo válido" que DEC-008 rejeita; a forma aceitável é gerar o spec **a partir** de `@vpn/contracts` e usar `@nestjs/swagger` só para servir a UI |
 
 **Por que `@nestjs/throttler` não substitui `RateLimitService`.** DEC-004 decide
 que rate limit não é porta; isto decide que também não é guard. São três

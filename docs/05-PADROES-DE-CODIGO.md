@@ -131,12 +131,12 @@ const CURRENT: ScryptParams = { N: 2 ** 17, r: 8, p: 1 }; // ~64 MB, ~100ms
 
 O porquê não desaparece, muda de lugar — e o lugar é melhor:
 
-| O que você quer registrar | Onde vai |
-| --- | --- |
-| Por que este módulo existe, o que não fazer nele | `CLAUDE.md` do diretório |
-| Por que escolhemos X e não Y | `docs/03-DECISION-LOG.md`, como `DEC-NNN` |
-| Um caso de borda que precisa continuar valendo | um teste, com nome descritivo |
-| O que a porta promete | asserção na suíte de conformidade |
+| O que você quer registrar                        | Onde vai                                  |
+| ------------------------------------------------ | ----------------------------------------- |
+| Por que este módulo existe, o que não fazer nele | `CLAUDE.md` do diretório                  |
+| Por que escolhemos X e não Y                     | `docs/03-DECISION-LOG.md`, como `DEC-NNN` |
+| Um caso de borda que precisa continuar valendo   | um teste, com nome descritivo             |
+| O que a porta promete                            | asserção na suíte de conformidade         |
 
 Um comentário sai de sincronia com o código em silêncio. Um teste falha; um
 `CLAUDE.md` é lido antes de mexer no diretório; um DEC é datado. Ver DEC-013.

@@ -198,11 +198,7 @@ export default [
 	},
 
 	{
-		files: [
-			'apps/api/src/**/*.ts',
-			'apps/api-lambda/src/**/*.ts',
-			'libs/adapters/src/**/*.ts',
-		],
+		files: ['apps/api/src/**/*.ts', 'apps/api-lambda/src/**/*.ts', 'libs/adapters/src/**/*.ts'],
 		rules: { '@typescript-eslint/consistent-type-imports': 'off' },
 	},
 

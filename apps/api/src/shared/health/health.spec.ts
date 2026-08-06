@@ -165,7 +165,11 @@ describe('GET /health/ready', () => {
 
 	it('answers 503 with the report, not the body the global filter would write', async () => {
 		const capture = vi.fn();
-		const served = await serve({ capture }, indicator('database', 'ok'), indicator('cache', 'fail'));
+		const served = await serve(
+			{ capture },
+			indicator('database', 'ok'),
+			indicator('cache', 'fail'),
+		);
 
 		const response = await request(served.getHttpServer()).get('/health/ready').expect(503);
 

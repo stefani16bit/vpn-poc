@@ -48,17 +48,17 @@ poc-vpn/
 
 ## 3. As portas
 
-| Porta | In-memory | Real |
-|---|---|---|
-| `IClock` | `FixedClock` | `SystemClock` |
-| `ICacheStore` | `MemoryCacheStore` | `RedisCacheStore` |
+| Porta               | In-memory                | Real                      |
+| ------------------- | ------------------------ | ------------------------- |
+| `IClock`            | `FixedClock`             | `SystemClock`             |
+| `ICacheStore`       | `MemoryCacheStore`       | `RedisCacheStore`         |
 | `IIdentityProvider` | `MemoryIdentityProvider` | `DrizzleIdentityProvider` |
-| `IPasswordHasher` | `FakePasswordHasher` | `ScryptPasswordHasher` |
-| `IEmailSender` | `MemoryEmailSender` | `SmtpEmailSender` |
-| `ISmsSender` | `MemorySmsSender` | `ConsoleSmsSender` |
-| `IBillingProvider` | `MemoryBillingProvider` | `StripeBillingProvider` |
-| `IObjectStorage` | `MemoryObjectStorage` | `S3ObjectStorage` |
-| `IErrorReporter` | `NoopErrorReporter` | `SentryErrorReporter` |
+| `IPasswordHasher`   | `FakePasswordHasher`     | `ScryptPasswordHasher`    |
+| `IEmailSender`      | `MemoryEmailSender`      | `SmtpEmailSender`         |
+| `ISmsSender`        | `MemorySmsSender`        | `ConsoleSmsSender`        |
+| `IBillingProvider`  | `MemoryBillingProvider`  | `StripeBillingProvider`   |
+| `IObjectStorage`    | `MemoryObjectStorage`    | `S3ObjectStorage`         |
+| `IErrorReporter`    | `NoopErrorReporter`      | `SentryErrorReporter`     |
 
 `ISmsSender` existe sem provider real de propósito: o formato da chamada é a
 parte cara de mudar depois, e adicionar SNS ou Twilio vira uma classe e uma
