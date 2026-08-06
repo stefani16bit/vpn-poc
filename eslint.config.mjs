@@ -2,7 +2,10 @@ import js from '@eslint/js';
 import globals from 'globals';
 import nx from '@nx/eslint-plugin';
 import { createTypeScriptImportResolver } from 'eslint-import-resolver-typescript';
+import betterTailwindcss from 'eslint-plugin-better-tailwindcss';
 import { createNodeResolver, importX } from 'eslint-plugin-import-x';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default [
@@ -97,6 +100,44 @@ export default [
 					],
 				},
 			],
+		},
+	},
+
+	{
+		files: ['apps/web/src/**/*.tsx'],
+		...jsxA11y.flatConfigs.recommended,
+	},
+
+	{
+		files: ['apps/web/src/**/*.{ts,tsx}'],
+		plugins: { 'react-hooks': reactHooks },
+		// The two classic rules only. The rest of v7's recommended set is the
+		// React Compiler lint, which is a separate decision from this work.
+		rules: {
+			'react-hooks/rules-of-hooks': 'error',
+			'react-hooks/exhaustive-deps': 'error',
+		},
+	},
+
+	{
+		files: ['apps/web/src/**/*.tsx'],
+		plugins: { 'better-tailwindcss': betterTailwindcss },
+		settings: {
+			'better-tailwindcss': {
+				entryPoint: 'apps/web/src/styles.css',
+				callees: ['cn', 'cva', 'twMerge'],
+				attributes: ['class', 'className'],
+			},
+		},
+		rules: {
+			'better-tailwindcss/enforce-consistent-class-order': 'error',
+			'better-tailwindcss/no-duplicate-classes': 'error',
+			'better-tailwindcss/no-conflicting-classes': 'error',
+			// Turned on once the legacy stylesheet is gone: the rule checks a class
+			// against Tailwind's utilities, not against the entrypoint's own rules,
+			// so .card and .muted read as unknown while the pages still use them.
+			'better-tailwindcss/no-unknown-classes': 'off',
+			'better-tailwindcss/enforce-consistent-line-wrapping': 'off',
 		},
 	},
 
