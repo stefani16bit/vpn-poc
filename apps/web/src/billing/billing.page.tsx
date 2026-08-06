@@ -3,12 +3,12 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { PlanId } from '@vpn/contracts';
 
 import { normalizeError } from '../app/store/api-error.js';
+import { useLogoutMutation } from '@/features/auth/api/auth.api.js';
 import {
 	useCancelSubscriptionMutation,
 	useCreateCheckoutMutation,
-	useLogoutMutation,
 	useSubscriptionQuery,
-} from '../app/store/api.js';
+} from '@/features/billing/api/billing.api.js';
 import { sessionCleared } from '../app/store/auth-slice.js';
 import type { AppDispatch, RootState } from '../app/store/index.js';
 import { LanguagePicker } from '../i18n/language-picker.js';

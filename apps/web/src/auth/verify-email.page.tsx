@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { normalizeError } from '../app/store/api-error.js';
-import { useResendVerificationMutation, useVerifyEmailMutation } from '../app/store/api.js';
+import { useResendVerificationMutation, useVerifyEmailMutation } from '@/features/auth/api/auth.api.js';
 import { useTranslator } from '../i18n/locale-context.js';
 
 const RESEND_COOLDOWN_SECONDS = 60;

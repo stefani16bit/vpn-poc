@@ -5,8 +5,7 @@ import type { SessionResponse } from '@vpn/contracts';
 
 import { sessionCleared, sessionResolved } from '../app/store/auth-slice.js';
 import type { AppDispatch } from '../app/store/index.js';
-
-const baseUrl = import.meta.env['VITE_API_URL'] ?? '/api';
+import { API_BASE_URL } from '@/lib/api-url.js';
 
 export function useBootstrapAuth(): void {
 	const dispatch = useDispatch<AppDispatch>();
@@ -18,7 +17,7 @@ export function useBootstrapAuth(): void {
 
 		void (async () => {
 			try {
-				const response = await fetch(`${baseUrl}/auth/refresh`, {
+				const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
 					method: 'POST',
 					credentials: 'include',
 				});

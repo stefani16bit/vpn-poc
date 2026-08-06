@@ -11,7 +11,7 @@ import {
 } from '@vpn/contracts';
 
 import { normalizeError } from '../app/store/api-error.js';
-import { useForgotPasswordMutation, useResetPasswordMutation } from '../app/store/api.js';
+import { useForgotPasswordMutation, useResetPasswordMutation } from '@/features/auth/api/auth.api.js';
 import { useTranslator } from '../i18n/locale-context.js';
 import { Field, FormError, Submit } from '../ui/form.tsx';
 
