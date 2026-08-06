@@ -1,18 +1,106 @@
+@import 'tailwindcss';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+	--radius: 0.75rem;
+
+	--background: oklch(0.985 0.002 265);
+	--foreground: oklch(0.235 0.01 265);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.235 0.01 265);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.235 0.01 265);
+	--primary: oklch(0.545 0.185 260);
+	--primary-foreground: oklch(0.985 0.002 265);
+	--secondary: oklch(0.955 0.004 265);
+	--secondary-foreground: oklch(0.235 0.01 265);
+	--muted: oklch(0.955 0.004 265);
+	--muted-foreground: oklch(0.52 0.02 265);
+	--accent: oklch(0.955 0.004 265);
+	--accent-foreground: oklch(0.235 0.01 265);
+	--destructive: oklch(0.55 0.2 25);
+	--border: oklch(0.91 0.006 265);
+	--input: oklch(0.91 0.006 265);
+	--ring: oklch(0.545 0.185 260);
+
+	color-scheme: light;
+}
+
+.dark {
+	--background: oklch(0.18 0.008 265);
+	--foreground: oklch(0.925 0.004 265);
+	--card: oklch(0.235 0.01 265);
+	--card-foreground: oklch(0.925 0.004 265);
+	--popover: oklch(0.235 0.01 265);
+	--popover-foreground: oklch(0.925 0.004 265);
+	--primary: oklch(0.647 0.185 260);
+	--primary-foreground: oklch(0.18 0.008 265);
+	--secondary: oklch(0.275 0.014 265);
+	--secondary-foreground: oklch(0.925 0.004 265);
+	--muted: oklch(0.275 0.014 265);
+	--muted-foreground: oklch(0.7 0.023 265);
+	--accent: oklch(0.275 0.014 265);
+	--accent-foreground: oklch(0.925 0.004 265);
+	--destructive: oklch(0.7 0.175 22);
+	--border: oklch(0.313 0.017 267);
+	--input: oklch(0.313 0.017 267);
+	--ring: oklch(0.647 0.185 260);
+
+	color-scheme: dark;
+}
+
+@theme inline {
+	--font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+
+	body {
+		@apply bg-background text-foreground font-sans antialiased;
+	}
+}
+
 /*
- * Enough styling to make the flows usable and no more. This is a proof of
- * concept: a design system here would be the most expensive thing in the repo
- * and the first thing thrown away.
+ * Everything below is the pre-Tailwind stylesheet, kept so that each page can
+ * be converted in its own commit and still render. The legacy names are
+ * aliased onto the new tokens, so these rules follow the theme too. Deleted
+ * rule by rule as each page stops using them; see DEC-019.
  */
 
 :root {
-	--bg: #0f1115;
-	--surface: #171a21;
-	--border: #262b36;
-	--text: #e6e8ec;
-	--muted: #9aa3b2;
-	--accent: #4c8dff;
-	--danger: #ff6b6b;
-	color-scheme: dark;
+	--bg: var(--background);
+	--surface: var(--card);
+	--text: var(--foreground);
+	--danger: var(--destructive);
 }
 
 * {
@@ -60,7 +148,7 @@ h2 {
 	display: block;
 	margin-bottom: 0.35rem;
 	font-size: 0.85rem;
-	color: var(--muted);
+	color: var(--muted-foreground);
 }
 
 input {
@@ -74,7 +162,7 @@ input {
 }
 
 input:focus-visible {
-	outline: 2px solid var(--accent);
+	outline: 2px solid var(--ring);
 	outline-offset: 1px;
 }
 
@@ -108,16 +196,16 @@ button {
 }
 
 button.primary {
-	background: var(--accent);
-	border-color: var(--accent);
-	color: #0b1020;
+	background: var(--primary);
+	border-color: var(--primary);
+	color: var(--primary-foreground);
 	font-weight: 600;
 }
 
 button.link {
 	border: none;
 	padding: 0;
-	color: var(--accent);
+	color: var(--primary);
 	text-decoration: underline;
 }
 
@@ -134,7 +222,7 @@ button:disabled {
 }
 
 .muted {
-	color: var(--muted);
+	color: var(--muted-foreground);
 }
 
 .small {
@@ -142,7 +230,7 @@ button:disabled {
 }
 
 a {
-	color: var(--accent);
+	color: var(--primary);
 }
 
 .language-picker {
