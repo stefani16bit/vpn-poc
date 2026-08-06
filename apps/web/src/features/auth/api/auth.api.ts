@@ -51,10 +51,6 @@ export const authApi = api.injectEndpoints({
 			query: (body) => ({ url: 'auth/me/locale', method: 'PATCH', body }),
 			invalidatesTags: ['Session'],
 		}),
-
-		logout: builder.mutation<AcknowledgedResponse, void>({
-			query: () => ({ url: 'auth/logout', method: 'POST' }),
-		}),
 	}),
 });
 
@@ -67,5 +63,4 @@ export const {
 	useForgotPasswordMutation,
 	useResetPasswordMutation,
 	useUpdateLocaleMutation,
-	useLogoutMutation,
 } = authApi;

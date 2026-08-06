@@ -101,6 +101,47 @@ export default [
 	},
 
 	{
+		files: ['apps/web/src/**/*.{ts,tsx}'],
+		plugins: { 'import-x': importX },
+		settings: {
+			'import-x/resolver-next': [
+				createTypeScriptImportResolver({ project: ['apps/web/tsconfig.json'] }),
+				createNodeResolver(),
+			],
+		},
+		rules: {
+			'import-x/no-restricted-paths': [
+				'error',
+				{
+					basePath: import.meta.dirname,
+					zones: [
+						{
+							target: './apps/web/src/components',
+							from: './apps/web/src/features',
+							message: 'A shared component may not know a feature exists.',
+						},
+						{
+							target: './apps/web/src/components/ui',
+							from: './apps/web/src/app',
+							message: 'components/ui is vendored: it may import lib/ and nothing else of ours.',
+						},
+						{
+							target: './apps/web/src/features/auth/**',
+							from: './apps/web/src/features/billing/**',
+							message: 'Features do not import each other. Lift what is shared into components/.',
+						},
+						{
+							target: './apps/web/src/features/billing/**',
+							from: './apps/web/src/features/auth/**',
+							message: 'Features do not import each other. Lift what is shared into components/.',
+						},
+					],
+				},
+			],
+		},
+	},
+
+	{
 		files: ['**/*.ts', '**/*.tsx', '**/*.mts'],
 		rules: {
 			'no-console': ['error', { allow: ['warn', 'error'] }],
