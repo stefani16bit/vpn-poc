@@ -133,10 +133,9 @@ export default [
 			'better-tailwindcss/enforce-consistent-class-order': 'error',
 			'better-tailwindcss/no-duplicate-classes': 'error',
 			'better-tailwindcss/no-conflicting-classes': 'error',
-			// Turned on once the legacy stylesheet is gone: the rule checks a class
-			// against Tailwind's utilities, not against the entrypoint's own rules,
-			// so .card and .muted read as unknown while the pages still use them.
-			'better-tailwindcss/no-unknown-classes': 'off',
+			// The legacy stylesheet is gone, so every class in a className is now either
+			// a Tailwind utility or a typo.
+			'better-tailwindcss/no-unknown-classes': 'error',
 			'better-tailwindcss/enforce-consistent-line-wrapping': 'off',
 		},
 	},
