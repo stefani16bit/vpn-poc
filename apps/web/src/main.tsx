@@ -6,7 +6,8 @@ import { Provider } from 'react-redux';
 
 import { App } from './app/app.tsx';
 import { store } from './app/store/index.js';
-import { LocaleProvider } from './i18n/locale-context.js';
+import { LocaleProvider } from './i18n/locale-context.tsx';
+import { ThemeProvider } from './theme/theme-provider.tsx';
 import './styles.css';
 
 const container = document.getElementById('root');
@@ -16,7 +17,9 @@ createRoot(container).render(
 	<StrictMode>
 		<Provider store={store}>
 			<LocaleProvider>
-				<App />
+				<ThemeProvider>
+					<App />
+				</ThemeProvider>
 			</LocaleProvider>
 		</Provider>
 	</StrictMode>,

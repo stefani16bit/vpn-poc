@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import {
+	createContext,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+	type ReactNode,
+} from 'react';
 
 import { FALLBACK_LOCALE, SUPPORTED_LOCALES, type SupportedLocale } from '@vpn/contracts';
 import { getTranslator, isSupportedLocale, negotiateLocale, type Translator } from '@vpn/i18n';
@@ -36,6 +44,12 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 			// it just does not survive a reload.
 		}
 	}, []);
+
+	// index.html hardcodes a lang, so without this a screen reader keeps reading
+	// the whole app with the wrong pronunciation after the language changes.
+	useEffect(() => {
+		document.documentElement.lang = locale;
+	}, [locale]);
 
 	const value = useMemo<LocaleContextValue>(
 		() => ({ locale, setLocale, t: getTranslator(locale), available: SUPPORTED_LOCALES }),

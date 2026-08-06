@@ -10,6 +10,7 @@ import type { AnyErrorCode, SupportedLocale } from '@vpn/contracts';
 import { api } from '@/app/store/api.js';
 import { rootReducer } from '@/app/store/index.js';
 import { LocaleProvider } from '@/i18n/locale-context.tsx';
+import { ThemeProvider } from '@/theme/theme-provider.tsx';
 
 export type TestStore = ReturnType<typeof makeStore>;
 
@@ -46,7 +47,9 @@ export function renderWithProviders(
 		return (
 			<Provider store={store}>
 				<LocaleProvider>
-					<MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+					<ThemeProvider>
+						<MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+					</ThemeProvider>
 				</LocaleProvider>
 			</Provider>
 		);
