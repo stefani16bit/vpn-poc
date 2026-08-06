@@ -3,7 +3,11 @@ import { fileURLToPath } from 'node:url';
 
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
+import { loadWorkspaceDotenv } from '@vpn-poc/env';
+
 import { createDatabase } from './client.js';
+
+loadWorkspaceDotenv();
 
 const url = process.env['DATABASE_MIGRATION_URL'];
 if (!url) {

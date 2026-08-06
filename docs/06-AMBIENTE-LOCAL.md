@@ -12,11 +12,15 @@ make check                   # 12 asserções; tem que dar 12/12
 
 pnpm install
 pnpm packages:publish:local  # publica @vpn/* no Verdaccio local
-pnpm --filter @vpn-poc/database db:migrate
+pnpm db:migrate              # só aqui: sem node_modules, o `make up` acima pulou
 pnpm dev                     # api :3000, web :5173
 ```
 
 Se clonou sem `--recurse-submodules`: `git submodule update --init`.
+
+Depois desta primeira vez, `make up` e `make reset` migram sozinhos. `make reset`
+apaga o volume do postgres, e um banco sem schema derruba toda requisição no
+mesmo erro — `relation "accounts" does not exist`.
 
 ## 2. Os contêineres
 

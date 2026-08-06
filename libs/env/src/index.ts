@@ -58,14 +58,16 @@ function workspaceRoot(): string {
 	}
 }
 
+export function loadWorkspaceDotenv(): void {
+	const root = workspaceRoot();
+	loadDotenv({ path: join(root, '.env.local'), override: false });
+	loadDotenv({ path: join(root, '.env'), override: false });
+}
+
 export function loadEnv(options: LoadEnvOptions = {}): Env {
 	if (cached && !options.source) return cached;
 
-	if (!options.skipDotenv && !options.source) {
-		const root = workspaceRoot();
-		loadDotenv({ path: join(root, '.env.local'), override: false });
-		loadDotenv({ path: join(root, '.env'), override: false });
-	}
+	if (!options.skipDotenv && !options.source) loadWorkspaceDotenv();
 
 	const parsed = fullSchema.safeParse(options.source ?? process.env);
 	if (!parsed.success) {

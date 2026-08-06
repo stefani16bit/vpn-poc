@@ -33,10 +33,23 @@ prepare_mounts() {
 	mkdir -p verdaccio/storage
 }
 
+# `down -v` drops the postgres volume, so `up` hands back an empty database and
+# the first request fails on a table that does not exist. Drizzle records what
+# it applied, so running this on every up is a no-op once the schema is current.
+migrate() {
+	if ! command -v pnpm >/dev/null 2>&1 || [ ! -d ../node_modules ]; then
+		printf '\nskipping migrations: run `pnpm install`, then `pnpm db:migrate`.\n' >&2
+		return 0
+	fi
+
+	(cd .. && pnpm db:migrate)
+}
+
 case "${1:-}" in
 up)
 	prepare_mounts
 	docker compose up -d --wait --wait-timeout "$WAIT_TIMEOUT"
+	migrate
 	printf '\ndevstack is up.\n'
 	printf '  registry  http://localhost:%s\n' "${VERDACCIO_PORT:-24873}"
 	printf '  mailbox   http://localhost:%s\n\n' "${MAILPIT_UI_PORT:-28025}"
@@ -51,6 +64,7 @@ reset)
 	docker compose down -v
 	prepare_mounts
 	docker compose up -d --wait --wait-timeout "$WAIT_TIMEOUT"
+	migrate
 	;;
 reset-registry)
 	docker compose rm -sf verdaccio

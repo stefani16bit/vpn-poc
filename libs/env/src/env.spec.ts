@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { assertDriverConfiguration } from './concerns.js';
-import { loadEnv, resetEnvCache } from './index.js';
+import { loadEnv, loadWorkspaceDotenv, resetEnvCache } from './index.js';
 
 const minimal = {
 	WEB_ORIGIN: 'http://127.0.0.1:5173',
@@ -91,6 +91,24 @@ describe('loadEnv and the dotenv files', () => {
 		try {
 			withCwd(pkg, () => {
 				expect(loadEnv().WEB_ORIGIN).toBe('http://root.example');
+			});
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	// A migration runs with the database url and nothing else, so validating the
+	// whole application schema to read a dotenv file would reject a machine that
+	// is configured correctly for the only thing it is about to do.
+	it('exposes the file lookup on its own, without validating anything', () => {
+		const { root, pkg } = workspace();
+		writeFileSync(join(root, '.env'), 'DATABASE_MIGRATION_URL=postgres://migrator@localhost/db\n');
+
+		try {
+			withCwd(pkg, () => {
+				delete process.env['DATABASE_MIGRATION_URL'];
+				loadWorkspaceDotenv();
+				expect(process.env['DATABASE_MIGRATION_URL']).toBe('postgres://migrator@localhost/db');
 			});
 		} finally {
 			rmSync(root, { recursive: true, force: true });

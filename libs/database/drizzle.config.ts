@@ -1,5 +1,9 @@
 import { defineConfig } from 'drizzle-kit';
 
+import { loadWorkspaceDotenv } from '@vpn-poc/env';
+
+loadWorkspaceDotenv();
+
 export default defineConfig({
 	schema: './src/schema.ts',
 	out: './migrations',

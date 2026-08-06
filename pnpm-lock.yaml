@@ -340,6 +340,9 @@ importers:
 
   libs/database:
     dependencies:
+      '@vpn-poc/env':
+        specifier: workspace:*
+        version: link:../env
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)

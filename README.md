@@ -12,7 +12,7 @@ git clone --recurse-submodules <url> poc-vpn && cd poc-vpn
 cp .env.example .env.local
 make up && make check
 pnpm install && pnpm packages:publish:local
-pnpm --filter @vpn-poc/database db:migrate
+pnpm db:migrate
 pnpm dev
 ```
 
