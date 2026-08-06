@@ -6,11 +6,15 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { loginRequestSchema, type LoginRequest } from '@vpn/contracts';
 
 import { normalizeError } from '@/app/store/api-error.js';
-import { useLoginMutation } from '@/features/auth/api/auth.api.js';
 import { sessionResolved } from '@/app/store/auth-slice.js';
 import type { AppDispatch } from '@/app/store/index.js';
-import { useTranslator } from '@/i18n/locale-context.js';
-import { Field, FormError, Submit } from '@/ui/form.tsx';
+import { Field } from '@/components/form/field.tsx';
+import { FormError } from '@/components/form/form-error.tsx';
+import { SubmitButton } from '@/components/form/submit-button.tsx';
+import { AuthCard } from '@/components/layout/auth-card.tsx';
+import { Input } from '@/components/ui/input.tsx';
+import { useLoginMutation } from '@/features/auth/api/auth.api.js';
+import { useTranslator } from '@/i18n/locale-context.tsx';
 
 export function LoginPage() {
 	const t = useTranslator();
@@ -37,27 +41,39 @@ export function LoginPage() {
 	}
 
 	return (
-		<section className="card">
-			<h1>{t('auth.login.title')}</h1>
-
+		<AuthCard title={t('auth.login.title')}>
 			<form onSubmit={form.handleSubmit(onSubmit)} noValidate>
 				<FormError error={normalized} />
 
 				<Field label={t('auth.login.email')} error={form.formState.errors.email?.message}>
-					<input type="email" autoComplete="email" {...form.register('email')} />
+					{(control) => (
+						<Input type="email" autoComplete="email" {...control} {...form.register('email')} />
+					)}
 				</Field>
 
 				<Field label={t('auth.login.password')} error={form.formState.errors.password?.message}>
-					<input type="password" autoComplete="current-password" {...form.register('password')} />
+					{(control) => (
+						<Input
+							type="password"
+							autoComplete="current-password"
+							{...control}
+							{...form.register('password')}
+						/>
+					)}
 				</Field>
 
-				<Submit pending={isLoading}>{t('auth.login.submit')}</Submit>
+				<SubmitButton pending={isLoading}>{t('auth.login.submit')}</SubmitButton>
 			</form>
 
-			<p className="muted">
-				<Link to="/forgot-password">{t('auth.login.forgot')}</Link> ·{' '}
-				<Link to="/signup">{t('auth.login.signupLink')}</Link>
+			<p className="mt-4 text-sm text-muted-foreground">
+				<Link to="/forgot-password" className="text-primary underline-offset-4 hover:underline">
+					{t('auth.login.forgot')}
+				</Link>{' '}
+				·{' '}
+				<Link to="/signup" className="text-primary underline-offset-4 hover:underline">
+					{t('auth.login.signupLink')}
+				</Link>
 			</p>
-		</section>
+		</AuthCard>
 	);
 }

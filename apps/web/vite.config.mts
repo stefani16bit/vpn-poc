@@ -18,5 +18,8 @@ export default defineConfig({
 		environment: 'jsdom',
 		include: ['src/**/*.spec.{ts,tsx}'],
 		setupFiles: ['./src/test-setup.ts'],
+		// Request here is undici's, which rejects a relative URL; the app's own
+		// default of '/api' makes every request fail before it reaches fetch.
+		env: { VITE_API_URL: 'http://localhost/api' },
 	},
 });
