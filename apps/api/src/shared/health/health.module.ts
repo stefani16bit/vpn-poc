@@ -1,7 +1,7 @@
 import { Module, type DynamicModule, type Provider } from '@nestjs/common';
+import { TerminusModule } from '@nestjs/terminus';
 
 import { HealthController } from './health.controller.js';
-import { HealthService } from './health.service.js';
 import { HEALTH_INDICATORS, type HealthIndicator } from './health.types.js';
 
 export interface HealthModuleOptions {
@@ -17,6 +17,7 @@ export class HealthModule {
 
 		return {
 			module: HealthModule,
+			imports: [TerminusModule.forRoot({ logger: false })],
 			controllers: [HealthController],
 			providers: [
 				...options.readiness,
@@ -25,7 +26,6 @@ export class HealthModule {
 					inject: tokens,
 					useFactory: (...indicators: HealthIndicator[]) => indicators,
 				},
-				HealthService,
 			],
 		};
 	}

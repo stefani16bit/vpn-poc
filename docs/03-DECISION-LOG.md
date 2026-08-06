@@ -673,3 +673,104 @@ linhas de subcomponentes que nunca renderizamos. `components/form/**` e
 regra que de fato segura a linha não é config nenhuma, e vai no checklist de
 commit: **uma página não é convertida num commit que não acrescente o teste
 dela**. `packages/` continua sem thresholds — dívida nomeada no roadmap.
+
+---
+
+### DEC-029 — Postura sobre o ecossistema `@nestjs/*`
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** `apps/api` usa três pacotes NestJS em runtime — `common`, `core`,
+`platform-express` — mais `nestjs-pino`, da comunidade. Config, health, rate
+limit, validação, JWT, cache e e-mail são código nosso ou portas. Duas dessas
+escolhas estavam argumentadas (DEC-008 e DEC-004); as outras eram **omissão
+silenciosa**, e omissão não é decisão: ninguém consegue discordar do que não
+está escrito, e a pergunta "por que não usamos o pacote oficial?" voltava.
+
+**Decisão.** A regra é a mesma que vale para qualquer dependência: o pacote
+entra quando resolve um problema que temos, na forma em que o temos. Não entra
+por ser oficial, e não deixa de entrar por ser de terceiro — `nestjs-pino` e
+`@nestjs/terminus` (DEC-030) estão aqui. O veredito por pacote:
+
+| Pacote | Veredito | Motivo |
+|---|---|---|
+| `terminus` | **adotado** | DEC-030 |
+| `throttler` | rejeitado | ver abaixo |
+| `config` | rejeitado | `libs/env` é zod mais descoberta de `.env`, e é consumido fora do Nest — migrations e `infra`. `ConfigModule` só existe dentro do container |
+| `jwt` | rejeitado | é wrapper de `jsonwebtoken`; usamos `jose`, e `AccessTokenService` injeta a porta `CLOCK`, que um wrapper não aceita |
+| `passport` | rejeitado | abstrai *várias* estratégias; temos uma. O refresh é opaco com rotação por família (DEC-006) e não passa por strategy nenhuma |
+| `class-validator` / `ValidationPipe` | rejeitado | DEC-008 |
+| `cache-manager` | rejeitado | abstração concorrente com `ICacheStore`, que tem suíte de conformidade e chave estruturada em vez de string |
+| `axios` | rejeitado | não há HTTP de saída fora de SDK de vendor |
+| `schedule`, `bullmq`, `event-emitter` | não se aplica | não há cron nem fila; a stack `workers` está vazia (DEC-011) e a idempotência é índice único (DEC-026), não event bus |
+| `swagger` | adiado, com a forma já definida | não há OpenAPI hoje. `@ApiProperty` seria a segunda definição de "corpo válido" que DEC-008 rejeita; a forma aceitável é gerar o spec **a partir** de `@vpn/contracts` e usar `@nestjs/swagger` só para servir a UI |
+
+**Por que `@nestjs/throttler` não substitui `RateLimitService`.** DEC-004 decide
+que rate limit não é porta; isto decide que também não é guard. São três
+incompatibilidades, não preferência:
+
+1. O sujeito é o **e-mail**, nunca o IP, e `consume()` roda antes de qualquer
+   consulta de conta — é isso que sustenta o inegociável de não revelar se um
+   endereço tem cadastro. `ThrottlerGuard` rastreia por IP, e credential
+   stuffing troca de IP contra um endereço só. Sobrescrever `getTracker()` para
+   ler `req.body.email` chavearia o contador num campo ainda não validado nem
+   normalizado, porque guard roda antes do `ZodBody`.
+2. `ThrottlerStorage.increment(key, ttl, limit, blockDuration, name)` devolve
+   `{ totalHits, timeToExpire, isBlocked, timeToBlockExpire }`.
+   `ICacheStore.increment(key, ttlSeconds)` devolve um número. O adapter exigiria
+   alargar uma interface **publicada**, mais a suíte de conformidade, mais
+   republicar no Verdaccio — para caber na forma de interface de um terceiro.
+3. `ThrottlerException` é `HttpException(429)`, e o `GlobalExceptionFilter` não
+   tem ramo para 429: cairia em `VALIDATION_FAILED`, e o front renderiza
+   `errors.<CODE>`.
+
+**Consequências.** Um pacote `@nestjs/*` recusado passa a ter linha nesta
+tabela; a tabela é o lugar de discordar. O que `throttler` daria de graça e não
+temos — `Retry-After` — vira dívida nomeada no roadmap, e não é obtível sem
+mudar a porta: `increment` não devolve o TTL restante.
+
+---
+
+### DEC-030 — Health checks via `@nestjs/terminus`
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** `GET /health/ready` respondia **200 mesmo com
+`status: 'degraded'`**. Um readiness probe que nunca falha não tira instância
+de rotação — o endpoint existia, era testado, e não fazia a única coisa para a
+qual serve.
+
+**Decisão.** `HealthService` é apagado e a agregação passa a ser
+`HealthCheckService.check()`, do `@nestjs/terminus`. Ele lança
+`ServiceUnavailableException` quando qualquer indicador está `down`, e o corpo
+de `/health/ready` passa a ser `{ status, info, error, details }`.
+
+**Rationale.** O ganho não é contagem de linhas — o `Promise.all` mais
+agregação que sai tinha 28 linhas e estava correto naquilo que fazia. É a
+semântica de 503, que era o defeito, mais um formato que ferramenta de fora já
+sabe ler. Pelo critério de DEC-029, é exatamente o caso em que o pacote oficial
+resolve o problema na forma em que o temos.
+
+**Consequências.** `HealthModule.forRoot({ readiness })` e o token-array
+`HEALTH_INDICATORS` **permanecem**: a plugabilidade é decisão nossa, não algo
+que terminus substitui. `indicators.ts` não muda — `databaseIndicator` e
+`cacheIndicator` continuam funções puras sem import de terminus, e
+`QueryableDatabase` continua tipado estruturalmente para que o módulo não
+importe `@vpn-poc/database`. O adaptador de `HealthIndicator` para
+`HealthIndicatorFunction` mapeia falha para `{ status: 'down' }` **sem a
+mensagem do erro**: `/health/ready` não é autenticado, e "no route to
+10.0.1.5:5432" é topologia interna.
+
+`HealthCheckFilter` é `@Catch(ServiceUnavailableException)` aplicado com
+`@UseFilters()` **no controller**, não global. Sem ele o `GlobalExceptionFilter`
+trata o 503 como `status >= 500`: reescreveria o corpo para
+`{ code: 'INTERNAL' }` — perdendo o detalhe por dependência, que é o motivo do
+endpoint existir — e chamaria `reporter.capture()`, transformando cada probe
+falho em evento no Sentry. O escopo local mantém health fora do kernel de erros.
+Pelo mesmo motivo o logger do terminus é desligado (`logger: false`): o filtro
+loga uma vez, em `warn`, pelo logger do app. `logger.config.ts` já ignora
+`/health` e `/health/ready` no log de HTTP, e sem essas duas medidas um probe
+por segundo vira duas linhas por segundo.
+
+Terminus traz `boxen` e `check-disk-space` como dependências de runtime. É o
+custo, e está registrado aqui para que não pareça de graça.

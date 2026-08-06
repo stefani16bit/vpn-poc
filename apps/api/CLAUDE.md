@@ -82,7 +82,17 @@ Um `AppError` com `code` de `@vpn/contracts`; o status sai de uma tabela. O
 `HealthModule.forRoot({ readiness: [...] })`. Indicadores são plugáveis e
 tipados estruturalmente (`QueryableDatabase` = `{ execute }`), então o módulo
 não importa `@vpn-poc/database`. `/health` é liveness e não toca em nada;
-`/health/ready` reporta por dependência.
+`/health/ready` reporta por dependência, no formato do `@nestjs/terminus`
+(`{ status, info, error, details }`), e responde **503** se qualquer indicador
+cair — ver DEC-030.
+
+O 503 é atendido por `HealthCheckFilter`, com `@UseFilters()` no controller.
+Tirá-lo dali entrega o 503 ao `GlobalExceptionFilter`, que trata `>= 500` como
+erro da aplicação: o corpo vira `{ code: 'INTERNAL' }`, some o detalhe por
+dependência, e cada probe falho vai para o Sentry.
+
+Indicador que falha reporta `{ status: 'down' }` **sem a mensagem do erro**.
+`/health/ready` não é autenticado.
 
 ## Don't
 

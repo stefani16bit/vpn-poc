@@ -714,7 +714,10 @@ describe('cross-cutting', () => {
 
 	it('reports readiness with a per-dependency breakdown', async () => {
 		const response = await request(app.getHttpServer()).get('/health/ready').expect(200);
-		expect(response.body).toMatchObject({ status: 'ok', checks: { database: 'ok', cache: 'ok' } });
+		expect(response.body).toMatchObject({
+			status: 'ok',
+			details: { database: { status: 'up' }, cache: { status: 'up' } },
+		});
 	});
 
 	it('echoes a correlation id the caller supplied', async () => {

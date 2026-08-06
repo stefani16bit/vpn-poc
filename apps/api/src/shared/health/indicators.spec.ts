@@ -3,8 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ICacheStore } from '@vpn/ports';
 import { FixedClock, MemoryCacheStore } from '@vpn/testing/fakes';
 
-import { HealthController } from './health.controller.js';
-import type { HealthService } from './health.service.js';
 import { cacheIndicator, databaseIndicator, type QueryableDatabase } from './indicators.js';
 
 describe('databaseIndicator', () => {
@@ -52,23 +50,5 @@ describe('cacheIndicator', () => {
 		} as unknown as ICacheStore;
 
 		await expect(cacheIndicator(broken).check()).rejects.toThrow('redis is down');
-	});
-});
-
-describe('HealthController', () => {
-	it('answers liveness without touching a dependency', () => {
-		const health = { readiness: vi.fn() } as unknown as HealthService;
-		const controller = new HealthController(health, { APP_VERSION: '1.2.3' } as never);
-
-		expect(controller.live()).toEqual({ status: 'ok', version: '1.2.3' });
-		expect(health.readiness).not.toHaveBeenCalled();
-	});
-
-	it('delegates readiness to the service', async () => {
-		const report = { status: 'ok' as const, checks: [] };
-		const health = { readiness: vi.fn().mockResolvedValue(report) } as unknown as HealthService;
-		const controller = new HealthController(health, { APP_VERSION: '1.2.3' } as never);
-
-		expect(await controller.ready()).toBe(report);
 	});
 });

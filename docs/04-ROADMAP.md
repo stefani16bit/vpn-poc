@@ -49,6 +49,12 @@ a ignorar suíte vermelha.
       sempre. É um job, e é o primeiro candidato à `WorkersStack`.
 - [ ] Rate limit é por endereço de e-mail, não por IP. Um atacante com uma lista
       de endereços não é limitado por nada.
+- [ ] Nenhum 429 traz `Retry-After`, e o cliente não tem como saber quanto
+      esperar. Não é obtível sem mudar a porta: `ICacheStore.increment` devolve
+      a contagem, não o TTL restante. Ver DEC-029.
+- [ ] `RATE_LIMITED` diz "a few minutes" em `@vpn/i18n`, mas `register`,
+      `forgotPassword` e `resendVerification` têm janela de uma hora. A mensagem
+      mente para três das quatro regras.
 - [ ] Falta Playwright. `apps/web` agora tem teste de tela em jsdom para as seis
       páginas, o que cobre comportamento mas não renderização: nenhum teste vê
       um layout quebrado, um contraste ruim ou um foco perdido de verdade.
