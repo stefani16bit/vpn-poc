@@ -16,7 +16,7 @@ pnpm --filter @vpn-poc/database db:migrate
 pnpm dev
 ```
 
-Web em <http://localhost:5173>, API em <http://localhost:3000>, caixa de entrada
+Web em <http://127.0.0.1:5173>, API em <http://127.0.0.1:3000>, caixa de entrada
 em <http://localhost:28025>, registry em <http://localhost:24873>.
 
 ## Onde está o quê

@@ -8,7 +8,7 @@ import { assertDriverConfiguration } from './concerns.js';
 import { loadEnv, resetEnvCache } from './index.js';
 
 const minimal = {
-	WEB_ORIGIN: 'http://localhost:5173',
+	WEB_ORIGIN: 'http://127.0.0.1:5173',
 	DATABASE_URL: 'postgres://user:pass@127.0.0.1:25432/db',
 	AUTH_JWT_SECRET: 'x'.repeat(32),
 };

@@ -83,7 +83,7 @@ quebram para quem consome.
 
 ## 6. Fluxo manual completo
 
-1. <http://localhost:5173/signup> → cadastre um e-mail qualquer
+1. <http://127.0.0.1:5173/signup> → cadastre um e-mail qualquer
 2. <http://localhost:28025> → abra a mensagem, clique no link
 3. Entre com a senha
 4. Assine — o driver local é o `MemoryBillingProvider` (DEC-009), então o
@@ -107,4 +107,8 @@ quebram para quem consome.
 - **`@vpn/...` não encontrado:** o Verdaccio está no ar mas os pacotes não foram
   publicados. `pnpm packages:publish:local`.
 - **Login funciona e refresh não:** `credentials: 'include'` no cliente e
-  `WEB_ORIGIN` no CORS do servidor precisam bater.
+  `WEB_ORIGIN` no CORS do servidor precisam bater — e o **host** também.
+  O cookie de refresh é `SameSite=Lax`, então `WEB_ORIGIN`, `VITE_API_URL` e o
+  `server.host` do Vite precisam usar o mesmo: `localhost` e `127.0.0.1` são
+  sites diferentes para o navegador, e o cookie é gravado no login e nunca mais
+  enviado. Tudo aqui é `127.0.0.1` (DEC-032).

@@ -774,3 +774,56 @@ por segundo vira duas linhas por segundo.
 
 Terminus traz `boxen` e `check-disk-space` como dependências de runtime. É o
 custo, e está registrado aqui para que não pareça de graça.
+
+---
+
+### DEC-032 — Reautenticar é condicionado ao estado da sessão, e o devstack fala um host só
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** `WEB_ORIGIN` apontava para `localhost:5173` e `VITE_API_URL` para
+`127.0.0.1:3000`. O cookie de refresh é `SameSite=Lax`: para o navegador esses
+são dois **sites** diferentes, então o cookie era gravado no login e nunca mais
+enviado. Todo `POST /auth/refresh` respondia 401 — a sessão funcionava enquanto
+a aba estivesse aberta, porque o access token vive em memória, e morria no
+primeiro reload.
+
+Isso deveria ter sido um erro visível uma vez. Virou um laço infinito de
+`/auth/refresh` na tela de login: o `baseQuery` tratava todo 401 como um convite
+novo a reautenticar, e o `sessionCleared` resultante derrubava o cache do RTK
+Query, provocando o refetch da query ainda inscrita que produzia o próximo 401.
+
+**Decisão.** (a) O devstack inteiro fala `127.0.0.1` — `WEB_ORIGIN`,
+`VITE_API_URL` e o `server.host` do Vite. (b) O `baseQuery` só tenta
+reautenticar quando `auth.status === 'authenticated'`.
+
+**Rationale.** A configuração era o gatilho; o laço era a ausência de uma
+condição de parada, e essa ausência sobrevive à correção da configuração —
+família de refresh revogada, API fora do ar e relógio dessincronizado produzem
+o mesmo 401 com o host certo.
+
+A condição de parada certa não é contador nem flag de módulo: é o estado que o
+app já mantém. `unauthenticated` significa "já perguntamos, não há sessão", e
+reperguntar não pode dar outra resposta — o latch se limpa sozinho no
+`sessionResolved`, sem estado global para resetar entre testes. `unknown`
+pertence a `use-bootstrap-auth`, e duas tentativas concorrentes se invalidariam
+pela rotação de família (DEC-006).
+
+`127.0.0.1` e não `localhost` porque `main.ts` escuta em `0.0.0.0`, que é IPv4
+apenas, e o Node 22 resolve `localhost` para `::1` primeiro. Canonizar em
+`localhost` exigiria mexer no bind de produção para consertar o devstack. O CORS
+continua aceitando **um** origin: aceitar os dois esconderia o desencontro, e
+`WEB_ORIGIN` também compõe as URLs dos e-mails, que precisam de um valor só.
+
+**Consequências.** Abrir `http://localhost:5173` passa a falhar em conectar em
+vez de logar-e-nunca-refrescar. É a falha ruidosa que faltava, o mesmo critério
+das portas do devstack no range 2xxxx.
+
+`refreshInFlight` continua ao lado do latch, e não é redundância: ele resolve
+concorrência dentro do mesmo tick, quando dez componentes chegam ao 401 antes de
+qualquer dispatch. O latch resolve a sequência, que ele nunca resolveu.
+
+O mesmo commit corrigiu uma segunda porta aberta para o laço: `isAuthRoute`
+testava `typeof args !== 'string'`, então um endpoint declarado na forma curta
+— `me: () => 'auth/me'` — não era reconhecido como rota de auth e um 401 nele
+disparava refresh.
