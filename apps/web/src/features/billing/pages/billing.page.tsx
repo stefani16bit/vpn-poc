@@ -2,18 +2,18 @@ import { useDispatch, useSelector } from 'react-redux';
 
 import type { PlanId } from '@vpn/contracts';
 
-import { normalizeError } from '../app/store/api-error.js';
+import { normalizeError } from '@/app/store/api-error.js';
 import { useLogoutMutation } from '@/features/auth/api/auth.api.js';
 import {
 	useCancelSubscriptionMutation,
 	useCreateCheckoutMutation,
 	useSubscriptionQuery,
 } from '@/features/billing/api/billing.api.js';
-import { sessionCleared } from '../app/store/auth-slice.js';
-import type { AppDispatch, RootState } from '../app/store/index.js';
-import { LanguagePicker } from '../i18n/language-picker.js';
-import { useLocale } from '../i18n/locale-context.js';
-import { FormError } from '../ui/form.tsx';
+import { sessionCleared } from '@/app/store/auth-slice.js';
+import type { AppDispatch, RootState } from '@/app/store/index.js';
+import { LanguagePicker } from '@/i18n/language-picker.js';
+import { useLocale } from '@/i18n/locale-context.js';
+import { FormError } from '@/ui/form.tsx';
 
 export function BillingPage() {
 	const { t, locale } = useLocale();

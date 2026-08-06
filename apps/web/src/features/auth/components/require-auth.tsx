@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 import { useSelector } from 'react-redux';
 import { Navigate, useLocation } from 'react-router-dom';
 
-import type { RootState } from '../app/store/index.js';
-import { useTranslator } from '../i18n/locale-context.js';
+import type { RootState } from '@/app/store/index.js';
+import { useTranslator } from '@/i18n/locale-context.js';
 
 export interface RequireAuthProps {
 	readonly children: ReactNode;

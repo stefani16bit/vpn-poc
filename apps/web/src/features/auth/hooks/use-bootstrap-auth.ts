@@ -3,8 +3,8 @@ import { useDispatch } from 'react-redux';
 
 import type { SessionResponse } from '@vpn/contracts';
 
-import { sessionCleared, sessionResolved } from '../app/store/auth-slice.js';
-import type { AppDispatch } from '../app/store/index.js';
+import { sessionCleared, sessionResolved } from '@/app/store/auth-slice.js';
+import type { AppDispatch } from '@/app/store/index.js';
 import { API_BASE_URL } from '@/lib/api-url.js';
 
 export function useBootstrapAuth(): void {

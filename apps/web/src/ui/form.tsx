@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
-import type { NormalizedError } from '../app/store/api-error.js';
-import { useTranslator } from '../i18n/locale-context.js';
+import type { NormalizedError } from '@/app/store/api-error.js';
+import { useTranslator } from '@/i18n/locale-context.js';
 
 export function Field({
 	label,

@@ -5,12 +5,12 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { loginRequestSchema, type LoginRequest } from '@vpn/contracts';
 
-import { normalizeError } from '../app/store/api-error.js';
+import { normalizeError } from '@/app/store/api-error.js';
 import { useLoginMutation } from '@/features/auth/api/auth.api.js';
-import { sessionResolved } from '../app/store/auth-slice.js';
-import type { AppDispatch } from '../app/store/index.js';
-import { useTranslator } from '../i18n/locale-context.js';
-import { Field, FormError, Submit } from '../ui/form.tsx';
+import { sessionResolved } from '@/app/store/auth-slice.js';
+import type { AppDispatch } from '@/app/store/index.js';
+import { useTranslator } from '@/i18n/locale-context.js';
+import { Field, FormError, Submit } from '@/ui/form.tsx';
 
 export function LoginPage() {
 	const t = useTranslator();

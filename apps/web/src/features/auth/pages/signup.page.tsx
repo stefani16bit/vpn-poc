@@ -5,10 +5,10 @@ import { Link } from 'react-router-dom';
 
 import { registerRequestSchema, type RegisterRequest } from '@vpn/contracts';
 
-import { normalizeError } from '../app/store/api-error.js';
+import { normalizeError } from '@/app/store/api-error.js';
 import { useRegisterMutation } from '@/features/auth/api/auth.api.js';
-import { useLocale } from '../i18n/locale-context.js';
-import { Field, FormError, Submit } from '../ui/form.tsx';
+import { useLocale } from '@/i18n/locale-context.js';
+import { Field, FormError, Submit } from '@/ui/form.tsx';
 
 export function SignupPage() {
 	const { t, locale } = useLocale();
