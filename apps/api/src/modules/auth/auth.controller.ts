@@ -27,8 +27,10 @@ import { Inject } from '@nestjs/common';
 import { AppError } from '../../shared/errors/app-error.js';
 import { currentLocale } from '../../shared/http/request-context.js';
 import { ZodBody } from '../../shared/validation/zod-body.pipe.js';
-import type { AccessTokenClaims } from './access-token.service.js';
-import { AccessTokenGuard, AllowUnverified, Auth } from './auth.guard.js';
+import type { AccessTokenClaims } from '../../shared/access-control/access-token.service.js';
+import { AccessTokenGuard } from '../../shared/access-control/access-token.guard.js';
+import { AllowUnverified } from '../../shared/access-control/allow-unverified.decorator.js';
+import { Auth } from '../../shared/access-control/current-auth.decorator.js';
 import type { IssuedSession } from './auth.service.js';
 import { AuthService } from './auth.service.js';
 

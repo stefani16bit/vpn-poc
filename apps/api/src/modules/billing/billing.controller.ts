@@ -20,8 +20,9 @@ import {
 
 import { AppError } from '../../shared/errors/app-error.js';
 import { ZodBody } from '../../shared/validation/zod-body.pipe.js';
-import type { AccessTokenClaims } from '../auth/access-token.service.js';
-import { AccessTokenGuard, Auth } from '../auth/auth.guard.js';
+import type { AccessTokenClaims } from '../../shared/access-control/access-token.service.js';
+import { AccessTokenGuard } from '../../shared/access-control/access-token.guard.js';
+import { Auth } from '../../shared/access-control/current-auth.decorator.js';
 import { BillingService } from './billing.service.js';
 
 interface RawBodyRequest extends Request {

@@ -5,7 +5,7 @@ import type { Env } from '@vpn-poc/env';
 import { CLOCK, type IClock } from '@vpn/ports';
 
 import { ENV } from '@vpn-poc/adapters';
-import { AppError } from '../../shared/errors/app-error.js';
+import { AppError } from '../errors/app-error.js';
 
 const ISSUER = 'poc-vpn';
 const AUDIENCE = 'poc-vpn-api';

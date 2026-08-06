@@ -24,6 +24,13 @@ e `BillingService`. Por isso a regra está **desligada** para `apps/api`,
 `apps/api-lambda` e `libs/adapters` no `eslint.config.mjs` — o autofix é o
 perigo, não o import.
 
+**O runner de dev é `vite-node`, não `tsx`.** Mesma consequência do item acima
+por outra causa: o esbuild, que move o `tsx`, não implementa
+`emitDecoratorMetadata`, e toda injeção por tipo resolve `undefined` no boot. O
+Vitest transforma com Vite + oxc, que emite os metadados — daí o e2e passar num
+código que o `tsx` não conseguia subir. Runner de dev e transformador dos testes
+andam juntos; ver DEC-018.
+
 **Sem `ValidationPipe`.** É um front-end de class-validator. A validação aqui é
 zod contra `@vpn/contracts`, os mesmos schemas que o formulário do front usa.
 Ver DEC-008.
@@ -62,8 +69,8 @@ não importa `@vpn-poc/database`. `/health` é liveness e não toca em nada;
 
 ## Don't
 
-- Não importe o `*Service` de outro módulo. `BillingModule` importa
-  `AuthModule` só pelo guard.
+- Não importe nada de outro módulo — nem `*Service`, nem guard, nem tipo. O que
+  dois módulos precisam mora em `shared/`, e o lint verifica (DEC-027).
 - Não construa adapter aqui. Injete pelo token.
 - Não faça um endpoint público responder diferente para e-mail existente e
   inexistente — nem no corpo, nem no status, nem no tempo.

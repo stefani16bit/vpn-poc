@@ -1,23 +1,10 @@
-import {
-	type CanActivate,
-	type ExecutionContext,
-	Injectable,
-	SetMetadata,
-	createParamDecorator,
-} from '@nestjs/common';
+import { type CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { Request } from 'express';
 
-import { AppError } from '../../shared/errors/app-error.js';
-import type { AccessTokenClaims } from './access-token.service.js';
+import { AppError } from '../errors/app-error.js';
 import { AccessTokenService } from './access-token.service.js';
-
-export interface AuthenticatedRequest extends Request {
-	auth?: AccessTokenClaims;
-}
-
-export const ALLOW_UNVERIFIED = 'ALLOW_UNVERIFIED';
-export const AllowUnverified = (): MethodDecorator => SetMetadata(ALLOW_UNVERIFIED, true);
+import { ALLOW_UNVERIFIED } from './allow-unverified.decorator.js';
+import type { AuthenticatedRequest } from './authenticated-request.js';
 
 @Injectable()
 export class AccessTokenGuard implements CanActivate {
@@ -49,11 +36,3 @@ export class AccessTokenGuard implements CanActivate {
 		return true;
 	}
 }
-
-export const Auth = createParamDecorator((_data: unknown, context: ExecutionContext) => {
-	const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-	if (!request.auth) {
-		throw new AppError('INTERNAL', '@Auth() used on a route with no AccessTokenGuard');
-	}
-	return request.auth;
-});

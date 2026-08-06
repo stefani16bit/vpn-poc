@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '@vpn-poc/env';
 import { FixedClock } from '@vpn/testing/fakes';
 
-import { AppError } from '../../shared/errors/app-error.js';
+import { AppError } from '../errors/app-error.js';
 import { AccessTokenService } from './access-token.service.js';
 
 const SECRET = 'a-secret-that-is-at-least-32-characters-long';
