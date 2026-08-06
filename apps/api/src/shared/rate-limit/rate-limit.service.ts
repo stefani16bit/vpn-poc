@@ -2,20 +2,13 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { CACHE_STORE, type ICacheStore } from '@vpn/ports';
 
-import { AppError } from '../../shared/errors/app-error.js';
+import { AppError } from '../errors/app-error.js';
 
 export interface RateLimitRule {
 	readonly namespace: string;
 	readonly limit: number;
 	readonly windowSeconds: number;
 }
-
-export const RATE_LIMITS = {
-	login: { namespace: 'rl:login', limit: 10, windowSeconds: 300 },
-	register: { namespace: 'rl:register', limit: 5, windowSeconds: 3600 },
-	forgotPassword: { namespace: 'rl:forgot', limit: 3, windowSeconds: 3600 },
-	resendVerification: { namespace: 'rl:resend', limit: 3, windowSeconds: 3600 },
-} as const satisfies Record<string, RateLimitRule>;
 
 @Injectable()
 export class RateLimitService {

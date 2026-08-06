@@ -22,8 +22,8 @@ import {
 import { AppError } from '../../shared/errors/app-error.js';
 import { currentLocale } from '../../shared/http/request-context.js';
 import { AccessTokenService } from '../../shared/access-control/access-token.service.js';
-import { RateLimitService } from './rate-limit.service.js';
-import { RATE_LIMITS } from './rate-limit.service.js';
+import { RateLimitService } from '../../shared/rate-limit/rate-limit.service.js';
+import { RATE_LIMITS } from './auth.rate-limits.js';
 import { VerificationTokenService } from './verification-token.service.js';
 
 export interface IssuedSession {
