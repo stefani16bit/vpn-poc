@@ -49,10 +49,21 @@ a ignorar suíte vermelha.
       sempre. É um job, e é o primeiro candidato à `WorkersStack`.
 - [ ] Rate limit é por endereço de e-mail, não por IP. Um atacante com uma lista
       de endereços não é limitado por nada.
-- [ ] `apps/web` tem teste de store e de locale, mas nenhum de tela. Os fluxos
-      estão cobertos pelo e2e da API, que não vê a UI. Falta Playwright.
-- [ ] `libs/adapters` não tem limiar de cobertura; o preset de `@vpn/config`
-      existe mas não está aplicado fora de `packages/`.
+- [ ] Falta Playwright. `apps/web` agora tem teste de tela em jsdom para as seis
+      páginas, o que cobre comportamento mas não renderização: nenhum teste vê
+      um layout quebrado, um contraste ruim ou um foco perdido de verdade.
+- [ ] `libs/adapters`, `infra` e `packages/` não têm limiar de cobertura. O
+      preset de `@vpn/config` está aplicado em `apps/api` e `apps/web`
+      (DEC-028), e o número honesto dos dois só apareceu ao ligar
+      `coverage.include` — antes disso a corrida contava apenas os arquivos que
+      algum teste já importava, e `apps/api` reportava 90% valendo 40%.
+- [ ] Repositório não tem teste de integração. DEC-026 aceita isso e apoia a
+      corretude no e2e; um teste de integração por repositório fecharia a
+      lacuna sem reabrir a discussão de porta.
+- [ ] A página de reset mostra a tela de link inválido só quando o token está
+      **ausente**. Um token presente e malformado deixa um formulário que se
+      recusa a enviar e não mostra nada, porque o campo de token não tem `Field`
+      para renderizar o erro.
 - [ ] `@vpn/i18n` não tem regra de plural. Nenhuma chave precisa hoje; quando
       precisar, a troca por i18next é contida porque tudo passa por
       `getTranslator` (DEC-014).

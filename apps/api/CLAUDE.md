@@ -43,11 +43,28 @@ staging, um serviço irmão — seria aceito aqui.
 o cookie na navegação vinda do link do e-mail, deslogando o usuário na hora em
 que ele acabou de verificar a conta.
 
+## Camadas
+
+`shared/` é o kernel: todo módulo pode depender dele, e ele não pode depender de
+módulo nenhum. Dentro de um módulo, `controllers/ services/ repositories/
+mappers/`. As quatro fronteiras são verificadas por lint (DEC-027), cada uma
+provada com uma sonda.
+
+Controle de acesso mora no kernel, não em auth: o guard lê uma claim de dentro
+do JWT e nunca consulta uma conta. Por isso `BillingModule` importa
+`AccessControlModule` e não `AuthModule` — ver DEC-024 e DEC-025.
+
+**Repositório não tem teste unitário.** Fingir a cadeia fluente do drizzle
+afirma o formato de uma API fluente, não um comportamento; a corretude deles
+segue provada pelo e2e, e por isso `repositories/**` fica fora da cobertura.
+Ver DEC-026.
+
 ## Locale
 
 `request-context.ts` carrega `{ correlationId, locale }` num AsyncLocalStorage.
 A precedência é **conta > `Accept-Language` > fallback**: `localeOf(account)` em
-`auth.service.ts` é o único lugar que decide, e todo e-mail passa por ele. Um
+`shared/locale/` é o único lugar que decide, e todo e-mail passa por ele — o
+de auth e o de cobrança, que é por isso que ele está no kernel. Um
 job sem requisição cai no fallback por construção.
 
 `registerRequestSchema.locale` é **opcional**, não tem default. Um default faz

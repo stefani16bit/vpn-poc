@@ -37,7 +37,7 @@ poc-vpn/
 ├─ apps/
 │  ├─ api/            NestJS 11
 │  ├─ api-lambda/     o mesmo AppModule atrás do API Gateway
-│  └─ web/            Vite 6 + React 19 + RTK Query
+│  └─ web/            Vite 6 + React 19 + RTK Query + Tailwind v4 + shadcn/ui
 ├─ libs/
 │  ├─ env/            zod por concern, validado no boot
 │  ├─ database/       Drizzle: schema, cliente, migrações

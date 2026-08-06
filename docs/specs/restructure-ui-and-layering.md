@@ -1,8 +1,13 @@
 # Fundação de UI e organização em camadas
 
-**Status:** em implementação
+**Status:** entregue
 **Decisões relacionadas:** DEC-019, DEC-020, DEC-021, DEC-022, DEC-023, DEC-024,
 DEC-025, DEC-026, DEC-027, DEC-028
+
+> **Pendente:** a passagem manual de navegador descrita em "Como validar" ainda
+> não foi feita. Ela é a única parte desta spec que nenhum teste substitui, e o
+> commit que apagou o CSS legado já passou — reverter uma página agora devolve
+> uma página sem estilo.
 
 ## Problema
 

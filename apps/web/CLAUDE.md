@@ -2,8 +2,12 @@
 
 **Status:** partial · **Tag:** `type:app`
 
-Vite 6 + React 19 + RTK Query. Cadastro, verificação, login, reset e cobrança.
-Sem biblioteca de componentes: seis telas não pagam uma.
+Vite 6 + React 19 + RTK Query + Tailwind v4 + shadcn/ui. Cadastro, verificação,
+login, reset e cobrança.
+
+Os primitivos são **copiados** para `components/ui/`, não instalados: o
+componente copiado é editável, e a regra de "nenhum literal voltado ao usuário"
+é impossível de cumprir dentro de um `node_modules`. Ver DEC-019.
 
 ## Sessão
 
@@ -32,6 +36,37 @@ fallback, e vai em `Accept-Language` em toda requisição (`prepareHeaders`).
 `error-messages.ts` não existe mais: a copy de erro é `errors.<CODE>` no
 catálogo compartilhado.
 
+`documentElement.lang` acompanha o locale (efeito no `LocaleProvider`).
+`index.html` fixa `pt-BR`, então sem isso o leitor de tela lê a página inteira
+com a pronúncia errada pelo resto da sessão.
+
+Acrescentar uma chave é operação entre repositórios: editar `pt-BR.ts` e
+`en.ts` no submodule, publicar no Verdaccio, rodar `consumer-check`, subir o
+ponteiro. Junte todas as chaves numa release só.
+
+## Store
+
+`createApi` guarda só transporte e `tagTypes`; cada feature injeta os seus
+endpoints com `injectEndpoints`. Isso muta o mesmo objeto `api`, então **não há
+wiring novo**: o reducer já está montado e não existe lista de registro. O outro
+lado do acordo é que um endpoint cujo arquivo ninguém importa silenciosamente
+não existe.
+
+`logout` mora em `app/store/session.api.ts`, não em `features/auth`: a página de
+cobrança precisa dele, e feature não importa feature. Ele fica ao lado do estado
+que ele limpa.
+
+## Cobertura
+
+`components/ui/**` fica fora da conta: é código de registry cujo comportamento é
+do Radix e é coberto lá em cima — `select.tsx` sozinho são ~150 linhas de
+subcomponentes que nunca renderizamos. `components/form/**` e
+`components/layout/**` **não** ficam: é onde mora comportamento nosso.
+
+`app.tsx`, `router.tsx` e `providers.tsx` também contam, mesmo puxando o número
+para baixo. Excluir o que é inconveniente é exatamente como o número do
+`apps/api` chegou a parecer 90% valendo 40%.
+
 ## Cast documentado
 
 `stateSyncMiddleware` em `app/store/index.ts` tem um `as unknown as Middleware`.
@@ -45,7 +80,12 @@ cast está nessa expressão só, não afrouxado no store.
 - Não persista o access token.
 - Não sincronize o cache do RTK Query entre abas — a allowlist em
   `AUTH_SYNCED_ACTIONS` é deliberada.
-- Não escreva string literal voltada ao usuário. Exceção: o error boundary, que
-  monta acima do provider e não tem tradutor.
+- Não escreva string literal voltada ao usuário — **inclusive dentro de um
+  componente copiado do registry**, que é código nosso a partir do momento em
+  que aterrissa. Exceção: o error boundary, que monta acima do provider e por
+  construção não tem tradutor.
+- Não use classe que não seja utilitário do Tailwind; `no-unknown-classes`
+  reprova. Foi essa regra que pegou as animações mortas do `Select`.
+- Não rode `eslint --fix` fora de `apps/web`. Ver DEC-017.
 - Não branche na união de erro do RTKQ; use `normalizeError` e o `code`.
 - Não valide formulário com schema local — importe de `@vpn/contracts`.

@@ -59,18 +59,33 @@ não está pronto.**
 ## 4. Anatomia de um módulo Nest
 
 ```
-apps/api/src/modules/<feature>/
-├─ <feature>.module.ts
-├─ <feature>.controller.ts
-├─ <feature>.service.ts
-└─ <outros services>.ts
+apps/api/src/
+├─ shared/                      o kernel: todo módulo pode depender dele,
+│  ├─ access-control/           e ele não pode depender de módulo nenhum
+│  ├─ errors/ health/ http/
+│  ├─ locale/ rate-limit/ validation/
+└─ modules/<feature>/
+   ├─ <feature>.module.ts
+   ├─ controllers/
+   ├─ services/
+   ├─ repositories/
+   └─ mappers/
 ```
 
-- Um módulo nunca importa o `*Service` de outro. Se precisa, ou o dado deveria
-  vir por outro caminho, ou existe um problema de fronteira.
+- Um módulo nunca importa **nada** de outro módulo — nem `*Service`, nem guard,
+  nem tipo. O que dois módulos precisam mora em `shared/`.
+- O kernel não importa módulo. Se um pedaço de `shared/` precisa de um, ele não
+  era kernel.
+- Um controller não contém regra de negócio. Ele valida, chama e formata — e
+  não importa repositório: persistência é assunto do service.
 - Um módulo nunca constrói um adapter. `AdaptersModule` é o único lugar onde uma
   porta encontra uma implementação.
-- Um controller não contém regra de negócio. Ele valida, chama e formata.
+- Um repositório é código nosso sobre o token `DATABASE`: sem interface, sem
+  suíte de conformidade e sem teste unitário (DEC-026).
+
+As quatro primeiras regras são verificadas por `import-x/no-restricted-paths`
+(DEC-027), e cada zona foi provada com uma sonda. Antes disso eram honra.
+Ver DEC-024.
 
 ## 5. Erros
 
@@ -82,8 +97,13 @@ num lugar e `ForbiddenException` noutro produz dois status para um mesmo
 resultado visível ao usuário, e o front passa a adivinhar.
 
 O corpo de erro sempre tem a forma de `ApiErrorResponse`. O `message` é para
-desenvolvedor e **nunca** é renderizado — o front tem sua própria cópia em
-`error-messages.ts`, indexada pelo código.
+desenvolvedor e **nunca** é renderizado — o front traduz por `errors.<CODE>` no
+catálogo de `@vpn/i18n`.
+
+O `correlationId` é obrigatório no corpo, e não é decoração: `normalizeError`
+no front só reconhece uma resposta de erro que o traga como string. Sem ele,
+todo erro vira `_UNKNOWN_ERROR` e a tela mostra "algo deu errado" no lugar da
+mensagem certa.
 
 ## 6. Comentários
 
@@ -147,3 +167,48 @@ Um comentário sai de sincronia com o código em silêncio. Um teste falha; um
 - Chave opcional é **omitida**, não definida como `undefined`
   (`exactOptionalPropertyTypes` trata as duas coisas como diferentes, e o CDK
   também).
+
+## 9. Anatomia de um componente
+
+```
+apps/web/src/
+├─ components/ui/          primitivo: copiado do registry, não conhece o domínio
+├─ components/form|layout/ composto: conhece t(), NormalizedError e o que é campo
+├─ features/<feature>/     api/ components/ hooks/ pages/
+└─ app/                    compõe: providers, router, error boundary
+```
+
+- Um primitivo nunca importa nada nosso além de `lib/`. Ele é código de
+  terceiro que por acaso mora aqui.
+- Um composto nunca conhece uma feature. Uma feature nunca conhece outra.
+- **Código copiado do registry é código nosso.** Um literal voltado ao usuário
+  dentro dele é um literal no app: troque por `t('chave')` e publique a chave
+  antes. A única exceção é o error boundary, que monta acima do
+  `LocaleProvider` e por construção não tem tradutor.
+- `Field` recebe **render prop**, não children. O `aria-describedby` precisa
+  chegar ao controle, e quem cria o controle é quem chama — clonar children
+  quebra contra o spread de `register()` do react-hook-form.
+- Toda tela que substitui um formulário move o foco (`MessageScreen`). Sem
+  isso o foco fica numa subárvore removida e o leitor de tela não é avisado.
+
+As três primeiras regras são verificadas por lint (DEC-027).
+
+## 10. Anatomia de um teste de tela
+
+`renderWithProviders` (em `src/test-utils.tsx`) monta store, tradutor e router
+de uma vez; `stubApi()` troca o `fetch` global e grava o que foi pedido.
+
+Duas armadilhas do ambiente estão codificadas ali, e cada uma custou uma
+sessão de depuração:
+
+- O `Request` do vitest é o do undici, que **recusa URL relativa**. O default
+  `/api` da aplicação faz toda requisição morrer antes de chegar no `fetch`,
+  sem erro visível — por isso `vite.config.mts` define `VITE_API_URL` absoluto
+  nos testes.
+- `stubApi().fail()` sempre manda `correlationId`, porque `normalizeError` só
+  reconhece a resposta de erro com ele. Um fixture sem `correlationId` faz o
+  teste passar pelo motivo errado: qualquer falha vira `_UNKNOWN_ERROR`, e uma
+  asserção do tipo "não mostra o código cru" passa sem provar nada.
+
+A limpeza da Testing Library **não** é automática aqui: `globals` está
+desligado, então `afterEach(cleanup)` é explícito em `test-setup.ts`.

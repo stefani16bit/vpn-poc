@@ -35,7 +35,8 @@ em <http://localhost:28025>, registry em <http://localhost:24873>.
 ## Stack
 
 NestJS 11 · Drizzle · PostgreSQL 17 · Redis · Vite 6 + React 19 + RTK Query ·
-zod · pino + Sentry · Stripe · AWS CDK · LocalStack · Verdaccio · pm2
+Tailwind v4 + shadcn/ui · zod · pino + Sentry · Stripe · AWS CDK · LocalStack ·
+Verdaccio · pm2
 
 ## Testes
 
