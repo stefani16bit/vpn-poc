@@ -1,7 +1,11 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { assertDriverConfiguration } from './concerns.js';
-import { loadEnv } from './index.js';
+import { loadEnv, resetEnvCache } from './index.js';
 
 const minimal = {
 	WEB_ORIGIN: 'http://localhost:5173',
@@ -43,6 +47,78 @@ describe('loadEnv', () => {
 
 	it('rejects an unknown driver rather than falling back to a default', () => {
 		expect(() => loadEnv({ source: { ...minimal, CACHE_DRIVER: 'memcached' } })).toThrow();
+	});
+});
+
+describe('loadEnv and the dotenv files', () => {
+	// `pnpm --filter <pkg> dev` runs every script with the cwd set to the
+	// package, never to the repository root, so a cwd-relative lookup finds
+	// nothing on a machine that was set up exactly as documented.
+	function workspace(): { root: string; pkg: string } {
+		const root = mkdtempSync(join(tmpdir(), 'vpn-env-'));
+		const pkg = join(root, 'apps', 'api');
+		mkdirSync(pkg, { recursive: true });
+		writeFileSync(join(root, 'pnpm-workspace.yaml'), "packages:\n  - 'apps/*'\n");
+		return { root, pkg };
+	}
+
+	function withCwd(dir: string, body: () => void): void {
+		const previous = process.cwd();
+		const overwritten = { ...process.env };
+		for (const key of Object.keys(minimal)) delete process.env[key];
+		resetEnvCache();
+		try {
+			process.chdir(dir);
+			body();
+		} finally {
+			process.chdir(previous);
+			process.env = overwritten;
+			resetEnvCache();
+		}
+	}
+
+	it('reads the env files from the workspace root, not from the cwd', () => {
+		const { root, pkg } = workspace();
+		writeFileSync(
+			join(root, '.env.local'),
+			[
+				'WEB_ORIGIN=http://root.example',
+				`DATABASE_URL=${minimal.DATABASE_URL}`,
+				`AUTH_JWT_SECRET=${minimal.AUTH_JWT_SECRET}`,
+			].join('\n'),
+		);
+
+		try {
+			withCwd(pkg, () => {
+				expect(loadEnv().WEB_ORIGIN).toBe('http://root.example');
+			});
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it('lets .env.local win over .env', () => {
+		const { root, pkg } = workspace();
+		const required = [
+			`DATABASE_URL=${minimal.DATABASE_URL}`,
+			`AUTH_JWT_SECRET=${minimal.AUTH_JWT_SECRET}`,
+		];
+		writeFileSync(
+			join(root, '.env'),
+			['WEB_ORIGIN=http://committed.example', ...required].join('\n'),
+		);
+		writeFileSync(
+			join(root, '.env.local'),
+			['WEB_ORIGIN=http://local.example', ...required].join('\n'),
+		);
+
+		try {
+			withCwd(pkg, () => {
+				expect(loadEnv().WEB_ORIGIN).toBe('http://local.example');
+			});
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 

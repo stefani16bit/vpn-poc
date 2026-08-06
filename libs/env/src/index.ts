@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
 import { config as loadDotenv } from 'dotenv';
 import type { z } from 'zod';
 
@@ -35,12 +38,33 @@ export interface LoadEnvOptions {
 	readonly source?: Record<string, string | undefined>;
 }
 
+/**
+ * The single .env.local lives at the repository root, but no app ever runs with
+ * the root as its cwd - `pnpm --filter <pkg> dev` executes each script inside
+ * its own package. Resolving from the cwd therefore reads nothing on a machine
+ * set up exactly as documented, and the failure looks like a missing variable
+ * rather than a file that was never opened.
+ *
+ * Falls back to the cwd when no marker is found, which is the deployed case:
+ * there is no workspace and no dotenv file, and dotenv treats both as a no-op.
+ */
+function workspaceRoot(): string {
+	let dir = process.cwd();
+	for (;;) {
+		if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
+		const parent = dirname(dir);
+		if (parent === dir) return process.cwd();
+		dir = parent;
+	}
+}
+
 export function loadEnv(options: LoadEnvOptions = {}): Env {
 	if (cached && !options.source) return cached;
 
 	if (!options.skipDotenv && !options.source) {
-		loadDotenv({ path: '.env.local', override: false });
-		loadDotenv({ path: '.env', override: false });
+		const root = workspaceRoot();
+		loadDotenv({ path: join(root, '.env.local'), override: false });
+		loadDotenv({ path: join(root, '.env'), override: false });
 	}
 
 	const parsed = fullSchema.safeParse(options.source ?? process.env);
