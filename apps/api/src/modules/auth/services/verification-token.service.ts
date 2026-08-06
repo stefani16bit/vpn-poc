@@ -1,16 +1,17 @@
 import { randomBytes } from 'node:crypto';
 
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
 
-import { DATABASE } from '@vpn-poc/adapters';
-import { type Database, verificationTokens } from '@vpn-poc/database';
 import { hashToken } from '@vpn-poc/adapters';
 import { CLOCK, type IClock } from '@vpn/ports';
 
 import { AppError } from '../../../shared/errors/app-error.js';
+import { VerificationTokenRepository } from '../repositories/verification-token.repository.js';
+import type { VerificationPurpose } from './verification-token.purpose.js';
 
-export type VerificationPurpose = 'email_verification' | 'password_reset';
+const TOKEN_BYTES = 32;
+
+export type { VerificationPurpose };
 
 export interface IssuedToken {
 	readonly token: string;
@@ -20,7 +21,7 @@ export interface IssuedToken {
 @Injectable()
 export class VerificationTokenService {
 	constructor(
-		@Inject(DATABASE) private readonly db: Database,
+		private readonly tokens: VerificationTokenRepository,
 		@Inject(CLOCK) private readonly clock: IClock,
 	) {}
 
@@ -29,46 +30,21 @@ export class VerificationTokenService {
 		purpose: VerificationPurpose,
 		ttlSeconds: number,
 	): Promise<IssuedToken> {
-		await this.db
-			.update(verificationTokens)
-			.set({ consumedAt: this.clock.now() })
-			.where(
-				and(
-					eq(verificationTokens.accountId, accountId),
-					eq(verificationTokens.purpose, purpose),
-					isNull(verificationTokens.consumedAt),
-				),
-			);
+		const now = this.clock.now();
+		await this.tokens.invalidateOutstanding(accountId, purpose, now);
 
-		const token = randomBytes(32).toString('base64url');
-		const expiresAt = new Date(this.clock.now().getTime() + ttlSeconds * 1000);
+		const token = randomBytes(TOKEN_BYTES).toString('base64url');
+		const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
 
-		await this.db
-			.insert(verificationTokens)
-			.values({ tokenHash: hashToken(token), accountId, purpose, expiresAt });
+		await this.tokens.issue(accountId, purpose, hashToken(token), expiresAt);
 
 		return { token, expiresAt };
 	}
 
 	async redeem(token: string, purpose: VerificationPurpose): Promise<string> {
 		const now = this.clock.now();
+		const row = await this.tokens.consume(hashToken(token), purpose, now);
 
-		const consumed = await this.db
-			.update(verificationTokens)
-			.set({ consumedAt: now })
-			.where(
-				and(
-					eq(verificationTokens.tokenHash, hashToken(token)),
-					eq(verificationTokens.purpose, purpose),
-					isNull(verificationTokens.consumedAt),
-				),
-			)
-			.returning({
-				accountId: verificationTokens.accountId,
-				expiresAt: verificationTokens.expiresAt,
-			});
-
-		const row = consumed[0];
 		if (!row) throw new AppError('TOKEN_INVALID', 'token is unknown or has already been used');
 
 		if (row.expiresAt.getTime() <= now.getTime()) {
