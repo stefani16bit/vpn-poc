@@ -2,9 +2,11 @@ import { useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { normalizeError } from '@/app/store/api-error.js';
+import { Loading } from '@/components/layout/loading.tsx';
+import { MessageScreen } from '@/components/layout/message-screen.tsx';
 import { useVerifyEmailMutation } from '@/features/auth/api/auth.api.js';
 import { ResendVerificationForm } from '@/features/auth/components/resend-verification-form.tsx';
-import { useTranslator } from '@/i18n/locale-context.js';
+import { useTranslator } from '@/i18n/locale-context.tsx';
 
 export function VerifyEmailPage() {
 	const t = useTranslator();
@@ -23,35 +25,36 @@ export function VerifyEmailPage() {
 	if (token) {
 		if (verifyState.isSuccess) {
 			return (
-				<section className="card">
-					<h1>{t('auth.verifyEmail.successTitle')}</h1>
+				<MessageScreen title={t('auth.verifyEmail.successTitle')}>
 					<p>{t('auth.verifyEmail.successBody')}</p>
-					<p>
-						<Link to="/login">{t('auth.login.submit')}</Link>
+					<p className="mt-4">
+						<Link to="/login" className="text-primary underline-offset-4 hover:underline">
+							{t('auth.login.submit')}
+						</Link>
 					</p>
-				</section>
+				</MessageScreen>
 			);
 		}
 
 		const error = normalizeError(verifyState.error);
 		if (error) {
 			return (
-				<section className="card">
-					<h1>{t('auth.verifyEmail.failureTitle')}</h1>
-					<p role="alert">{t(`errors.${error.code}` as never)}</p>
+				<MessageScreen title={t('auth.verifyEmail.failureTitle')}>
+					<p role="alert" className="text-destructive">
+						{t(`errors.${error.code}` as never)}
+					</p>
 					<ResendVerificationForm />
-				</section>
+				</MessageScreen>
 			);
 		}
 
-		return <p className="muted">{t('auth.verifyEmail.verifying')}</p>;
+		return <Loading />;
 	}
 
 	return (
-		<section className="card">
-			<h1>{t('auth.verifyEmail.pendingTitle')}</h1>
+		<MessageScreen title={t('auth.verifyEmail.pendingTitle')}>
 			<p>{t('auth.verifyEmail.pendingBody')}</p>
 			<ResendVerificationForm />
-		</section>
+		</MessageScreen>
 	);
 }
