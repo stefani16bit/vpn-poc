@@ -3,8 +3,9 @@ import { render, type RenderOptions, type RenderResult } from '@testing-library/
 import type { ReactElement, ReactNode } from 'react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
+import { vi } from 'vitest';
 
-import type { SupportedLocale } from '@vpn/contracts';
+import type { AnyErrorCode, SupportedLocale } from '@vpn/contracts';
 
 import { api } from '@/app/store/api.js';
 import { rootReducer } from '@/app/store/index.js';
@@ -52,4 +53,62 @@ export function renderWithProviders(
 	}
 
 	return { store, ...render(ui, { wrapper: Wrapper, ...rest }) };
+}
+
+export interface RecordedRequest {
+	readonly url: string;
+	readonly method: string;
+	readonly body: unknown;
+	readonly headers: Headers;
+}
+
+export interface ApiStub {
+	readonly requests: RecordedRequest[];
+	reply(body: unknown, status?: number): void;
+	fail(code: AnyErrorCode, status: number): void;
+	lastRequest(): RecordedRequest | undefined;
+}
+
+export function stubApi(): ApiStub {
+	const requests: RecordedRequest[] = [];
+	let nextStatus = 200;
+	let nextBody: unknown = {};
+
+	const stub: ApiStub = {
+		requests,
+		reply(body, status = 200) {
+			nextBody = body;
+			nextStatus = status;
+		},
+		// normalizeError only trusts a body carrying a string correlationId, which
+		// the API's exception filter always sends; omitting it here would make
+		// every failure read as _UNKNOWN_ERROR and the assertion pass for nothing.
+		fail(code, status) {
+			nextBody = { code, message: `${code} (developer detail)`, correlationId: 'corr-test' };
+			nextStatus = status;
+		},
+		lastRequest() {
+			return requests.at(-1);
+		},
+	};
+
+	vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+		const request = input instanceof Request ? input : new Request(String(input), init);
+		requests.push({
+			url: request.url,
+			method: request.method,
+			body: await request
+				.clone()
+				.json()
+				.catch(() => null),
+			headers: request.headers,
+		});
+
+		return new Response(JSON.stringify(nextBody), {
+			status: nextStatus,
+			headers: { 'content-type': 'application/json' },
+		});
+	});
+
+	return stub;
 }
