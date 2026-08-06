@@ -24,9 +24,9 @@ import {
 } from '@vpn/contracts';
 import { Inject } from '@nestjs/common';
 
-import { AppError } from '../../common/errors/app-error.js';
-import { currentLocale } from '../../common/http/request-context.js';
-import { ZodBody } from '../../common/validation/zod-body.pipe.js';
+import { AppError } from '../../shared/errors/app-error.js';
+import { currentLocale } from '../../shared/http/request-context.js';
+import { ZodBody } from '../../shared/validation/zod-body.pipe.js';
 import type { AccessTokenClaims } from './access-token.service.js';
 import { AccessTokenGuard, AllowUnverified, Auth } from './auth.guard.js';
 import type { IssuedSession } from './auth.service.js';

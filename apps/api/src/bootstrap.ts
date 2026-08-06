@@ -8,7 +8,7 @@ import { Logger } from 'nestjs-pino';
 import { loadEnv } from '@vpn-poc/env';
 
 import { AppModule } from './app.module.js';
-import { requestContextMiddleware } from './common/http/request-context.js';
+import { requestContextMiddleware } from './shared/http/request-context.js';
 
 export async function createApp(): Promise<INestApplication> {
 	const env = loadEnv();

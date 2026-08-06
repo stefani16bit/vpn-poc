@@ -3,13 +3,11 @@ import { HttpException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 import { API_ERROR_CODES } from '@vpn/contracts';
-import { registerRequestSchema } from '@vpn/contracts';
 import type { IErrorReporter } from '@vpn/ports';
 
-import { AppError, statusForCode } from './errors/app-error.js';
-import { GlobalExceptionFilter } from './errors/exception.filter.js';
-import { runWithCorrelation } from './http/request-context.js';
-import { ZodBody } from './validation/zod-body.pipe.js';
+import { runWithCorrelation } from '../http/request-context.js';
+import { AppError, statusForCode } from './app-error.js';
+import { GlobalExceptionFilter } from './exception.filter.js';
 
 describe('AppError', () => {
 	it('derives the status from the code', () => {
@@ -27,41 +25,6 @@ describe('AppError', () => {
 	it('carries field errors when there are any', () => {
 		const error = new AppError('VALIDATION_FAILED', 'bad', { email: 'required' });
 		expect(error.fields).toEqual({ email: 'required' });
-	});
-});
-
-describe('ZodBody', () => {
-	const pipe = new ZodBody(registerRequestSchema);
-
-	it('returns the parsed value, normalised', () => {
-		const parsed = pipe.transform(
-			{ email: '  Ada@Example.COM ', password: 'a-sufficiently-long-password' },
-			{ type: 'body' },
-		);
-		expect(parsed.email).toBe('ada@example.com');
-	});
-
-	it('throws VALIDATION_FAILED with one message per field', () => {
-		try {
-			pipe.transform({ email: 'not-an-email', password: 'short' }, { type: 'body' });
-			expect.unreachable('should have thrown');
-		} catch (error) {
-			expect(error).toBeInstanceOf(AppError);
-			const appError = error as AppError;
-			expect(appError.code).toBe('VALIDATION_FAILED');
-			expect(appError.fields).toHaveProperty('email');
-			expect(appError.fields).toHaveProperty('password');
-		}
-	});
-
-	it('keeps the first message when a field has several problems', () => {
-		try {
-			pipe.transform({ email: '', password: '' }, { type: 'body' });
-			expect.unreachable('should have thrown');
-		} catch (error) {
-			const fields = (error as AppError).fields ?? {};
-			expect(typeof fields['email']).toBe('string');
-		}
 	});
 });
 

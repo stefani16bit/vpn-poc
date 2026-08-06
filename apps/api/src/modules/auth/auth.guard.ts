@@ -8,7 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 
-import { AppError } from '../../common/errors/app-error.js';
+import { AppError } from '../../shared/errors/app-error.js';
 import type { AccessTokenClaims } from './access-token.service.js';
 import { AccessTokenService } from './access-token.service.js';
 

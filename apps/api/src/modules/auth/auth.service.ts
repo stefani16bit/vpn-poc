@@ -19,8 +19,8 @@ import {
 	type IIdentityProvider,
 } from '@vpn/ports';
 
-import { AppError } from '../../common/errors/app-error.js';
-import { currentLocale } from '../../common/http/request-context.js';
+import { AppError } from '../../shared/errors/app-error.js';
+import { currentLocale } from '../../shared/http/request-context.js';
 import { AccessTokenService } from './access-token.service.js';
 import { RateLimitService } from './rate-limit.service.js';
 import { RATE_LIMITS } from './rate-limit.service.js';

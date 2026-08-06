@@ -18,8 +18,8 @@ import {
 	type SubscriptionResponse,
 } from '@vpn/contracts';
 
-import { AppError } from '../../common/errors/app-error.js';
-import { ZodBody } from '../../common/validation/zod-body.pipe.js';
+import { AppError } from '../../shared/errors/app-error.js';
+import { ZodBody } from '../../shared/validation/zod-body.pipe.js';
 import type { AccessTokenClaims } from '../auth/access-token.service.js';
 import { AccessTokenGuard, Auth } from '../auth/auth.guard.js';
 import { BillingService } from './billing.service.js';

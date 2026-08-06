@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { CACHE_STORE, type ICacheStore } from '@vpn/ports';
 
-import { AppError } from '../../common/errors/app-error.js';
+import { AppError } from '../../shared/errors/app-error.js';
 
 export interface RateLimitRule {
 	readonly namespace: string;

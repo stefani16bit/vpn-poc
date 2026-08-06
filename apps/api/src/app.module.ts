@@ -6,14 +6,14 @@ import { AdaptersModule, DATABASE } from '@vpn-poc/adapters';
 import { CACHE_STORE, type ICacheStore } from '@vpn/ports';
 import { loadEnv } from '@vpn-poc/env';
 
-import { GlobalExceptionFilter } from './common/errors/exception.filter.js';
-import { loggerConfig } from './common/http/logger.config.js';
-import { HealthModule } from './common/health/health.module.js';
+import { GlobalExceptionFilter } from './shared/errors/exception.filter.js';
+import { loggerConfig } from './shared/http/logger.config.js';
+import { HealthModule } from './shared/health/health.module.js';
 import {
 	cacheIndicator,
 	databaseIndicator,
 	type QueryableDatabase,
-} from './common/health/indicators.js';
+} from './shared/health/indicators.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { BillingModule } from './modules/billing/billing.module.js';
 

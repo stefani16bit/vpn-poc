@@ -8,7 +8,7 @@ import { type Database, verificationTokens } from '@vpn-poc/database';
 import { hashToken } from '@vpn-poc/adapters';
 import { CLOCK, type IClock } from '@vpn/ports';
 
-import { AppError } from '../../common/errors/app-error.js';
+import { AppError } from '../../shared/errors/app-error.js';
 
 export type VerificationPurpose = 'email_verification' | 'password_reset';
 
