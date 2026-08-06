@@ -31,9 +31,11 @@ export const baseQueryWithRefresh: BaseQueryFn<
 	let result = await rawBaseQuery(args, api, extraOptions);
 
 	const normalized = normalizeError(result.error);
-	const isAuthRoute = typeof args !== 'string' && String(args.url).startsWith('auth/');
+	const url = typeof args === 'string' ? args : String(args.url);
+	const isAuthRoute = url.startsWith('auth/');
+	const hadSession = (api.getState() as RootState).auth.status === 'authenticated';
 
-	if (normalized?.status === 401 && !isAuthRoute) {
+	if (normalized?.status === 401 && !isAuthRoute && hadSession) {
 		refreshInFlight ??= (async () => {
 			const refreshed = await rawBaseQuery(
 				{ url: 'auth/refresh', method: 'POST' },
@@ -58,7 +60,7 @@ export const baseQueryWithRefresh: BaseQueryFn<
 	const finalError = normalizeError(result.error);
 	if (finalError) {
 		logger.warn('api error', {
-			url: typeof args === 'string' ? args : args.url,
+			url,
 			code: finalError.code,
 			status: finalError.status,
 			correlationId: finalError.correlationId,

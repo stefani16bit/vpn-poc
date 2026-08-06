@@ -39,4 +39,12 @@ export const logger = {
 	error(message: string, context?: Record<string, unknown>): void {
 		console.error(PREFIX, message, context ? redact(context) : '');
 	},
+	group(label: string, entries: Record<string, unknown>): void {
+		if (!isDev) return;
+		console.groupCollapsed(PREFIX, label);
+		for (const [key, value] of Object.entries(entries)) {
+			console.info(key, redact(value));
+		}
+		console.groupEnd();
+	},
 };

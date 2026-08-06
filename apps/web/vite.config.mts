@@ -12,12 +12,17 @@ const preset = createVitestConfig({
 });
 
 export default defineConfig({
+	// The dotenv files live at the workspace root; without this Vite looks in
+	// apps/web, finds nothing, and VITE_API_URL silently falls back to '/api'.
+	envDir: fileURLToPath(new URL('../..', import.meta.url)),
 	plugins: [react(), tailwindcss()],
 	resolve: {
 		alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
 	},
 	server: {
 		port: 5173,
+		// Must match WEB_ORIGIN and the host in VITE_API_URL: the refresh cookie
+		// is SameSite=Lax, and localhost and 127.0.0.1 are two different sites.
 		host: '127.0.0.1',
 	},
 	build: { sourcemap: true },

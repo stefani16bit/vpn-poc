@@ -21,9 +21,13 @@ httpOnly; no boot, `use-bootstrap-auth` troca o cookie por um access token novo.
 Guardar o token em localStorage entregaria ele a qualquer script da página e
 desfaria a razão de o cookie ser httpOnly.
 
-`refreshInFlight` em `api.ts` é compartilhado: dez componentes renderizando
-juntos produzem um refresh, não dez. Os outros nove falhariam de qualquer forma,
-porque o refresh rotaciona e só o primeiro token continua válido.
+`refreshInFlight` em `base-query.ts` é compartilhado: dez componentes
+renderizando juntos produzem um refresh, não dez. Os outros nove falhariam de
+qualquer forma, porque o refresh rotaciona e só o primeiro token continua
+válido. Isso resolve concorrência **dentro de um tick**; a sequência é o latch
+ao lado dele — um 401 só tenta reautenticar se `auth.status` for
+`authenticated`. Sem isso, cada 401 é um convite novo e o `sessionCleared` que
+derruba o cache produz o refetch que produz o 401 seguinte. Ver DEC-032.
 
 ## i18n
 

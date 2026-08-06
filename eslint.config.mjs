@@ -210,7 +210,9 @@ export default [
 
 	{
 		files: ['apps/web/src/lib/logger.ts'],
-		rules: { 'no-console': ['error', { allow: ['info', 'warn', 'error'] }] },
+		rules: {
+			'no-console': ['error', { allow: ['info', 'warn', 'error', 'groupCollapsed', 'groupEnd'] }],
+		},
 	},
 
 	{

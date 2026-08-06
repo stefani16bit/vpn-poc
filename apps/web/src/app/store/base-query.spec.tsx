@@ -2,11 +2,17 @@ import { waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeStore, renderWithProviders } from '@/test-utils.tsx';
+import { useMeQuery } from '@/features/auth/api/auth.api.js';
 import { useSubscriptionQuery } from '@/features/billing/api/billing.api.js';
-import { sessionResolved } from './auth-slice.js';
+import { sessionCleared, sessionResolved } from './auth-slice.js';
 
 function Probe() {
 	useSubscriptionQuery();
+	return null;
+}
+
+function MeProbe() {
+	useMeQuery();
 	return null;
 }
 
@@ -52,6 +58,27 @@ function signedIn() {
 	return store;
 }
 
+function signedOut() {
+	const store = makeStore();
+	store.dispatch(sessionCleared());
+	return store;
+}
+
+function unauthorized() {
+	return scriptedFetch(() => ({
+		status: 401,
+		body: { code: 'UNAUTHENTICATED', correlationId: 'c' },
+	}));
+}
+
+async function settle() {
+	await new Promise((resolve) => setTimeout(resolve, 50));
+}
+
+function refreshesIn(calls: readonly Call[]) {
+	return calls.filter((c) => c.url.includes('auth/refresh'));
+}
+
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
@@ -94,16 +121,48 @@ describe('baseQueryWithRefresh', () => {
 		await waitFor(() => expect(store.getState().auth.status).toBe('unauthenticated'));
 	});
 
-	it('does not try to refresh a failing auth route, which would recurse', async () => {
-		const calls = scriptedFetch(() => ({
-			status: 401,
-			body: { code: 'INVALID_CREDENTIALS', correlationId: 'c' },
-		}));
+	it('asks for one refresh and stops when nothing can restore the session', async () => {
+		const calls = unauthorized();
 		const store = signedIn();
 
 		renderWithProviders(<Probe />, { locale: 'en', store });
 
-		await waitFor(() => expect(calls.length).toBeGreaterThan(1));
-		expect(calls.filter((c) => c.url.includes('auth/refresh'))).toHaveLength(1);
+		await waitFor(() => expect(store.getState().auth.status).toBe('unauthenticated'));
+		await settle();
+
+		expect(refreshesIn(calls)).toHaveLength(1);
+	});
+
+	it('does not reauthenticate once the session is known to be gone', async () => {
+		const calls = unauthorized();
+
+		renderWithProviders(<Probe />, { locale: 'en', store: signedOut() });
+
+		await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+		await settle();
+
+		expect(refreshesIn(calls)).toHaveLength(0);
+	});
+
+	it('leaves the still unknown session to the boot refresh', async () => {
+		const calls = unauthorized();
+
+		renderWithProviders(<Probe />, { locale: 'en', store: makeStore() });
+
+		await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+		await settle();
+
+		expect(refreshesIn(calls)).toHaveLength(0);
+	});
+
+	it('does not reauthenticate an auth route addressed as a plain string', async () => {
+		const calls = unauthorized();
+
+		renderWithProviders(<MeProbe />, { locale: 'en', store: signedIn() });
+
+		await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+		await settle();
+
+		expect(refreshesIn(calls)).toHaveLength(0);
 	});
 });

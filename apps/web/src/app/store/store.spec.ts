@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { makeStore, stubApi } from '@/test-utils.tsx';
+import { authApi } from '@/features/auth/api/auth.api.js';
 import { normalizeError } from './api-error.js';
 import { authReducer, sessionCleared, sessionResolved, sessionUnknown } from './auth-slice.js';
 
@@ -33,6 +35,35 @@ describe('authReducer', () => {
 	it('drops the token when returning to unknown', () => {
 		const authenticated = authReducer(undefined, sessionResolved({ user, accessToken: 'jwt' }));
 		expect(authReducer(authenticated, sessionUnknown()).accessToken).toBeNull();
+	});
+});
+
+describe('the api cache listener', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	async function seedCache() {
+		const api = stubApi();
+		api.reply(user);
+		const store = makeStore();
+		await store.dispatch(authApi.endpoints.me.initiate());
+		return store;
+	}
+
+	it('keeps the cache when the boot refresh finds no session', async () => {
+		const store = await seedCache();
+		store.dispatch(sessionCleared());
+
+		expect(Object.keys(store.getState().api.queries)).not.toEqual([]);
+	});
+
+	it('drops the cache when an authenticated session is cleared', async () => {
+		const store = await seedCache();
+		store.dispatch(sessionResolved({ user, accessToken: 'jwt' }));
+		store.dispatch(sessionCleared());
+
+		expect(Object.keys(store.getState().api.queries)).toEqual([]);
 	});
 });
 

@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { render, type RenderOptions, type RenderResult } from '@testing-library/react';
-import type { ReactElement, ReactNode } from 'react';
+import { StrictMode, type ReactElement, type ReactNode } from 'react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
@@ -8,18 +8,21 @@ import { vi } from 'vitest';
 import type { AnyErrorCode, SupportedLocale } from '@vpn/contracts';
 
 import { api } from '@/app/store/api.js';
-import { rootReducer } from '@/app/store/index.js';
+import { clearApiCacheMiddleware, rootReducer } from '@/app/store/index.js';
 import { LocaleProvider } from '@/i18n/locale-context.tsx';
 import { ThemeProvider } from '@/theme/theme-provider.tsx';
 
 export type TestStore = ReturnType<typeof makeStore>;
 
-// The real store adds cross-tab sync, which needs a BroadcastChannel and would
-// leak state between tests. Everything else is the production wiring.
+// The real store adds two things this one leaves out: cross-tab sync, which
+// needs a BroadcastChannel and would leak state between tests, and the action
+// logger, which would print a group per action across the whole suite.
+// Everything else is the production wiring.
 export function makeStore() {
 	return configureStore({
 		reducer: rootReducer,
-		middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(api.middleware),
+		middleware: (getDefaultMiddleware) =>
+			getDefaultMiddleware().prepend(clearApiCacheMiddleware).concat(api.middleware),
 	});
 }
 
@@ -45,13 +48,15 @@ export function renderWithProviders(
 
 	function Wrapper({ children }: { children: ReactNode }) {
 		return (
-			<Provider store={store}>
-				<LocaleProvider>
-					<ThemeProvider>
-						<MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
-					</ThemeProvider>
-				</LocaleProvider>
-			</Provider>
+			<StrictMode>
+				<Provider store={store}>
+					<LocaleProvider>
+						<ThemeProvider>
+							<MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+						</ThemeProvider>
+					</LocaleProvider>
+				</Provider>
+			</StrictMode>
 		);
 	}
 
@@ -70,6 +75,43 @@ export interface ApiStub {
 	reply(body: unknown, status?: number): void;
 	fail(code: AnyErrorCode, status: number): void;
 	lastRequest(): RecordedRequest | undefined;
+}
+
+export interface SlowApiStub {
+	readonly requests: string[];
+	readonly aborted: string[];
+	release(): void;
+}
+
+// A request that is still in flight is the only way to observe a teardown
+// aborting it, which is what a resolved-on-call stub can never show.
+export function stubSlowApi(body: unknown = { acknowledged: true }, status = 200): SlowApiStub {
+	const requests: string[] = [];
+	const aborted: string[] = [];
+
+	let open!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		open = resolve;
+	});
+
+	vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+		const request = input instanceof Request ? input : new Request(String(input), init);
+		requests.push(request.url);
+
+		await gate;
+
+		if (request.signal?.aborted) {
+			aborted.push(request.url);
+			throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+		}
+
+		return new Response(JSON.stringify(body), {
+			status,
+			headers: { 'content-type': 'application/json' },
+		});
+	});
+
+	return { requests, aborted, release: () => open() };
 }
 
 export function stubApi(): ApiStub {

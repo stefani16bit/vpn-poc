@@ -2,7 +2,14 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { renderWithProviders, stubApi, type ApiStub } from '@/test-utils.tsx';
+import { sessionCleared } from '@/app/store/auth-slice.js';
+import {
+	makeStore,
+	renderWithProviders,
+	stubApi,
+	stubSlowApi,
+	type ApiStub,
+} from '@/test-utils.tsx';
 import { VerifyEmailPage } from './verify-email.page.tsx';
 
 const TOKEN = 'x'.repeat(43);
@@ -41,6 +48,50 @@ describe('VerifyEmailPage', () => {
 		expect(api.requests).toHaveLength(1);
 	});
 
+	it('survives a remount: the request is neither aborted nor sent twice', async () => {
+		const store = makeStore();
+		const slow = stubSlowApi();
+
+		const first = renderWithProviders(<VerifyEmailPage />, {
+			locale: 'en',
+			route: `/verify-email?token=${TOKEN}`,
+			store,
+		});
+
+		await waitFor(() => expect(slow.requests).toHaveLength(1));
+		first.unmount();
+
+		renderWithProviders(<VerifyEmailPage />, {
+			locale: 'en',
+			route: `/verify-email?token=${TOKEN}`,
+			store,
+		});
+
+		slow.release();
+
+		expect(await screen.findByText('E-mail confirmed')).toBeInTheDocument();
+		expect(slow.requests).toHaveLength(1);
+		expect(slow.aborted).toEqual([]);
+	});
+
+	it('survives the boot refresh finding no session while it is in flight', async () => {
+		const store = makeStore();
+		const slow = stubSlowApi();
+
+		renderWithProviders(<VerifyEmailPage />, {
+			locale: 'en',
+			route: `/verify-email?token=${TOKEN}`,
+			store,
+		});
+
+		await waitFor(() => expect(slow.requests).toHaveLength(1));
+		store.dispatch(sessionCleared());
+		slow.release();
+
+		expect(await screen.findByText('E-mail confirmed')).toBeInTheDocument();
+		expect(slow.aborted).toEqual([]);
+	});
+
 	it('confirms success and offers the way to sign in', async () => {
 		api.reply({ acknowledged: true });
 		renderWithProviders(<VerifyEmailPage />, {
@@ -62,6 +113,17 @@ describe('VerifyEmailPage', () => {
 		const alert = await screen.findByRole('alert');
 		expect(alert).toHaveTextContent('This link is not valid or has already been used.');
 		expect(screen.getByLabelText('E-mail')).toBeInTheDocument();
+	});
+
+	it('says the server is unreachable instead of spinning forever', async () => {
+		vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')));
+		renderWithProviders(<VerifyEmailPage />, {
+			locale: 'en',
+			route: `/verify-email?token=${TOKEN}`,
+		});
+
+		const alert = await screen.findByRole('alert');
+		expect(alert).toHaveTextContent('Could not connect. Check your internet.');
 	});
 
 	it('shows the pending screen and a resend form when there is no token', () => {

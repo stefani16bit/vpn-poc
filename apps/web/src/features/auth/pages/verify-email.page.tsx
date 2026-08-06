@@ -8,19 +8,24 @@ import { useVerifyEmailMutation } from '@/features/auth/api/auth.api.js';
 import { ResendVerificationForm } from '@/features/auth/components/resend-verification-form.tsx';
 import { useTranslator } from '@/i18n/locale-context.tsx';
 
+const CACHE_KEY = 'verify-email';
+
 export function VerifyEmailPage() {
 	const t = useTranslator();
 	const [params] = useSearchParams();
 	const token = params.get('token');
 
-	const [verifyEmail, verifyState] = useVerifyEmailMutation();
+	// Without a fixed cache key, RTK Query aborts the request and drops its
+	// result when this component unmounts, and the remount starts over from
+	// uninitialized — a spinner that never ends over a token already spent.
+	const [verifyEmail, verifyState] = useVerifyEmailMutation({ fixedCacheKey: CACHE_KEY });
 	const redeemed = useRef(false);
 
 	useEffect(() => {
-		if (!token || redeemed.current) return;
+		if (!token || redeemed.current || !verifyState.isUninitialized) return;
 		redeemed.current = true;
 		void verifyEmail({ token });
-	}, [token, verifyEmail]);
+	}, [token, verifyEmail, verifyState.isUninitialized]);
 
 	if (token) {
 		if (verifyState.isSuccess) {
