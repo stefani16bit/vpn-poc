@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux';
 import { Navigate, useLocation } from 'react-router-dom';
 
 import type { RootState } from '@/app/store/index.js';
-import { useTranslator } from '@/i18n/locale-context.js';
+import { Loading } from '@/components/layout/loading.tsx';
 
 export interface RequireAuthProps {
 	readonly children: ReactNode;
@@ -11,11 +11,10 @@ export interface RequireAuthProps {
 }
 
 export function RequireAuth({ children, allowUnverified = false }: RequireAuthProps): ReactNode {
-	const t = useTranslator();
 	const auth = useSelector((state: RootState) => state.auth);
 	const location = useLocation();
 
-	if (auth.status === 'unknown') return <p className="muted">{t('common.loading')}</p>;
+	if (auth.status === 'unknown') return <Loading />;
 
 	if (auth.status === 'unauthenticated') {
 		return <Navigate to="/login" replace state={{ from: location.pathname }} />;

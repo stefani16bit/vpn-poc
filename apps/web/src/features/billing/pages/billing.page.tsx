@@ -3,20 +3,25 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { PlanId } from '@vpn/contracts';
 
 import { normalizeError } from '@/app/store/api-error.js';
+import { sessionCleared } from '@/app/store/auth-slice.js';
+import type { AppDispatch, RootState } from '@/app/store/index.js';
+import { useLogoutMutation } from '@/app/store/session.api.js';
+import { FormError } from '@/components/form/form-error.tsx';
+import { Loading } from '@/components/layout/loading.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 import {
 	useCancelSubscriptionMutation,
 	useCreateCheckoutMutation,
 	useSubscriptionQuery,
 } from '@/features/billing/api/billing.api.js';
-import { sessionCleared } from '@/app/store/auth-slice.js';
-import { useLogoutMutation } from '@/app/store/session.api.js';
-import type { AppDispatch, RootState } from '@/app/store/index.js';
-import { LanguagePicker } from '@/i18n/language-picker.js';
-import { useLocale } from '@/i18n/locale-context.js';
-import { FormError } from '@/ui/form.tsx';
+import { PlanActions } from '@/features/billing/components/plan-actions.tsx';
+import { SubscriptionStatus } from '@/features/billing/components/subscription-status.tsx';
+import { LanguagePicker } from '@/i18n/language-picker.tsx';
+import { useTranslator } from '@/i18n/locale-context.tsx';
 
 export function BillingPage() {
-	const { t, locale } = useLocale();
+	const t = useTranslator();
 	const dispatch = useDispatch<AppDispatch>();
 	const user = useSelector((state: RootState) => state.auth.user);
 
@@ -30,82 +35,46 @@ export function BillingPage() {
 		if ('data' in result && result.data) window.location.assign(result.data.checkoutUrl);
 	}
 
-	const status = subscription.data?.status ?? 'none';
-
 	return (
-		<section className="card">
-			<header className="row">
-				<h1>{t('billing.accountTitle')}</h1>
-				<button
+		<Card className="w-full max-w-md">
+			<CardHeader className="flex flex-row items-center justify-between gap-4">
+				<CardTitle className="text-xl">{t('billing.accountTitle')}</CardTitle>
+				<Button
 					type="button"
-					className="link"
+					variant="link"
+					className="h-auto p-0"
 					onClick={async () => {
 						await logout();
 						dispatch(sessionCleared());
 					}}
 				>
 					{t('auth.logout')}
-				</button>
-			</header>
+				</Button>
+			</CardHeader>
 
-			<p className="muted">{user?.email}</p>
+			<CardContent>
+				<p className="text-muted-foreground">{user?.email}</p>
 
-			<LanguagePicker />
+				<LanguagePicker />
 
-			<h2>{t('billing.subscriptionTitle')}</h2>
+				<h2 className="mt-8 mb-3 text-lg font-medium">{t('billing.subscriptionTitle')}</h2>
 
-			<FormError error={normalizeError(checkoutState.error ?? cancelState.error)} />
+				<FormError error={normalizeError(checkoutState.error ?? cancelState.error)} />
 
-			{subscription.isLoading ? (
-				<p className="muted">{t('common.loading')}</p>
-			) : (
-				<>
-					<p>
-						<strong>{t(`billing.status.${status}` as never)}</strong>
-						{subscription.data?.currentPeriodEnd ? (
-							<span className="muted">
-								{' '}
-								·{' '}
-								{t('billing.renewsOn', {
-									date: new Date(subscription.data.currentPeriodEnd).toLocaleDateString(locale),
-								})}
-							</span>
-						) : null}
-					</p>
-
-					{subscription.data?.cancelAtPeriodEnd ? (
-						<p className="muted small">{t('billing.cancelScheduled')}</p>
-					) : null}
-
-					{status === 'none' || status === 'canceled' ? (
-						<div className="row">
-							<button
-								type="button"
-								className="primary"
-								disabled={checkoutState.isLoading}
-								onClick={() => void subscribe('monthly')}
-							>
-								{t('billing.subscribeMonthly')}
-							</button>
-							<button
-								type="button"
-								disabled={checkoutState.isLoading}
-								onClick={() => void subscribe('yearly')}
-							>
-								{t('billing.subscribeYearly')}
-							</button>
-						</div>
-					) : (
-						<button
-							type="button"
-							disabled={cancelState.isLoading || subscription.data?.cancelAtPeriodEnd}
-							onClick={() => void cancelSubscription()}
-						>
-							{t('billing.cancel')}
-						</button>
-					)}
-				</>
-			)}
-		</section>
+				{subscription.isLoading ? (
+					<Loading />
+				) : (
+					<>
+						<SubscriptionStatus subscription={subscription.data} />
+						<PlanActions
+							subscription={subscription.data}
+							pending={checkoutState.isLoading || cancelState.isLoading}
+							onSubscribe={(plan) => void subscribe(plan)}
+							onCancel={() => void cancelSubscription()}
+						/>
+					</>
+				)}
+			</CardContent>
+		</Card>
 	);
 }
