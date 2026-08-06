@@ -135,6 +135,9 @@ importers:
       '@types/supertest':
         specifier: ^6.0.2
         version: 6.0.3
+      '@vpn/config':
+        specifier: ^0.1.0
+        version: 0.1.0(vitest@4.1.10)
       '@vpn/testing':
         specifier: ^0.2.0
         version: 0.2.0(vitest@4.1.10)
@@ -2839,6 +2842,14 @@ packages:
 
   '@vitest/utils@4.1.10':
     resolution: {integrity: sha512-fy9am/HWxbaGt/Sawrp90vt6Y6jQwf1RX77cz3uwoJwJVMli/e1IEwRPnMNJ7vKfPTwo0diXifkpPvwH9v7nGA==}
+
+  '@vpn/config@0.1.0':
+    resolution: {integrity: sha512-8l8NEfzNX/aAmEihNR5NRlkNOQFlgF7Mo6Vgaxjsg/vboBJ8++2m3FRRUf1otLLPhmCmwOjW8V1DtLWYBH+6GQ==}
+    peerDependencies:
+      vitest: '>=2'
+    peerDependenciesMeta:
+      vitest:
+        optional: true
 
   '@vpn/contracts@0.4.0':
     resolution: {integrity: sha512-yoror/z9RmWbWXjDRAxN1nvo5EqZ6+8CgxNsLbzGv0VKcb+IRElA1btktPtXQ+6QMzULGuJ3jujnJxi5ngLY7Q==}
@@ -8163,6 +8174,10 @@ snapshots:
       '@vitest/pretty-format': 4.1.10
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
+
+  '@vpn/config@0.1.0(vitest@4.1.10)':
+    optionalDependencies:
+      vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@8.2.0(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.5)(yaml@2.9.0))
 
   '@vpn/contracts@0.4.0':
     dependencies:

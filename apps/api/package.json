@@ -38,6 +38,7 @@
     "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.0",
     "@types/supertest": "^6.0.2",
+    "@vpn/config": "^0.1.0",
     "@vpn/testing": "^0.2.0",
     "supertest": "^7.0.0"
   },

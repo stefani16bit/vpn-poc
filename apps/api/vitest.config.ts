@@ -1,5 +1,26 @@
+import { createVitestConfig } from '@vpn/config';
 import { defineConfig } from 'vitest/config';
 
+const preset = createVitestConfig({
+	coverageExclude: [
+		'src/**/*.module.ts',
+		'src/**/repositories/**',
+		'src/bootstrap.ts',
+		'src/e2e.setup.ts',
+	],
+});
+
 export default defineConfig({
-	test: { environment: 'node', include: ['src/**/*.spec.ts'], exclude: ['src/**/*.e2e.spec.ts'] },
+	test: {
+		...preset.test,
+		include: ['src/**/*.spec.ts'],
+		exclude: ['src/**/*.e2e.spec.ts'],
+		coverage: {
+			...preset.test.coverage,
+			provider: 'v8' as const,
+			// Without this, coverage counts only the files a test already imports,
+			// which is how a 40% suite reported 90%.
+			include: ['src/**/*.ts'],
+		},
+	},
 });

@@ -645,9 +645,28 @@ implementam isso com `Math.max`. Nenhum `vitest.config.*` deste repositório
 ligar abaixo de 80 — se o número de hoje está abaixo, ligar fica bloqueado até
 os testes de extração existirem. Essa ordem é aritmética, não preferência.
 
+**Medição.** O preset **não** liga `coverage.all`, e sem ele o relatório conta
+só os arquivos que algum teste já importa. Medido assim, `apps/api` reportava
+90%; medido sobre `src/**/*.ts`, reportava **40,4% de statements e 36,8% de
+branches**. Os dois números descrevem o mesmo código — o primeiro é a razão de
+o piso ter sobrevivido tanto tempo sem ninguém notar que era código morto. Por
+isso `coverage.all` é ligado explicitamente no app, com um comentário no
+arquivo, e não fica escondido no preset.
+
+Fechar a diferença exigiu teste para `auth.service.ts`, os dois controllers, o
+decorator `@Auth()`, `logger.config.ts`, o middleware de contexto e os
+indicadores de health — nenhum deles tinha um. `apps/api` foi de 19 para 179
+testes; o número agora é 100% de statements e 91,8% de branches. O gate também
+foi sondado: com `--coverage.thresholds.branches=99` ele falha citando o valor
+real, então é portão e não enfeite.
+
 **Consequências.** Exclusões, cada uma com motivo: `*.module.ts` são
 declarações; `bootstrap.ts` só é exercitado pela corrida e2e, que não gera
-cobertura na corrida unitária; `components/ui/**` é código de registry cujo
+cobertura na corrida unitária; `repositories/**` porque DEC-026 decide que
+repositório não tem teste unitário — sem essa exclusão as duas decisões se
+contradizem e o piso fica inalcançável por construção, o que é a pior
+combinação possível: uma regra que obriga a escrever o teste que outra regra
+proíbe; `components/ui/**` é código de registry cujo
 comportamento é do Radix e é coberto lá em cima — `select.tsx` sozinho são ~150
 linhas de subcomponentes que nunca renderizamos. `components/form/**` e
 `components/layout/**` **não** são excluídos: é onde mora comportamento nosso. A
