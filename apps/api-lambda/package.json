@@ -1,0 +1,25 @@
+{
+  "name": "@vpn-poc/api-lambda",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@codegenie/serverless-express": "^4.16.0",
+    "@vpn-poc/api": "workspace:*",
+    "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.147"
+  },
+  "nx": {
+    "tags": [
+      "scope:poc-vpn",
+      "type:deployment"
+    ]
+  }
+}

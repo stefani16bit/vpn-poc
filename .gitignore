@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+.nx/
+coverage/
+logs/
+*.log
+
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Bind mount for the registry. Its contents are published artifacts, never source.
+devstack/verdaccio/storage/
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+infra/cdk.out/

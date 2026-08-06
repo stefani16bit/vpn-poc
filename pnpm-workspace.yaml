@@ -1,0 +1,15 @@
+# `packages/` is deliberately absent. It is a git submodule with its own
+# workspace, consumed from Verdaccio like any third-party dependency - listing
+# it here would resolve @vpn/* by path and hide every packaging bug until the
+# first real publish. See docs/03-DECISION-LOG.md DEC-002.
+packages:
+  - 'apps/*'
+  - 'libs/*'
+  - 'infra'
+
+# pnpm 11 requires an explicit decision per package with a postinstall script.
+allowBuilds:
+  esbuild: true
+  nx: true
+  '@sentry/cli': true
+  msgpackr-extract: true

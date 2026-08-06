@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "baseUrl": ".",
+    "paths": {
+      "@vpn-poc/env": ["libs/env/src/index.ts"],
+      "@vpn-poc/database": ["libs/database/src/index.ts"],
+      "@vpn-poc/providers-cache": ["libs/providers/cache/src/index.ts"],
+      "@vpn-poc/providers-email": ["libs/providers/email/src/index.ts"],
+      "@vpn-poc/providers-sms": ["libs/providers/sms/src/index.ts"],
+      "@vpn-poc/providers-billing": ["libs/providers/billing/src/index.ts"],
+      "@vpn-poc/providers-storage": ["libs/providers/storage/src/index.ts"],
+      "@vpn-poc/providers-observability": ["libs/providers/observability/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist"]
+}

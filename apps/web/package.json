@@ -1,0 +1,42 @@
+{
+  "name": "@vpn-poc/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "@reduxjs/toolkit": "^2.5.0",
+    "@vpn/contracts": "^0.4.0",
+    "@vpn/i18n": "^0.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.54.2",
+    "react-redux": "^9.2.0",
+    "react-router-dom": "^7.1.1",
+    "redux-state-sync": "^3.1.4",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/redux-state-sync": "^3.1.10",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "vite": "^6.0.7"
+  },
+  "nx": {
+    "tags": [
+      "scope:poc-vpn",
+      "type:app"
+    ]
+  }
+}

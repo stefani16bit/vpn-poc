@@ -1,0 +1,40 @@
+# listen is not optional once a custom config is mounted. Verdaccio then binds
+# to localhost inside the container and the published port answers nothing,
+# which reads as a broken image rather than a missing line.
+listen: 0.0.0.0:4873
+
+storage: /verdaccio/storage
+
+web:
+  title: poc-vpn registry
+
+auth:
+  htpasswd:
+    file: /verdaccio/storage/htpasswd
+
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+    cache: true
+
+packages:
+  # Anonymous publish. Verdaccio is here for the publish/consume flow of a real
+  # private registry, not for its access control - requiring `npm adduser`
+  # would put a manual step between a clean clone and `pnpm packages:publish:local`.
+  '@vpn/*':
+    access: $all
+    publish: $all
+    unpublish: $all
+
+  '**':
+    access: $all
+    proxy: npmjs
+
+middlewares:
+  audit:
+    enabled: true
+
+log:
+  type: stdout
+  format: pretty
+  level: warn

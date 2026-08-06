@@ -1,0 +1,22 @@
+{
+  "name": "@vpn-poc/env",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.1"
+  },
+  "nx": {
+    "tags": [
+      "scope:poc-vpn",
+      "type:lib"
+    ]
+  }
+}

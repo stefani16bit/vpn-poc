@@ -1,0 +1,147 @@
+# Compose project name. Without it Docker derives the project from the
+# directory ("devstack"), which collides with the sibling projects on this
+# machine that use the same layout.
+name: poc-vpn
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: poc-vpn-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: poc_vpn_dev
+    ports:
+      - '${POSTGRES_PORT:-25432}:5432'
+    volumes:
+      # A named volume rather than a bind mount: initdb chmods PGDATA and
+      # Docker Desktop's Windows bind mount refuses.
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # -h 127.0.0.1 is load-bearing. During initdb the entrypoint runs a
+      # temporary server bound to the unix socket only, so a socket probe
+      # reports ready while the role script has not run yet.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d poc_vpn_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: poc-vpn-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-26379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  verdaccio:
+    image: verdaccio/verdaccio:6
+    container_name: poc-vpn-verdaccio
+    restart: unless-stopped
+    ports:
+      - '${VERDACCIO_PORT:-24873}:4873'
+    volumes:
+      - ./verdaccio/config.yaml:/verdaccio/conf/config.yaml:ro
+      # A bind mount, unlike every other stateful service here. It is what lets
+      # `reset` keep published packages for free - `down -v` cannot reach it -
+      # instead of special-casing a volume name.
+      - ./verdaccio/storage:/verdaccio/storage
+    healthcheck:
+      # node-on-alpine: the image ships neither curl nor wget, and node is the
+      # one interpreter it is guaranteed to have.
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:4873/-/ping',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  localstack:
+    image: localstack/localstack:4
+    container_name: poc-vpn-localstack
+    restart: unless-stopped
+    environment:
+      # Narrowed to what the adapters actually reach for. LocalStack eagerly
+      # starts every service it is told about and is the largest memory
+      # consumer in the stack.
+      SERVICES: s3,sqs,sns,secretsmanager
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - '${LOCALSTACK_PORT:-24566}:4566'
+    volumes:
+      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:4566/_localstack/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  localstripe:
+    image: adrienverge/localstripe:latest
+    container_name: poc-vpn-localstripe
+    restart: unless-stopped
+    ports:
+      - '${LOCALSTRIPE_PORT:-28420}:8420'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf -u sk_test_local: http://localhost:8420/v1/customers || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  mailpit:
+    image: axllent/mailpit:v1.22.3
+    container_name: poc-vpn-mailpit
+    restart: unless-stopped
+    ports:
+      - '${MAILPIT_SMTP_PORT:-21025}:1025'
+      - '${MAILPIT_UI_PORT:-28025}:8025'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: poc-vpn-caddy
+    restart: unless-stopped
+    ports:
+      - '${CADDY_HTTP_PORT:-20080}:80'
+      - '${CADDY_HTTPS_PORT:-20443}:443'
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The internal CA lives here. Losing it on every restart would make the
+      # browser re-warn about an untrusted certificate each time.
+      - caddy-data:/data
+      - caddy-config:/config
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:2019/config/']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:

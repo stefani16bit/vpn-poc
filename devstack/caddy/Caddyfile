@@ -1,0 +1,20 @@
+# One host. Whitelabel/multi-tenant routing is explicitly out of scope for this
+# phase; when it arrives, this block becomes a snippet imported per hostname.
+app.localhost {
+	tls internal
+
+	# Keeps the site probeable before the API and web app are running, so the
+	# smoke check can assert internal TLS today rather than reading 502 as
+	# failure.
+	handle /__devstack/health {
+		respond "ok" 200
+	}
+
+	handle /api/* {
+		reverse_proxy host.docker.internal:3000
+	}
+
+	handle {
+		reverse_proxy host.docker.internal:5173
+	}
+}

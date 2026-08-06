@@ -1,0 +1,25 @@
+{
+  "name": "@vpn-poc/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.174.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.174.0"
+  },
+  "nx": {
+    "tags": [
+      "scope:poc-vpn",
+      "type:infra"
+    ]
+  }
+}
