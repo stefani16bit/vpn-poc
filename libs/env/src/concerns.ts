@@ -9,6 +9,8 @@ export const runtimeEnvSchema = z.object({
 	API_PORT: portSchema.default(3000),
 	WEB_ORIGIN: z.string().url(),
 	LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+	LOG_TRANSPORT: z.enum(['pretty', 'json', 'file', 'gelf', 'loki']).optional(),
+	LOG_TRANSPORT_URL: z.string().url().optional(),
 });
 
 export const databaseEnvSchema = z.object({

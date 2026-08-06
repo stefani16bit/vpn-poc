@@ -1,3 +1,4 @@
+import { pino } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '@vpn-poc/env';
@@ -10,10 +11,24 @@ import type {
 } from '@vpn/ports';
 
 import { AppError } from '../../../shared/errors/app-error.js';
+import type { ModuleLogger } from '../../../shared/http/module-logger.js';
 import type { BillingEventRepository } from '../repositories/billing-event.repository.js';
 import type { SubscriptionRepository } from '../repositories/subscription.repository.js';
 import type { BillingMailer } from './billing-mailer.service.js';
 import { BillingService } from './billing.service.js';
+
+let records: Record<string, unknown>[];
+
+function recordingLogger(): ModuleLogger {
+	return pino(
+		{ level: 'debug' },
+		{
+			write: (line: string) => {
+				records.push(JSON.parse(line) as Record<string, unknown>);
+			},
+		},
+	).child({ module: 'billing' });
+}
 
 const env = {
 	WEB_ORIGIN: 'https://app.example.com',
@@ -75,7 +90,9 @@ describe('BillingService', () => {
 			sendSubscriptionCanceled: vi.fn().mockResolvedValue(undefined),
 		};
 
+		records = [];
 		service = new BillingService(
+			recordingLogger(),
 			billing as unknown as IBillingProvider,
 			identity as unknown as IIdentityProvider,
 			env,
@@ -114,6 +131,7 @@ describe('BillingService', () => {
 
 		it('fails loudly when the plan has no configured price', async () => {
 			const withoutYearly = new BillingService(
+				recordingLogger(),
 				billing as unknown as IBillingProvider,
 				identity as unknown as IIdentityProvider,
 				{ ...env, STRIPE_PRICE_ID_YEARLY: undefined } as Env,
@@ -207,6 +225,13 @@ describe('BillingService', () => {
 			expect(await service.handleWebhook('{}', 'sig')).toBe(false);
 			expect(subscriptions.upsert).not.toHaveBeenCalled();
 			expect(mailer.sendSubscriptionCanceled).not.toHaveBeenCalled();
+			expect(records).toContainEqual(
+				expect.objectContaining({
+					module: 'billing',
+					context: 'BillingService',
+					event: 'billing.webhook.duplicate',
+				}),
+			);
 		});
 
 		it('claims the event against the source and the provider event id', async () => {

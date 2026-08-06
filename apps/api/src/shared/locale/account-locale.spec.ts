@@ -7,19 +7,19 @@ import { localeOf } from './account-locale.js';
 
 describe('localeOf', () => {
 	it('prefers the locale on the account', () => {
-		runWithContext({ correlationId: 'c', locale: 'en' }, () => {
+		runWithContext({ correlationId: 'c', locale: 'en', module: 'system' }, () => {
 			expect(localeOf({ locale: 'pt-BR' })).toBe('pt-BR');
 		});
 	});
 
 	it('falls back to the negotiated request locale when the account has none', () => {
-		runWithContext({ correlationId: 'c', locale: 'en' }, () => {
+		runWithContext({ correlationId: 'c', locale: 'en', module: 'system' }, () => {
 			expect(localeOf({ locale: '' })).toBe('en');
 		});
 	});
 
 	it('falls back to the negotiated locale when the account locale is not supported', () => {
-		runWithContext({ correlationId: 'c', locale: 'en' }, () => {
+		runWithContext({ correlationId: 'c', locale: 'en', module: 'system' }, () => {
 			expect(localeOf({ locale: 'kl-GL' })).toBe('en');
 		});
 	});

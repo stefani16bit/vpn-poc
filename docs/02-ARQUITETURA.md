@@ -129,3 +129,11 @@ Lambda da API".
 pino com lista de redação generosa; `correlationId` via `AsyncLocalStorage`,
 devolvido no header e presente em todo corpo de erro. Só 5xx chega ao Sentry —
 um 401 não é incidente, e um reporter cheio deles é um reporter que ninguém lê.
+
+O destino das linhas é `LOG_TRANSPORT`: `pretty` (padrão em desenvolvimento)
+escreve stdout colorido **e** `logs/api.ndjson`; `json` (padrão fora dele) emite
+NDJSON puro em stdout, que é a forma que o Lambda entrega ao CloudWatch e que o
+Logs Insights indexa por campo sem agente nenhum. `gelf` e `loki` estão no
+schema e caem em `json` com aviso — são a porta de saída para um sink externo,
+não algo que já exista. Não há agregador local: `pnpm logs:trace <correlationId>`
+lê o NDJSON e devolve o rastro completo de uma requisição. Ver DEC-031.

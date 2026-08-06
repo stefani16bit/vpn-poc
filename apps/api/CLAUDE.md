@@ -67,6 +67,31 @@ A precedência é **conta > `Accept-Language` > fallback**: `localeOf(account)` 
 de auth e o de cobrança, que é por isso que ele está no kernel. Um
 job sem requisição cai no fallback por construção.
 
+O `correlationId` do mesmo store é injetado em toda linha de log pelo `mixin` do
+pino. Para ler o rastro de uma requisição, pegue o `x-correlation-id` da
+resposta e rode `pnpm logs:trace <id>` na raiz — ele lê `logs/api.ndjson`, que o
+`LOG_TRANSPORT=pretty` escreve em paralelo ao stdout colorido. Lembre que
+`customLogLevel` devolve `'silent'` para erro e 5xx: essas requisições não têm
+linha de auto-log, aparecem pelo `GlobalExceptionFilter`. Ver DEC-031.
+
+## Módulo na linha de log
+
+O mesmo store carrega `module`, derivado do prefixo da rota por `moduleForUrl`.
+Um serviço não depende disso: ele recebe um logger já preso ao seu módulo pelo
+token `MODULE_LOGGER`, que cada `*.module.ts` registra com
+`moduleLoggerProvider('auth')`. Quem emite ganha de quem roteia.
+
+**O `mixin` do pino sobrescreve os bindings do child** — é o inverso do que
+parece, e é por isso que `contextProps` lê `logger.bindings()` antes de supor
+`module`. Trocar isso por um `{ ...currentContext() }` direto faz toda linha de
+serviço sair rotulada com a rota. `module-logger.spec.ts` fixa os dois lados.
+
+`pretty` e `file` escrevem `logs/api.<module>.ndjson` ao lado do combinado, e
+`pnpm logs:trace --module auth` filtra na leitura. O `logs:trace` lê o
+combinado de propósito: é o único arquivo onde um rastro que cruza módulos
+permanece inteiro. Sob `json` não há arquivo nenhum — é o caminho da Lambda.
+Ver DEC-033.
+
 `registerRequestSchema.locale` é **opcional**, não tem default. Um default faz
 `body.locale` nunca ser `undefined` e o fallback para o header nunca dispara —
 esse bug existiu e o e2e pegou.

@@ -24,6 +24,8 @@ import { BillingModule } from './modules/billing/billing.module.js';
 				nodeEnv: loadEnv().NODE_ENV,
 				level: loadEnv().LOG_LEVEL,
 				version: loadEnv().APP_VERSION,
+				transport: loadEnv().LOG_TRANSPORT,
+				transportUrl: loadEnv().LOG_TRANSPORT_URL,
 			}),
 		),
 		AdaptersModule,

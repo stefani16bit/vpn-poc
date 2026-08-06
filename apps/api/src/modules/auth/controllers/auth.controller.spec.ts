@@ -88,7 +88,7 @@ describe('AuthController', () => {
 		});
 
 		it('falls back to the negotiated locale when the body omits one', async () => {
-			await runWithContext({ correlationId: 'c', locale: 'en' }, async () => {
+			await runWithContext({ correlationId: 'c', locale: 'en', module: 'system' }, async () => {
 				await controller.register({ email: 'ada@example.com', password: 'pw' });
 			});
 

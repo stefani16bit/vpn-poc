@@ -11,6 +11,7 @@
     "dev:infra": "sh devstack/dev.sh up",
     "dev:apps": "pm2-runtime start ecosystem.config.cjs",
     "dev:logs": "pm2 logs",
+    "logs:trace": "node scripts/logs-trace.mjs",
     "devstack:check": "sh devstack/check.sh",
     "build": "pnpm -r --filter './apps/*' --filter './libs/*' run build",
     "test": "pnpm -r run test",

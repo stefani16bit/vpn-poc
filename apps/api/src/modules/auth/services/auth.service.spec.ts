@@ -1,3 +1,4 @@
+import { pino } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '@vpn-poc/env';
@@ -6,6 +7,7 @@ import { FixedClock } from '@vpn/testing/fakes';
 
 import type { AccessTokenService } from '../../../shared/access-control/access-token.service.js';
 import { AppError } from '../../../shared/errors/app-error.js';
+import type { ModuleLogger } from '../../../shared/http/module-logger.js';
 import type { RateLimitService } from '../../../shared/rate-limit/rate-limit.service.js';
 import { RATE_LIMITS } from '../auth.rate-limits.js';
 import type { AuthMailer } from './auth-mailer.service.js';
@@ -19,6 +21,19 @@ const env = {
 } as Env;
 
 type Mock = ReturnType<typeof vi.fn>;
+
+let records: Record<string, unknown>[];
+
+function recordingLogger(): ModuleLogger {
+	return pino(
+		{ level: 'debug' },
+		{
+			write: (line: string) => {
+				records.push(JSON.parse(line) as Record<string, unknown>);
+			},
+		},
+	).child({ module: 'auth' });
+}
 
 interface IdentityMock {
 	register: Mock;
@@ -89,7 +104,9 @@ describe('AuthService', () => {
 			sendPasswordChanged: vi.fn().mockResolvedValue(undefined),
 		};
 
+		records = [];
 		service = new AuthService(
+			recordingLogger(),
 			identity as unknown as IIdentityProvider,
 			new FixedClock(new Date('2026-05-01T00:00:00.000Z')),
 			env,
@@ -118,6 +135,20 @@ describe('AuthService', () => {
 
 			await expect(service.register('ada@example.com', 'pw', 'pt-BR')).resolves.toBeUndefined();
 			expect(mailer.sendVerification).not.toHaveBeenCalled();
+		});
+
+		it('files what it swallowed under the module that swallowed it', async () => {
+			identity.register.mockResolvedValue({ kind: 'email_taken' });
+
+			await service.register('ada@example.com', 'pw', 'pt-BR');
+
+			expect(records).toContainEqual(
+				expect.objectContaining({
+					module: 'auth',
+					context: 'AuthService',
+					event: 'register.duplicate',
+				}),
+			);
 		});
 	});
 

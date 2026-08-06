@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
@@ -12,6 +12,11 @@ import {
 } from '@vpn/ports';
 
 import { AppError } from '../../../shared/errors/app-error.js';
+import {
+	MODULE_LOGGER,
+	type ModuleLogger,
+	contextLogger,
+} from '../../../shared/http/module-logger.js';
 import { BillingEventRepository } from '../repositories/billing-event.repository.js';
 import { SubscriptionRepository } from '../repositories/subscription.repository.js';
 import { BillingMailer } from './billing-mailer.service.js';
@@ -26,16 +31,19 @@ const NO_SUBSCRIPTION: SubscriptionResponse = {
 
 @Injectable()
 export class BillingService {
-	readonly #logger = new Logger(BillingService.name);
+	readonly #logger: ModuleLogger;
 
 	constructor(
+		@Inject(MODULE_LOGGER) logger: ModuleLogger,
 		@Inject(BILLING_PROVIDER) private readonly billing: IBillingProvider,
 		@Inject(IDENTITY_PROVIDER) private readonly identity: IIdentityProvider,
 		@Inject(ENV) private readonly env: Env,
 		private readonly subscriptions: SubscriptionRepository,
 		private readonly events: BillingEventRepository,
 		private readonly mailer: BillingMailer,
-	) {}
+	) {
+		this.#logger = contextLogger(logger, BillingService.name);
+	}
 
 	async createCheckout(accountId: string, plan: PlanId): Promise<string> {
 		const account = await this.identity.findById(accountId);

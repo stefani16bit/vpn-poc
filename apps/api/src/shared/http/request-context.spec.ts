@@ -9,25 +9,40 @@ import {
 	currentContext,
 	currentCorrelationId,
 	currentLocale,
+	currentModule,
 	requestContextMiddleware,
+	runWithCorrelation,
 } from './request-context.js';
 
-function run(headers: Record<string, string | undefined>): {
+function run(
+	headers: Record<string, string | undefined>,
+	url = '/',
+): {
 	setHeader: ReturnType<typeof vi.fn>;
-	seen: { correlationId: string | undefined; locale: string | undefined };
+	seen: {
+		correlationId: string | undefined;
+		locale: string | undefined;
+		module: string | undefined;
+	};
 } {
 	const setHeader = vi.fn();
-	const seen: { correlationId: string | undefined; locale: string | undefined } = {
+	const seen: {
+		correlationId: string | undefined;
+		locale: string | undefined;
+		module: string | undefined;
+	} = {
 		correlationId: undefined,
 		locale: undefined,
+		module: undefined,
 	};
 	const next: NextFunction = () => {
 		seen.correlationId = currentCorrelationId();
 		seen.locale = currentLocale();
+		seen.module = currentModule();
 	};
 
 	requestContextMiddleware(
-		{ headers } as unknown as Request,
+		{ headers, url } as unknown as Request,
 		{ setHeader } as unknown as Response,
 		next,
 	);
@@ -75,6 +90,23 @@ describe('request context', () => {
 	it('echoes the chosen locale back as content-language', () => {
 		const { setHeader } = run({ 'accept-language': 'en' });
 		expect(setHeader).toHaveBeenCalledWith(CONTENT_LANGUAGE_HEADER, 'en');
+	});
+
+	it('attributes the request to the module that owns the route', () => {
+		expect(run({}, '/auth/login').seen.module).toBe('auth');
+		expect(run({}, '/billing/checkout').seen.module).toBe('billing');
+	});
+
+	it('attributes an unmapped route to http', () => {
+		expect(run({}, '/').seen.module).toBe('http');
+	});
+
+	it('attributes anything outside a request to system', () => {
+		expect(currentModule()).toBe('system');
+	});
+
+	it('attributes a correlated job with no route to system', () => {
+		expect(runWithCorrelation('job-id', () => currentModule())).toBe('system');
 	});
 
 	it('does not leak the context past the request', () => {

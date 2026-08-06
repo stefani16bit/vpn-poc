@@ -6,9 +6,12 @@ import type { NextFunction, Request, Response } from 'express';
 import { FALLBACK_LOCALE, type SupportedLocale } from '@vpn/contracts';
 import { negotiateLocale } from '@vpn/i18n';
 
+import { AMBIENT_MODULE, type ApiModule, moduleForUrl } from './api-module.js';
+
 export interface RequestContext {
 	readonly correlationId: string;
 	readonly locale: SupportedLocale;
+	readonly module: ApiModule;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -28,12 +31,16 @@ export function currentLocale(): SupportedLocale {
 	return storage.getStore()?.locale ?? FALLBACK_LOCALE;
 }
 
+export function currentModule(): ApiModule {
+	return storage.getStore()?.module ?? AMBIENT_MODULE;
+}
+
 export function runWithContext<T>(context: RequestContext, fn: () => T): T {
 	return storage.run(context, fn);
 }
 
 export function runWithCorrelation<T>(correlationId: string, fn: () => T): T {
-	return storage.run({ correlationId, locale: FALLBACK_LOCALE }, fn);
+	return storage.run({ correlationId, locale: FALLBACK_LOCALE, module: AMBIENT_MODULE }, fn);
 }
 
 export function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -46,5 +53,5 @@ export function requestContextMiddleware(req: Request, res: Response, next: Next
 	res.setHeader(CORRELATION_HEADER, correlationId);
 	res.setHeader(CONTENT_LANGUAGE_HEADER, locale);
 
-	runWithContext({ correlationId, locale }, () => next());
+	runWithContext({ correlationId, locale, module: moduleForUrl(req.url) }, () => next());
 }

@@ -118,6 +118,7 @@ Add the shared port, contract and testing packages
 make up                    # devstack (docker)
 make check                 # 12 asserções sobre o devstack
 pnpm dev                   # infra + api + web (pm2)
+pnpm logs:trace <id>       # rastro completo de uma requisição, por correlationId
 
 pnpm verify                # lint + typecheck + testes unitários
 pnpm --filter @vpn-poc/adapters test:integration   # adapters reais, precisa do devstack

@@ -42,7 +42,7 @@ describe('BillingMailer', () => {
 	});
 
 	it('prefers the account locale over the locale negotiated for the request', async () => {
-		await runWithContext({ correlationId: 'c', locale: 'en' }, async () => {
+		await runWithContext({ correlationId: 'c', locale: 'en', module: 'system' }, async () => {
 			await mailer.sendPaymentFailed(account({ locale: 'pt-BR' }), 'evt-3');
 		});
 

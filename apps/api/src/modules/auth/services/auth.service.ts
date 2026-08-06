@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
@@ -12,6 +12,11 @@ import {
 } from '@vpn/ports';
 
 import { AppError } from '../../../shared/errors/app-error.js';
+import {
+	MODULE_LOGGER,
+	type ModuleLogger,
+	contextLogger,
+} from '../../../shared/http/module-logger.js';
 import { AccessTokenService } from '../../../shared/access-control/access-token.service.js';
 import { RateLimitService } from '../../../shared/rate-limit/rate-limit.service.js';
 import { RATE_LIMITS } from '../auth.rate-limits.js';
@@ -27,9 +32,10 @@ export interface IssuedSession {
 
 @Injectable()
 export class AuthService {
-	readonly #logger = new Logger(AuthService.name);
+	readonly #logger: ModuleLogger;
 
 	constructor(
+		@Inject(MODULE_LOGGER) logger: ModuleLogger,
 		@Inject(IDENTITY_PROVIDER) private readonly identity: IIdentityProvider,
 		@Inject(CLOCK) private readonly clock: IClock,
 		@Inject(ENV) private readonly env: Env,
@@ -37,7 +43,9 @@ export class AuthService {
 		private readonly verificationTokens: VerificationTokenService,
 		private readonly rateLimit: RateLimitService,
 		private readonly mailer: AuthMailer,
-	) {}
+	) {
+		this.#logger = contextLogger(logger, AuthService.name);
+	}
 
 	async register(email: string, password: string, locale: SupportedLocale): Promise<void> {
 		await this.rateLimit.consume(RATE_LIMITS.register, email);

@@ -777,6 +777,60 @@ custo, e está registrado aqui para que não pareça de graça.
 
 ---
 
+### DEC-031 — Sem agregador de log local; `LOG_TRANSPORT` como porta de saída
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** Rastrear uma requisição localmente era doloroso. O dado já
+existia — `requestContextMiddleware` põe `{ correlationId, locale }` num
+`AsyncLocalStorage` e o `mixin` do pino injeta os dois em **toda** linha — mas a
+saída não servia: em desenvolvimento o `pino-pretty` imprimia texto colorido com
+`messageFormat` padrão, o `correlationId` ficava enterrado no meio da linha, e o
+pm2 capturava esse texto em `logs/api.out.log`. Texto colorido não se filtra por
+campo. A pergunta inicial foi wire de Graylog.
+
+**Decisão.** Nenhum agregador roda no devstack. O que entra é `LOG_TRANSPORT`
+(`pretty | json | file | gelf | loki`) mais `LOG_TRANSPORT_URL`, um
+`messageFormat` que abre a linha pelo `correlationId`, um alvo `pino/file`
+paralelo escrevendo `logs/api.ndjson`, e `pnpm logs:trace <correlationId>`.
+
+**Rationale.** Graylog resolve "os logs de N hosts estão em N lugares". Um
+devstack de um desenvolvedor não tem esse problema — tem um problema de formato
+e de busca, que custa ~20 linhas de configuração. O preço do Graylog seria
+MongoDB mais Datanode/OpenSearch: três containers, ~1GB de heap, ~90s de boot
+frio contra os poucos segundos que `make check` leva hoje, e provisionamento
+não-declarativo do input GELF — código de devstack que só existe para servir a
+ferramenta de log. E a dependência de OpenSearch, que indexa o corpo inteiro, é
+**a mesma** razão pela qual ele pesa no laptop e custa em produção: são uma
+objeção, não duas.
+
+Em produção a API é Lambda. `LOG_TRANSPORT=json` emite NDJSON em stdout, o
+Lambda entrega ao CloudWatch de graça e o Logs Insights indexa campo de JSON
+nativamente — `filter correlationId = "..."` funciona sem agente e sem
+container. Loki ou Graylog passam a se pagar quando houver vários serviços para
+correlacionar entre si; uma Lambda e um front-end não são isso ainda.
+
+**Consequências.** `gelf` e `loki` são aceitos pelo schema e caem em `json` com
+aviso: a saída é tipada e real, mas nenhuma dependência de transporte é
+instalada antes de alguém precisar. É isso que torna o adiamento seguro em vez
+de otimista.
+
+`json` não configura `transport` **nenhum**, de propósito: um transport do pino
+é uma worker thread, e o freeze/thaw do Lambda a congela no meio do flush.
+
+O alvo `pino/file` usa `append: false` — trunca a cada boot. Uma sessão de
+desenvolvimento, um arquivo, sem rotação e sem crescimento indefinido; o preço é
+que o rastro da sessão anterior se perde no restart.
+
+**Isto é um desvio consciente do inegociável nº 1.** Não existe `ILogSink` em
+`@vpn/ports` nem suíte de conformidade. A camada de transport do pino já **é** a
+abstração substituível, e `LOG_TRANSPORT` a seleciona pelo mesmo mecanismo com
+que um `SENTRY_DSN` vazio seleciona o `NoopErrorReporter` — uma porta aqui
+duplicaria maquinário em vez de criar uma fronteira. Log é transversal: ele não
+é chamado por um service, ele envolve todos.
+
+---
+
 ### DEC-032 — Reautenticar é condicionado ao estado da sessão, e o devstack fala um host só
 
 **Data:** 2026-08-06 · **Status:** accepted
@@ -827,3 +881,67 @@ O mesmo commit corrigiu uma segunda porta aberta para o laço: `isAuthRoute`
 testava `typeof args !== 'string'`, então um endpoint declarado na forma curta
 — `me: () => 'auth/me'` — não era reconhecido como rota de auth e um 401 nele
 disparava refresh.
+
+---
+
+### DEC-033 — `module` como dimensão de log, e um NDJSON por módulo no devstack
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** A DEC-031 deu formato e busca ao log, mas não deu **origem**. Toda
+linha sai com `service: 'poc-vpn-api'`, um serviço só, enquanto `auth` e
+`billing` são unidades de deploy futuras — Lambdas separadas. O corte que a
+produção vai fazer fisicamente não existia no dado.
+
+**Decisão.** Um campo `module` (`auth | billing | health | http | system`) em
+toda linha, por dois caminhos com precedência definida:
+
+- **binding de child do pino** nos serviços, via o provider `MODULE_LOGGER` que
+  cada módulo registra — quem **emite** a linha;
+- **`AsyncLocalStorage`**, derivado do prefixo da rota por `moduleForUrl`, para
+  tudo que não passa por um serviço nosso: o auto-log do `pino-http`, os
+  filtros de exceção, qualquer código de terceiro. Fora de uma requisição o
+  valor é `system`.
+
+E, nos transports de dev (`pretty` e `file`), um `logs/api.<module>.ndjson` ao
+lado do `logs/api.ndjson` combinado.
+
+**Rationale.** Quem emite ganha de quem roteia: um serviço de `auth` alcançado a
+partir de uma rota de `billing` continua sendo linha de `auth`, que é a
+semântica de "esta linha pertence à Lambda de auth".
+
+O `mixin` do pino **sobrescreve** os bindings do child — o contrário do que a
+intuição diz, e o teste que fixa isso está em `module-logger.spec.ts`. Por isso
+o `mixin` lê `logger.bindings()` e só supre `module` quando o child não o
+trouxe; sem essa deferência todo log de serviço sairia rotulado com a rota.
+
+O fan-out por arquivo não sai de graça: `transport.targets` não filtra por
+campo e o pino recusa `stream` junto de `transport`, então `pretty` e `file`
+deixam de usar worker e passam por um `stream` nosso — o `pino-pretty` volta
+para dentro do event loop. Aceitável porque esses dois transports **são**
+devstack. A alternativa, um transport worker próprio, exigiria um entry `.js`
+construído e resolvível de dentro da worker thread, que o `vite-node` do dev não
+dá (DEC-018).
+
+Em produção nada disso existe: `LOG_TRANSPORT=json` não configura transport
+**nem** stream, a Lambda entrega stdout ao CloudWatch, e no dia em que os
+módulos virarem Lambdas cada uma ganha seu log group de graça. O arquivo por
+módulo é conveniência de devstack; o **campo** é o que transfere.
+
+**Consequências.** As destinations abrem na primeira linha, não na construção —
+sem isso, rodar os testes unitários truncaria o `logs/api.ndjson` da sessão de
+desenvolvimento em curso, e um módulo que nunca loga não deixa arquivo.
+
+O `logs:trace` continua lendo o arquivo **combinado**: é o único onde um rastro
+que cruza módulos permanece inteiro. Os arquivos por módulo servem para `tail`.
+Ele ganhou `--module <nome>` e uma coluna de módulos na listagem.
+
+Serviços passam a receber um `pino.Logger` pelo token `MODULE_LOGGER` em vez de
+instanciar o `Logger` do Nest. As chamadas não mudaram — já estavam na forma
+`(obj, msg)` do pino. Os filtros do kernel continuam com o `Logger` do Nest de
+propósito: eles são globais, não pertencem a módulo nenhum, e o ALS já os
+atribui corretamente.
+
+**Herda a isenção da DEC-031** quanto ao inegociável nº 1: não existe
+`ILogSink`, e `module` é um binding sobre um logger que já é nosso, um nível
+abaixo do transport que a DEC-031 já isentou.
