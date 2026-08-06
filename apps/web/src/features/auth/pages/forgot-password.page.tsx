@@ -6,9 +6,14 @@ import { Link } from 'react-router-dom';
 import { forgotPasswordRequestSchema, type ForgotPasswordRequest } from '@vpn/contracts';
 
 import { normalizeError } from '@/app/store/api-error.js';
+import { Field } from '@/components/form/field.tsx';
+import { FormError } from '@/components/form/form-error.tsx';
+import { SubmitButton } from '@/components/form/submit-button.tsx';
+import { AuthCard } from '@/components/layout/auth-card.tsx';
+import { MessageScreen } from '@/components/layout/message-screen.tsx';
+import { Input } from '@/components/ui/input.tsx';
 import { useForgotPasswordMutation } from '@/features/auth/api/auth.api.js';
-import { useTranslator } from '@/i18n/locale-context.js';
-import { Field, FormError, Submit } from '@/ui/form.tsx';
+import { useTranslator } from '@/i18n/locale-context.tsx';
 
 export function ForgotPasswordPage() {
 	const t = useTranslator();
@@ -21,20 +26,20 @@ export function ForgotPasswordPage() {
 
 	if (sent) {
 		return (
-			<section className="card">
-				<h1>{t('auth.forgotPassword.sentTitle')}</h1>
+			<MessageScreen title={t('auth.forgotPassword.sentTitle')}>
 				<p>{t('auth.forgotPassword.sentBody')}</p>
-				<p className="muted">
-					{t('auth.forgotPassword.sentExpiry')} <Link to="/login">{t('common.back')}</Link>
+				<p className="mt-4 text-sm text-muted-foreground">
+					{t('auth.forgotPassword.sentExpiry')}{' '}
+					<Link to="/login" className="text-primary underline-offset-4 hover:underline">
+						{t('common.back')}
+					</Link>
 				</p>
-			</section>
+			</MessageScreen>
 		);
 	}
 
 	return (
-		<section className="card">
-			<h1>{t('auth.forgotPassword.title')}</h1>
-
+		<AuthCard title={t('auth.forgotPassword.title')}>
 			<form
 				onSubmit={form.handleSubmit(async (values) => {
 					const result = await forgotPassword(values);
@@ -45,11 +50,13 @@ export function ForgotPasswordPage() {
 				<FormError error={normalizeError(error)} />
 
 				<Field label={t('auth.forgotPassword.email')} error={form.formState.errors.email?.message}>
-					<input type="email" autoComplete="email" {...form.register('email')} />
+					{(control) => (
+						<Input type="email" autoComplete="email" {...control} {...form.register('email')} />
+					)}
 				</Field>
 
-				<Submit pending={isLoading}>{t('auth.forgotPassword.submit')}</Submit>
+				<SubmitButton pending={isLoading}>{t('auth.forgotPassword.submit')}</SubmitButton>
 			</form>
-		</section>
+		</AuthCard>
 	);
 }

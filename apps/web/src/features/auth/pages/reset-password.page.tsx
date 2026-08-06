@@ -5,9 +5,14 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { resetPasswordRequestSchema, type ResetPasswordRequest } from '@vpn/contracts';
 
 import { normalizeError } from '@/app/store/api-error.js';
+import { Field } from '@/components/form/field.tsx';
+import { FormError } from '@/components/form/form-error.tsx';
+import { SubmitButton } from '@/components/form/submit-button.tsx';
+import { AuthCard } from '@/components/layout/auth-card.tsx';
+import { MessageScreen } from '@/components/layout/message-screen.tsx';
+import { Input } from '@/components/ui/input.tsx';
 import { useResetPasswordMutation } from '@/features/auth/api/auth.api.js';
-import { useTranslator } from '@/i18n/locale-context.js';
-import { Field, FormError, Submit } from '@/ui/form.tsx';
+import { useTranslator } from '@/i18n/locale-context.tsx';
 
 export function ResetPasswordPage() {
 	const t = useTranslator();
@@ -24,20 +29,22 @@ export function ResetPasswordPage() {
 
 	if (!token) {
 		return (
-			<section className="card">
-				<h1>{t('auth.resetPassword.invalidLinkTitle')}</h1>
+			<MessageScreen title={t('auth.resetPassword.invalidLinkTitle')}>
 				<p>{t('auth.resetPassword.invalidLinkBody')}</p>
-				<p>
-					<Link to="/forgot-password">{t('auth.resetPassword.requestNew')}</Link>
+				<p className="mt-4">
+					<Link
+						to="/forgot-password"
+						className="text-primary underline-offset-4 hover:underline"
+					>
+						{t('auth.resetPassword.requestNew')}
+					</Link>
 				</p>
-			</section>
+			</MessageScreen>
 		);
 	}
 
 	return (
-		<section className="card">
-			<h1>{t('auth.resetPassword.title')}</h1>
-
+		<AuthCard title={t('auth.resetPassword.title')}>
 			<form
 				onSubmit={form.handleSubmit(async (values) => {
 					const result = await resetPassword(values);
@@ -53,13 +60,20 @@ export function ResetPasswordPage() {
 					label={t('auth.resetPassword.password')}
 					error={form.formState.errors.password?.message}
 				>
-					<input type="password" autoComplete="new-password" {...form.register('password')} />
+					{(control) => (
+						<Input
+							type="password"
+							autoComplete="new-password"
+							{...control}
+							{...form.register('password')}
+						/>
+					)}
 				</Field>
 
-				<p className="muted small">{t('auth.resetPassword.warning')}</p>
+				<p className="mb-4 text-sm text-muted-foreground">{t('auth.resetPassword.warning')}</p>
 
-				<Submit pending={isLoading}>{t('auth.resetPassword.submit')}</Submit>
+				<SubmitButton pending={isLoading}>{t('auth.resetPassword.submit')}</SubmitButton>
 			</form>
-		</section>
+		</AuthCard>
 	);
 }
