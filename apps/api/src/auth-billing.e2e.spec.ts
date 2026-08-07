@@ -511,6 +511,122 @@ describe('billing', () => {
 		expect(ledger[0]?.['count']).toBe(1);
 	});
 
+	function deliver(hook: { rawBody: string; signature: string }) {
+		return request(app.getHttpServer())
+			.post('/billing/webhook')
+			.set('stripe-signature', hook.signature)
+			.set('Content-Type', 'application/json')
+			.send(hook.rawBody);
+	}
+
+	async function statusOf(accessToken: string) {
+		const response = await request(app.getHttpServer())
+			.get('/billing/subscription')
+			.set('Authorization', `Bearer ${accessToken}`)
+			.expect(200);
+		return response.body as { status: string; currentPeriodEnd: string | null };
+	}
+
+	it('survives two full renewal periods with every event redelivered', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		const externalId = `sub_${session.accountId}`;
+		const base = billing.seedSubscription(externalId, session.accountId);
+
+		const periods = [
+			new Date('2026-09-01T00:00:00.000Z'),
+			new Date('2026-10-01T00:00:00.000Z'),
+			new Date('2026-11-01T00:00:00.000Z'),
+		];
+
+		for (const [index, periodEnd] of periods.entries()) {
+			const hook = billing.emit(
+				index === 0 ? 'subscription_activated' : 'subscription_updated',
+				session.accountId,
+				{
+					subscription: { ...base, currentPeriodEnd: periodEnd },
+					occurredAt: new Date(periodEnd.getTime() - 1000),
+				},
+			);
+
+			await deliver(hook).expect(200, { applied: true });
+			await deliver(hook).expect(200, { applied: false });
+			await deliver(hook).expect(200, { applied: false });
+		}
+
+		const final = await statusOf(session.accessToken);
+		expect(final.status).toBe('active');
+		expect(final.currentPeriodEnd).toBe(periods[2]?.toISOString());
+
+		const ledger = await sql`SELECT count(*)::int AS count FROM billing_events`;
+		expect(ledger[0]?.['count']).toBe(periods.length);
+	});
+
+	it('refuses to let a late event walk the period back', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		const externalId = `sub_${session.accountId}`;
+		const base = billing.seedSubscription(externalId, session.accountId);
+
+		const renewal = billing.emit('subscription_updated', session.accountId, {
+			subscription: { ...base, currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z') },
+			occurredAt: new Date('2026-09-01T00:00:00.000Z'),
+		});
+		const stale = billing.emit('subscription_updated', session.accountId, {
+			subscription: { ...base, currentPeriodEnd: new Date('2026-09-01T00:00:00.000Z') },
+			occurredAt: new Date('2026-08-01T00:00:00.000Z'),
+		});
+
+		await deliver(renewal).expect(200, { applied: true });
+		await deliver(stale).expect(200, { applied: true });
+
+		const after = await statusOf(session.accessToken);
+		expect(after.currentPeriodEnd).toBe('2026-10-01T00:00:00.000Z');
+	});
+
+	it('refuses to let a late event resurrect a cancelled subscription', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		const externalId = `sub_${session.accountId}`;
+		const base = billing.seedSubscription(externalId, session.accountId);
+
+		const canceled = billing.emit('subscription_canceled', session.accountId, {
+			subscription: { ...base, status: 'canceled' },
+			occurredAt: new Date('2026-09-01T00:00:00.000Z'),
+		});
+		const stale = billing.emit('subscription_updated', session.accountId, {
+			subscription: { ...base, status: 'active' },
+			occurredAt: new Date('2026-08-01T00:00:00.000Z'),
+		});
+
+		await deliver(canceled).expect(200, { applied: true });
+		await deliver(stale).expect(200, { applied: true });
+
+		expect((await statusOf(session.accessToken)).status).toBe('canceled');
+	});
+
+	it('follows the dunning cycle from active through past_due and back', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		const externalId = `sub_${session.accountId}`;
+		const base = billing.seedSubscription(externalId, session.accountId);
+
+		const steps = [
+			{ status: 'active' as const, at: '2026-09-01T00:00:00.000Z' },
+			{ status: 'past_due' as const, at: '2026-09-02T00:00:00.000Z' },
+			{ status: 'active' as const, at: '2026-09-05T00:00:00.000Z' },
+		];
+
+		for (const step of steps) {
+			const hook = billing.emit('subscription_updated', session.accountId, {
+				subscription: { ...base, status: step.status },
+				occurredAt: new Date(step.at),
+			});
+			await deliver(hook).expect(200, { applied: true });
+			expect((await statusOf(session.accessToken)).status).toBe(step.status);
+		}
+	});
+
 	it('rejects a webhook whose signature does not match', async () => {
 		const session = await subscribedSession();
 		const billing = provider();

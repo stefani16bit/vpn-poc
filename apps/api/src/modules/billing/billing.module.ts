@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AccessControlModule } from '../../shared/access-control/access-control.module.js';
+import { DatabaseModule } from '../../shared/database/database.module.js';
 import { moduleLoggerProvider } from '../../shared/http/module-logger.js';
 import { BillingController } from './controllers/billing.controller.js';
 import { BillingEventRepository } from './repositories/billing-event.repository.js';
@@ -9,7 +10,7 @@ import { BillingMailer } from './services/billing-mailer.service.js';
 import { BillingService } from './services/billing.service.js';
 
 @Module({
-	imports: [AccessControlModule],
+	imports: [AccessControlModule, DatabaseModule],
 	controllers: [BillingController],
 	providers: [
 		moduleLoggerProvider('billing'),

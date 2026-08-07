@@ -11,6 +11,7 @@ import {
 	type NormalizedBillingEvent,
 } from '@vpn/ports';
 
+import { TransactionRunner } from '../../../shared/database/transaction-runner.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import {
 	MODULE_LOGGER,
@@ -41,6 +42,7 @@ export class BillingService {
 		private readonly subscriptions: SubscriptionRepository,
 		private readonly events: BillingEventRepository,
 		private readonly mailer: BillingMailer,
+		private readonly transactions: TransactionRunner,
 	) {
 		this.#logger = contextLogger(logger, BillingService.name);
 	}
@@ -89,8 +91,22 @@ export class BillingService {
 		const event = this.billing.parseWebhookEvent(rawBody);
 		if (!event) return false;
 
-		const claimed = await this.events.claim(SOURCE, event.externalEventId, event.kind);
-		if (!claimed) {
+		const applied = await this.transactions.run(async (executor) => {
+			const claimed = await this.events.claim(SOURCE, event.externalEventId, event.kind, executor);
+			if (!claimed) return false;
+
+			if (event.kind !== 'payment_failed') {
+				await this.subscriptions.upsert(
+					event.accountId,
+					event.subscription,
+					event.occurredAt,
+					executor,
+				);
+			}
+			return true;
+		});
+
+		if (!applied) {
 			this.#logger.debug(
 				{ event: 'billing.webhook.duplicate', externalEventId: event.externalEventId },
 				'ignoring redelivered webhook',
@@ -98,31 +114,31 @@ export class BillingService {
 			return false;
 		}
 
-		await this.#apply(event);
+		await this.#notify(event);
 		return true;
 	}
 
-	async #apply(event: NormalizedBillingEvent): Promise<void> {
-		if (event.kind === 'payment_failed') {
+	async #notify(event: NormalizedBillingEvent): Promise<void> {
+		if (event.kind !== 'payment_failed' && event.kind !== 'subscription_canceled') return;
+
+		try {
 			const account = await this.identity.findById(event.accountId);
 			if (!account) return;
 
-			await this.mailer.sendPaymentFailed(account, event.externalEventId);
-			return;
-		}
-
-		const { subscription } = event;
-
-		await this.subscriptions.upsert(event.accountId, subscription);
-
-		if (event.kind === 'subscription_canceled') {
-			const account = await this.identity.findById(event.accountId);
-			if (!account) return;
+			if (event.kind === 'payment_failed') {
+				await this.mailer.sendPaymentFailed(account, event.externalEventId);
+				return;
+			}
 
 			await this.mailer.sendSubscriptionCanceled(
 				account,
-				subscription.currentPeriodEnd,
+				event.subscription.currentPeriodEnd,
 				event.externalEventId,
+			);
+		} catch (error) {
+			this.#logger.error(
+				{ event: 'billing.webhook.notify_failed', externalEventId: event.externalEventId, error },
+				'billing state was applied but the notification did not go out',
 			);
 		}
 	}

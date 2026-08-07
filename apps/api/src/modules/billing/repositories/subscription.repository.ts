@@ -1,9 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { DATABASE } from '@vpn-poc/adapters';
 import { subscriptions, type Database } from '@vpn-poc/database';
 import type { Subscription } from '@vpn/ports';
+
+import type { Executor } from '../../../shared/database/transaction-runner.js';
 
 export interface StoredSubscription {
 	readonly status: typeof subscriptions.$inferSelect.status;
@@ -42,8 +44,13 @@ export class SubscriptionRepository {
 			.where(eq(subscriptions.accountId, accountId));
 	}
 
-	async upsert(accountId: string, subscription: Subscription): Promise<void> {
-		await this.db
+	async upsert(
+		accountId: string,
+		subscription: Subscription,
+		occurredAt: Date,
+		executor: Executor = this.db,
+	): Promise<void> {
+		await executor
 			.insert(subscriptions)
 			.values({
 				accountId,
@@ -52,6 +59,7 @@ export class SubscriptionRepository {
 				status: subscription.status,
 				currentPeriodEnd: subscription.currentPeriodEnd,
 				cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+				lastEventAt: occurredAt,
 			})
 			.onConflictDoUpdate({
 				target: subscriptions.accountId,
@@ -61,8 +69,10 @@ export class SubscriptionRepository {
 					status: subscription.status,
 					currentPeriodEnd: subscription.currentPeriodEnd,
 					cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+					lastEventAt: occurredAt,
 					updatedAt: new Date(),
 				},
+				setWhere: sql`${subscriptions.lastEventAt} is null or ${subscriptions.lastEventAt} < ${occurredAt.toISOString()}::timestamptz`,
 			});
 	}
 }

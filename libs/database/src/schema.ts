@@ -89,6 +89,7 @@ export const subscriptions = pgTable(
 		status: subscriptionStatus('status').notNull(),
 		currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
 		cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+		lastEventAt: timestamp('last_event_at', { withTimezone: true }),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 	},
 	(table) => [uniqueIndex('subscriptions_external_id_key').on(table.externalId)],

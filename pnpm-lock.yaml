@@ -105,8 +105,8 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0
       '@vpn/ports':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.4.0
+        version: 0.4.0
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -157,8 +157,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(vitest@4.1.10)
       '@vpn/testing':
-        specifier: ^0.2.0
-        version: 0.2.0(vitest@4.1.10)
+        specifier: ^0.3.0
+        version: 0.3.0(vitest@4.1.10)
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
@@ -316,11 +316,11 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0
       '@vpn/ports':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.4.0
+        version: 0.4.0
       '@vpn/testing':
-        specifier: ^0.2.0
-        version: 0.2.0(vitest@4.1.10)
+        specifier: ^0.3.0
+        version: 0.3.0(vitest@4.1.10)
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
@@ -350,6 +350,9 @@ importers:
         specifier: ^3.4.5
         version: 3.4.9
     devDependencies:
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
       drizzle-kit:
         specifier: ^0.30.1
         version: 0.30.6
@@ -3828,14 +3831,11 @@ packages:
   '@vpn/i18n@0.3.0':
     resolution: {integrity: sha512-ph6MDnYOIpSOEmgOlNE7p7aHH9rqenFVZkq5eGxrR4NKUefLCVhW5po/jkExrI9fnif5H9CJ+ZX/0XiwC9CmGA==}
 
-  '@vpn/ports@0.2.0':
-    resolution: {integrity: sha512-4+/1VTBuy+G2RBV+2AynL2Oh5ufoBPzmn7oqOfaQtXrgLv9qwMFYo6C9PunSqzrP2G9pbRZtxN5QNzYoFO+8Ow==}
+  '@vpn/ports@0.4.0':
+    resolution: {integrity: sha512-HDSGR5zeYx/FT1AR/rIjkUhHriMsIc2jid6dfk6K8WFjAe6l6sgxmi4BpFFlav9NwpphxOvtwV7PfXqQG9ZiPw==}
 
-  '@vpn/ports@0.3.0':
-    resolution: {integrity: sha512-GtNV53nbn6zNi3l5uetv2oR9OgCZd7AGI02u3/1PbOBQh75JJaaAC8FTidTfUf+UjsqAsbfUI6oVwqdFR3DIlA==}
-
-  '@vpn/testing@0.2.0':
-    resolution: {integrity: sha512-SP20esSAHEqLRjrbieUA70+f3nRw8jc3sTXYlOGAHGybhrZk6z+Pu0AtxT2l6p6cJoCKFyPqnpxnRbLh2ey5Dw==}
+  '@vpn/testing@0.3.0':
+    resolution: {integrity: sha512-srqjyGydKwlsR44OHqczfHhPyj6hSXz8B/Vpa6LK8RSmq+phnl2kNcz8J4pK5Gt24gy3FwwKp2IE+HfqYSzz+w==}
     peerDependencies:
       vitest: '>=2'
     peerDependenciesMeta:
@@ -11164,13 +11164,11 @@ snapshots:
     dependencies:
       '@vpn/contracts': 0.4.0
 
-  '@vpn/ports@0.2.0': {}
+  '@vpn/ports@0.4.0': {}
 
-  '@vpn/ports@0.3.0': {}
-
-  '@vpn/testing@0.2.0(vitest@4.1.10)':
+  '@vpn/testing@0.3.0(vitest@4.1.10)':
     dependencies:
-      '@vpn/ports': 0.2.0
+      '@vpn/ports': 0.4.0
     optionalDependencies:
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@8.2.0(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)(yaml@2.9.0))
 
@@ -11900,7 +11898,7 @@ snapshots:
 
   dotenv-expand@12.0.3:
     dependencies:
-      dotenv: 16.4.7
+      dotenv: 16.6.1
 
   dotenv@16.4.7: {}
 

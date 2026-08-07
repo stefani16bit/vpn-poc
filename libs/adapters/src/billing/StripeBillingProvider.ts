@@ -85,6 +85,7 @@ export class StripeBillingProvider implements IBillingProvider {
 
 	parseWebhookEvent(rawBody: string): NormalizedBillingEvent | null {
 		const event = JSON.parse(rawBody) as Stripe.Event;
+		const occurredAt = new Date(event.created * 1000);
 
 		switch (event.type) {
 			case 'customer.subscription.created':
@@ -102,6 +103,7 @@ export class StripeBillingProvider implements IBillingProvider {
 								? 'subscription_activated'
 								: 'subscription_updated',
 					externalEventId: event.id,
+					occurredAt,
 					accountId,
 					subscription: normalized,
 				};
@@ -114,6 +116,7 @@ export class StripeBillingProvider implements IBillingProvider {
 				return {
 					kind: 'subscription_canceled',
 					externalEventId: event.id,
+					occurredAt,
 					accountId,
 					subscription: { ...toSubscription(subscription), status: 'canceled' },
 				};
@@ -126,6 +129,7 @@ export class StripeBillingProvider implements IBillingProvider {
 				return {
 					kind: 'payment_failed',
 					externalEventId: event.id,
+					occurredAt,
 					accountId,
 					externalCustomerId: String(invoice.customer ?? ''),
 				};

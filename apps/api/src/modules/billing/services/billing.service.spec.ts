@@ -12,6 +12,7 @@ import type {
 
 import { AppError } from '../../../shared/errors/app-error.js';
 import type { ModuleLogger } from '../../../shared/http/module-logger.js';
+import type { TransactionRunner } from '../../../shared/database/transaction-runner.js';
 import type { BillingEventRepository } from '../repositories/billing-event.repository.js';
 import type { SubscriptionRepository } from '../repositories/subscription.repository.js';
 import type { BillingMailer } from './billing-mailer.service.js';
@@ -37,6 +38,10 @@ const env = {
 } as Env;
 
 const ACCOUNT = { id: 'acc-1', email: 'ada@example.com', locale: 'pt-BR' } as Account;
+
+const OCCURRED_AT = new Date('2026-08-01T00:00:00.000Z');
+
+const EXECUTOR = Symbol('executor');
 
 function subscription(overrides: Partial<Subscription> = {}): Subscription {
 	return {
@@ -68,6 +73,7 @@ describe('BillingService', () => {
 		sendPaymentFailed: ReturnType<typeof vi.fn>;
 		sendSubscriptionCanceled: ReturnType<typeof vi.fn>;
 	};
+	let transactions: { run: ReturnType<typeof vi.fn> };
 	let service: BillingService;
 
 	beforeEach(() => {
@@ -90,6 +96,10 @@ describe('BillingService', () => {
 			sendSubscriptionCanceled: vi.fn().mockResolvedValue(undefined),
 		};
 
+		transactions = {
+			run: vi.fn((work: (executor: unknown) => Promise<unknown>) => work(EXECUTOR)),
+		};
+
 		records = [];
 		service = new BillingService(
 			recordingLogger(),
@@ -99,6 +109,7 @@ describe('BillingService', () => {
 			subscriptions as unknown as SubscriptionRepository,
 			events as unknown as BillingEventRepository,
 			mailer as unknown as BillingMailer,
+			transactions as unknown as TransactionRunner,
 		);
 	});
 
@@ -138,6 +149,7 @@ describe('BillingService', () => {
 				subscriptions as unknown as SubscriptionRepository,
 				events as unknown as BillingEventRepository,
 				mailer as unknown as BillingMailer,
+				transactions as unknown as TransactionRunner,
 			);
 
 			await expect(withoutYearly.createCheckout('acc-1', 'yearly')).rejects.toBeInstanceOf(
@@ -215,6 +227,7 @@ describe('BillingService', () => {
 
 		it('applies nothing when the claim is lost to a redelivery', async () => {
 			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
 				kind: 'subscription_activated',
 				accountId: 'acc-1',
 				externalEventId: 'evt-1',
@@ -236,6 +249,7 @@ describe('BillingService', () => {
 
 		it('claims the event against the source and the provider event id', async () => {
 			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
 				kind: 'subscription_activated',
 				accountId: 'acc-1',
 				externalEventId: 'evt-1',
@@ -244,12 +258,18 @@ describe('BillingService', () => {
 
 			await service.handleWebhook('{}', 'sig');
 
-			expect(events.claim).toHaveBeenCalledWith('stripe', 'evt-1', 'subscription_activated');
+			expect(events.claim).toHaveBeenCalledWith(
+				'stripe',
+				'evt-1',
+				'subscription_activated',
+				EXECUTOR,
+			);
 		});
 
 		it('stores the subscription an activation carries', async () => {
 			const sub = subscription();
 			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
 				kind: 'subscription_activated',
 				accountId: 'acc-1',
 				externalEventId: 'evt-1',
@@ -257,11 +277,12 @@ describe('BillingService', () => {
 			} satisfies NormalizedBillingEvent);
 
 			expect(await service.handleWebhook('{}', 'sig')).toBe(true);
-			expect(subscriptions.upsert).toHaveBeenCalledWith('acc-1', sub);
+			expect(subscriptions.upsert).toHaveBeenCalledWith('acc-1', sub, OCCURRED_AT, EXECUTOR);
 		});
 
 		it('mails on a payment failure and touches no subscription row', async () => {
 			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
 				kind: 'payment_failed',
 				accountId: 'acc-1',
 				externalEventId: 'evt-2',
@@ -277,6 +298,7 @@ describe('BillingService', () => {
 		it('stores and then mails on a cancellation', async () => {
 			const sub = subscription({ status: 'canceled' });
 			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
 				kind: 'subscription_canceled',
 				accountId: 'acc-1',
 				externalEventId: 'evt-3',
@@ -285,7 +307,7 @@ describe('BillingService', () => {
 
 			await service.handleWebhook('{}', 'sig');
 
-			expect(subscriptions.upsert).toHaveBeenCalledWith('acc-1', sub);
+			expect(subscriptions.upsert).toHaveBeenCalledWith('acc-1', sub, OCCURRED_AT, EXECUTOR);
 			expect(mailer.sendSubscriptionCanceled).toHaveBeenCalledWith(
 				ACCOUNT,
 				sub.currentPeriodEnd,
@@ -297,6 +319,7 @@ describe('BillingService', () => {
 			identity.findById.mockResolvedValue(null);
 			const sub = subscription({ status: 'canceled' });
 			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
 				kind: 'subscription_canceled',
 				accountId: 'acc-1',
 				externalEventId: 'evt-4',
@@ -305,13 +328,79 @@ describe('BillingService', () => {
 
 			await service.handleWebhook('{}', 'sig');
 
-			expect(subscriptions.upsert).toHaveBeenCalledWith('acc-1', sub);
+			expect(subscriptions.upsert).toHaveBeenCalledWith('acc-1', sub, OCCURRED_AT, EXECUTOR);
 			expect(mailer.sendSubscriptionCanceled).not.toHaveBeenCalled();
+		});
+
+		it('claims and applies inside one transaction, so a failure takes the claim with it', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				kind: 'subscription_activated',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-6',
+				subscription: subscription(),
+			} satisfies NormalizedBillingEvent);
+			subscriptions.upsert.mockRejectedValue(new Error('the database went away'));
+
+			await expect(service.handleWebhook('{}', 'sig')).rejects.toThrow('the database went away');
+
+			expect(transactions.run).toHaveBeenCalledTimes(1);
+			expect(events.claim.mock.invocationCallOrder[0]).toBeLessThan(
+				subscriptions.upsert.mock.invocationCallOrder[0] as number,
+			);
+		});
+
+		it('reports the event as applied even when the notification cannot go out', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				kind: 'payment_failed',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-7',
+				externalCustomerId: 'cus_1',
+			} satisfies NormalizedBillingEvent);
+			mailer.sendPaymentFailed.mockRejectedValue(new Error('smtp is down'));
+
+			expect(await service.handleWebhook('{}', 'sig')).toBe(true);
+			expect(records).toContainEqual(
+				expect.objectContaining({ event: 'billing.webhook.notify_failed' }),
+			);
+		});
+
+		it('mails only after the transaction has committed', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				kind: 'subscription_canceled',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-8',
+				subscription: subscription({ status: 'canceled' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(transactions.run.mock.invocationCallOrder[0]).toBeLessThan(
+				mailer.sendSubscriptionCanceled.mock.invocationCallOrder[0] as number,
+			);
+		});
+
+		it('passes the provider timestamp through, so a stale event can be rejected', async () => {
+			const sub = subscription();
+			billing.parseWebhookEvent.mockReturnValue({
+				kind: 'subscription_updated',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-9',
+				subscription: sub,
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(subscriptions.upsert).toHaveBeenCalledWith('acc-1', sub, OCCURRED_AT, EXECUTOR);
 		});
 
 		it('does not mail a payment failure to an account that has vanished', async () => {
 			identity.findById.mockResolvedValue(null);
 			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
 				kind: 'payment_failed',
 				accountId: 'acc-1',
 				externalEventId: 'evt-5',
