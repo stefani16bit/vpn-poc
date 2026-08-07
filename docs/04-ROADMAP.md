@@ -75,14 +75,58 @@ a ignorar suíte vermelha.
       `getTranslator` (DEC-014).
 - [ ] Não há lint que proíba string literal voltada ao usuário. A disciplina de
       i18n é revisão, não ferramenta.
+- [ ] `.env.example` não define `STRIPE_PRICE_ID_YEARLY`. O plano anual estoura
+      localmente com `INTERNAL "no price configured"`, e o único aviso é o 500.
+- [ ] `pnpm packages:publish:local` **não publica nada** no Git Bash e sai com 0. O filtro `./packages/*` é mangleado pela conversão de caminho do MSYS e
+      o resultado é `No projects matched the filters`. Contorno:
+      `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`. Um publish silenciosamente
+      pulado é o pior modo de falha possível para a DEC-002.
+- [ ] `apps/api` não tem forma de ver o erro real de um 500 no e2e: o setup fixa
+      `LOG_LEVEL=silent` e o `GlobalExceptionFilter` devolve `INTERNAL`. Um bug
+      de driver custou meia hora para virar mensagem legível.
 
-### Fase 2 — quando o produto exigir
+### Fase 2 — o PoC whitelabel
 
-- [ ] Multi-tenancy com RLS. Os papéis de banco já existem (DEC-005); falta
-      `tenant_id`, as policies e um teste negativo obrigatório por tabela.
+A linha de chegada: **o usuário se registra, assina, cria usuários e chaves, e
+conecta**. As decisões estão em DEC-034 a DEC-045; o vocabulário, em
+`CONTEXT.md`. A ordem abaixo é a que a natureza de cada entitlement impõe —
+capability se aplica no request, contador na escrita, região no
+provisionamento, tráfego continuamente — e as duas últimas dependem de um data
+plane que ainda não existe.
+
+- [x] **Corrigir o webhook.** Reivindicação e aplicação na mesma transação, e
+      guarda monotônica no upsert. Cobrança é recorrente: todo período gera
+      eventos, e um evento fora de ordem retrocedia o período de um cliente
+      adimplente. DEC-037, e a porta ganhou `occurredAt` (`@vpn/ports` 0.4.0).
+- [ ] **Account/User e RLS.** `accounts` vira `users`; nasce `accounts` como a
+      empresa; `subscriptions.account_id` muda de significado sem mudar de nome.
+      `0000_init` é regenerada — não há deploy. Policy por tabela e **um teste
+      negativo por tabela**. Atenção: o e2e limpa como `vpn_app` e sob RLS isso
+      passa a apagar zero linhas em silêncio. DEC-034, DEC-035.
+- [ ] **Entitlements e o gate de assinatura.** O mapa em `@vpn/contracts` com
+      **um** tier, leitura por requisição com cache, invalidação no webhook.
+      É aqui que assinar passa a desbloquear alguma coisa. DEC-036, DEC-037.
+- [ ] **Página de usuários.** Admin cria user direto com senha, dentro da
+      account. Sem convite por e-mail no PoC. Seats não são aplicados com um
+      tier só; DEC-043 registra o mecanismo para quando forem.
+- [ ] **Spike do WireGuard, depois a spec.** `devstack/` não tem WireGuard, nem
+      `NET_ADMIN`, nem `/dev/net/tun`. Subir o contêiner, adicionar um peer à
+      mão, conectar do host Windows — que usa o cliente WireGuard for Windows,
+      **não** `wg-quick` — e só então escrever `docs/specs/data-plane.md`.
+- [ ] **Página de chaves e a conexão.** Par gerado no navegador, `.conf` montado
+      no cliente, peer provisionado no nó, entitlement aplicado no servidor.
+      DEC-045.
+
+### Fase 3 — quando o produto exigir
+
+- [ ] Domínio por account e branding. As decisões existem (DEC-038, DEC-040) e
+      não constroem nada em direção a um túnel.
+- [ ] Apps nativos (React Native, Tauri/Electron). Refresh por body, tenant por
+      slug, e **nenhum fluxo de compra**. DEC-041, DEC-042.
+- [ ] Regiões e metering de tráfego. `monthlyTrafficGb` existe no tipo para os
+      tiers anunciarem; a aplicação depende do data plane e é explicitamente
+      adiada.
 - [ ] SMS de verdade atrás de `ISmsSender` (SNS ou Twilio).
-- [ ] WireGuard: emissão de chave no cliente, provisionamento de peer,
-      orquestração de nós de saída.
 - [ ] Fila para envio de e-mail. Hoje o envio é síncrono dentro da requisição:
       um SMTP lento é um cadastro lento.
 

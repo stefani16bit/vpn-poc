@@ -8,17 +8,56 @@ diferentes para coisas diferentes.
 
 ## Identidade
 
-**Account** — quem se cadastra. Uma linha em `accounts`, identificada por
-e-mail. Deliberadamente não chamada de "user": _user_ é quem está usando o
-sistema agora, e a distinção importa quando aparecer acesso delegado.
+**Account** — a **empresa** que assina. Uma linha em `accounts`, identificada por
+um `slug`. É a unidade de cobrança, de isolamento e de identidade visual: uma
+assinatura, um domínio, um conjunto de features.
+
+Até a DEC-034, `Account` era a pessoa que se cadastrava — e a definição de então
+já previa este momento: _"a distinção importa quando aparecer acesso delegado"_.
+Apareceu. A pessoa virou **User**, e o nome ficou com quem compra.
+
+**User** — a **pessoa** que usa o sistema, sob exatamente uma account. Uma linha
+em `users` (a tabela que já foi `accounts`), com `account_id` e `role`.
 
 **E-mail normalizado** — minúsculo e sem espaços nas pontas. A normalização
-acontece no schema em `@vpn/contracts`, num lugar só, e o índice único em
-`accounts.email` é o que a torna obrigatória em vez de decorativa.
+acontece no schema em `@vpn/contracts`, num lugar só, e o índice único é o que a
+torna obrigatória em vez de decorativa. Esse índice é `(account_id, email)`, não
+`email`: a mesma pessoa pode ser usuária de duas empresas, e a identidade dela
+só é única dentro de uma. É também o que obriga o login a saber de qual account
+está falando **antes** de procurar o e-mail.
+
+**Role** — o que esta pessoa pode fazer dentro da account: `owner`, `admin` ou
+`member`. Uma coluna em `users`, não uma tabela: um usuário pertence a uma
+account só, então `memberships` teria exatamente uma linha por usuário. É a
+segunda dimensão de autorização, e compõe com a primeira — ver **Entitlement**.
 
 **Verificado** — a conta provou controlar o endereço. É um _timestamp_
 (`email_verified_at`), não um booleano: "quando" responde perguntas de suporte
 que "se" não responde. Verificar de novo não move o timestamp.
+
+## Tenancy
+
+**Account scope** — toda linha de domínio pende de uma account. O mecanismo é
+**RLS**: uma policy no banco, contra `current_setting('app.account_id')`, que a
+transação da requisição fixa com `SET LOCAL`. Não é um `WHERE account_id = ?` na
+aplicação — esse é o tipo de coisa que funciona em 99 queries e vaza na
+centésima, e a query que vaza não falha, ela devolve dados de outra empresa.
+DEC-035. O que torna isso verificável é a DEC-005: `vpn_app` não tem
+`BYPASSRLS`, então a policy vincula de verdade em vez de ler como correta.
+
+**Slug** — o identificador legível da account (`acme`). É o que vira subdomínio
+e o que o app nativo pede no primeiro login, porque um cliente nativo não tem
+`Host` para entregar de graça.
+
+**Custom domain** — o host próprio de uma account. `{slug}.vpn.example.com` sai
+de um cert wildcard e existe para toda account; um domínio do cliente é uma
+linha em `custom_domains` e depende de emissão de certificado, que é fase
+posterior. Em ambos os casos o host **resolve a account**, e é isso que a torna
+conhecida antes da autenticação.
+
+**Branding** — a identidade visual da account: um logo e um conjunto **fechado**
+de **tokens de tema**. Fechado é a decisão: CSS arbitrário de cliente executa na
+nossa origem. DEC-040.
 
 ## Sessão
 
@@ -73,11 +112,65 @@ pode mandar um segundo e-mail.
 `(source, external_event_id)` **é** o mecanismo de idempotência, não um registro
 dele.
 
-**Subscription** — a projeção local do estado no provider, uma por conta. É uma
+**Subscription** — a projeção local do estado no provider, uma por account. É uma
 projeção, não a verdade: o provider é a autoridade, e o webhook sobrescreve.
+
+**Tier** — o nível do produto. É ele que determina os entitlements.
+
+**Cadence** — mensal ou anual. É só o intervalo de cobrança e não muda o que a
+account pode fazer. `PLAN_IDS = ['monthly','yearly']` era **só a cadência**, sem
+que nada no nome dissesse isso; um plano é o par **tier × cadence**, e o preço
+pende do par enquanto os entitlements pendem só do tier.
 
 **Cancelar no fim do período** — o padrão. O usuário pagou pelo período; cortar
 na hora é para suporte e exclusão de conta.
+
+## Autorização
+
+**Entitlement** — o que a assinatura da account permite. Deriva do tier por um
+mapa versionado em código, em `@vpn/contracts`, compartilhado com todo cliente
+(DEC-036).
+
+Autorização tem **duas dimensões e elas compõem**: o entitlement diz o que a
+_empresa_ contratou, a **role** diz o que _esta pessoa_ pode fazer. O efetivo é a
+interseção. Um `owner` num tier sem a feature não a tem; um `member` numa account
+que a tem pode continuar não podendo usá-la.
+
+**Capability** — o entitlement que é um liga/desliga (`sso`, `audit_log`,
+`split_tunneling`). Verificado no request, por um guard do kernel.
+
+**Seat** — o entitlement que é um contador: quantos users cabem na account.
+`devicesPerUser` é da mesma natureza. Contadores são aplicados na **escrita** e
+por **restrição de banco** — um `count()` seguido de `INSERT` é o `if (jáVimos)`
+que o inegociável nº 3 proíbe, e dois convites aceitos ao mesmo tempo passam
+pelo `SELECT` juntos. DEC-043.
+
+Ler um entitlement é uniforme; **aplicar não é**. São quatro momentos diferentes
+— request, escrita, provisionamento de peer e medição contínua — e um decorator
+só resolve o primeiro. Ver `docs/specs/entitlements-and-plans.md`.
+
+**Entitlements não estão no access token.** O JWT vive 15 minutos e não é
+revogável, mas um `payment_failed` muda o que a account pode fazer _agora_. São
+lidos por requisição a partir da subscription, com cache, e o webhook invalida.
+`accountId` e `role` **estão** no token: mudam por ação nossa, e a rotação de
+família já é o mecanismo de propagação. DEC-037.
+
+## Rede
+
+**Device** — uma instalação do app nativo, com sua chave. A chave privada nasce e
+morre no dispositivo; o servidor só vê a pública. É por device que o túnel
+existe, não por user — daí `devicesPerUser` ser um entitlement.
+
+**Peer** — a entrada de um device na configuração de um exit node. É o que o
+provisionamento cria, e é onde o entitlement de região é aplicado: no servidor,
+nunca só na UI, porque o cliente que pede o peer é código do usuário.
+
+**Exit node** — a máquina por onde o tráfego sai. **Region** — o agrupamento
+geográfico de exit nodes que o produto vende (`us`, `eu`), e o que um tier
+entitula. Um cliente escolhe região; qual nó atende é nosso.
+
+Estes quatro termos descrevem um sistema **ainda não construído**. Estão aqui
+porque o vocabulário precede o schema, não porque o data plane exista.
 
 ## Infraestrutura
 

@@ -453,7 +453,7 @@ botão e link.
 
 ### DEC-022 — Sem Prettier; ordem de classe por lint
 
-**Data:** 2026-08-05 · **Status:** accepted
+**Data:** 2026-08-05 · **Status:** superseded by DEC-044
 
 **Contexto.** O repositório não tem formatador: nenhum `.prettierrc`, nenhum
 `.editorconfig`, nenhum script `format`, indentação por tab por convenção. Com
@@ -945,3 +945,362 @@ atribui corretamente.
 **Herda a isenção da DEC-031** quanto ao inegociável nº 1: não existe
 `ILogSink`, e `module` é um binding sobre um logger que já é nosso, um nível
 abaixo do transport que a DEC-031 já isentou.
+
+---
+
+### DEC-034 — Account é a empresa; a pessoa vira User
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** O produto é whitelabel: quem compra é uma empresa, que recebe um
+domínio, uma assinatura e vários acessos de pessoas. O modelo atual tem uma
+tabela `accounts` que é uma pessoa, e nada acima dela.
+
+**Decisão.** `accounts` passa a ser a **empresa**. A tabela de hoje é renomeada
+para `users` e ganha `account_id` e `role`. O índice único de e-mail vira
+`(account_id, email)`.
+
+**Rationale.** "Account" é a palavra que o produto usa para a empresa que compra,
+e a definição original em `CONTEXT.md` já reservava o rename para o dia do acesso
+delegado. Rejeitados `tenants` e `organizations`: ambos custariam zero churn hoje
+— nada seria renomeado, só acrescentado — mas deixariam o código chamando de
+"tenant" aquilo que toda conversa comercial chama de "account", e essa
+divergência não se paga depois. O momento é agora justamente porque o custo do
+rename só cresce: seis tabelas, seis telas.
+
+**Consequências.** Toca `libs/database/src/schema.ts` e a migration, o `sub` do
+JWT, `IIdentityProvider` em `@vpn/ports` — que é **publicado**, logo exige
+`packages:publish:local` e o `consumer-check` —, a suíte de conformidade de
+identidade e as seis telas de `apps/web/features/auth`.
+
+`accounts` deixa de ter e-mail e senha: essas colunas são de `users`. Uma account
+nasce sem nenhum user, entre o webhook de ativação e o resgate do claim token
+(DEC-039), e esse estado precisa ser representável.
+
+---
+
+### DEC-035 — Isolamento por RLS, não por `WHERE` na aplicação
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** Com múltiplas empresas no mesmo banco, toda query de domínio passa
+a ter uma condição de tenant. A pergunta é onde essa condição mora.
+
+**Decisão.** `account_id` em toda tabela de domínio, e uma policy de RLS por
+tabela contra `current_setting('app.account_id')`, fixado com `SET LOCAL` na
+transação da requisição. **Cada tabela ganha um teste negativo obrigatório**: um
+`SELECT` com o setting de outra account devolve zero linhas.
+
+**Rationale.** Um `WHERE account_id = ?` na aplicação funciona em noventa e nove
+queries e falha na centésima — e a falha não é um erro, é um resultado com dados
+de outra empresa. A policy é a única formulação em que esquecer a condição
+produz "nada" em vez de "os dados errados".
+
+O teste negativo é o que separa isto de teatro: uma policy contra uma conexão
+superusuária lê como correta e não faz nada. A DEC-005 já criou `vpn_app`
+`NOINHERIT` e **sem `BYPASSRLS`** exatamente para este dia — esta decisão não a
+supera, a consome. `app_system` (NOLOGIN, bypass deliberado) continua sendo a
+saída para jobs que legitimamente cruzam accounts.
+
+**Consequências.** Toda requisição passa a abrir transação e emitir `SET LOCAL`
+antes de qualquer query — hoje nem todo handler transaciona. Os repositórios não
+ganham parâmetro de tenant, e isso é o ponto: eles não sabem que a tenancy
+existe. O `SET LOCAL` é responsabilidade do kernel, não dos módulos.
+
+---
+
+### DEC-036 — Entitlements são um mapa versionado em código
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** Cada tier de assinatura entitula um conjunto de features. Esse
+mapeamento precisa morar em algum lugar.
+
+**Decisão.** Um `Record<TierId, Entitlements>` em `@vpn/contracts`, ao lado dos
+schemas de billing, compartilhado com a web e com os clientes nativos.
+
+**Rationale.** Entitlement é regra de produto, muda com deploy e precisa ser
+tipada nos dois lados. Rejeitadas as tabelas `plans`/`plan_features`: seriam
+dados sem nenhuma interface administrativa para editá-los — ou seja, um `UPDATE`
+manual em produção com a aparência de flexibilidade — e o front perderia a
+checagem de tipo sobre o nome da feature. Rejeitada também a metadata de produto
+do Stripe: acoplaria a autorização ao provider que está atrás de uma porta
+justamente para ser trocável, o que colide de frente com o inegociável nº 1.
+
+**Consequências.** Mudar um tier é publicar `@vpn/contracts`. Override por
+account não existe; quando um cliente exigir, é uma tabela estreita de exceções
+lida por cima do mapa, e não a inversão do mecanismo.
+
+---
+
+### DEC-037 — Entitlements fora do access token; papel dentro
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** O access token é um JWT de 15 minutos, **não revogável** por
+decisão explícita — a revogação mora no refresh token. Autorização precisa de
+uma fonte.
+
+**Decisão.** O token carrega `acc` (accountId) e `rol` (role). **Não** carrega
+entitlements: eles são lidos por requisição a partir da subscription, com cache
+via `ICacheStore`, e o handler de webhook invalida essa entrada.
+
+**Rationale.** O critério é quem muda o dado. Papel muda por ação nossa, e já
+existe o mecanismo de propagação: a rotação de família. Entitlement muda por ação
+do provider — um `payment_failed` chega por webhook e precisa valer agora, não
+em até quinze minutos. Colocá-lo no token seria escolher uma janela de quinze
+minutos de acesso pago não pago.
+
+**Consequências.** Uma leitura a mais por requisição autorizada, que é o que o
+cache existe para absorver. A invalidação passa a ser efeito obrigatório do
+handler de webhook — se for esquecida, o sintoma é entitlement velho servido por
+até o TTL, e isso precisa de teste. `AccessTokenClaims` cresce, e todo lugar que
+constrói um token de teste precisa dos campos novos.
+
+---
+
+### DEC-038 — Tenant resolvido pelo host na web, por slug no nativo
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** O e-mail de um user só é único dentro de uma account (DEC-034),
+então o login precisa saber a account **antes** de procurar o e-mail. O
+navegador chega por um host da account; o app nativo chama a API direto e não
+tem host nenhum a oferecer.
+
+**Decisão.** Um middleware do kernel, antes do `AccessTokenGuard`, resolve a
+account a partir do `Host` — `{slug}.vpn.example.com` ou uma linha em
+`custom_domains`. Clientes nativos informam o slug explicitamente no primeiro
+login e passam a portá-lo na claim `acc` depois disso.
+
+**Rationale.** Um conceito de resolução, duas portas de entrada. O host já é
+tratado como entrada: a web app é servida a partir do host em que a API é
+chamada. Rejeitada a descoberta por e-mail ("digite seu e-mail e achamos sua
+empresa"): é um oráculo de enumeração de contas contra o inegociável nº 4, e
+torná-lo seguro exige uma resposta tão vaga que o ganho de UX evapora.
+
+**Consequências.** Precisam ser tratados: CORS, que passa a ter origem por
+account; o cookie de refresh, que é host-scoped — o que significa uma sessão por
+host de tenant, e isso é a propriedade correta, não um defeito; o host de retorno
+do Checkout; e um host desconhecido, que precisa de resposta própria e não pode
+virar 500.
+
+`custom_domains` é modelada agora e a emissão de certificado fica para depois: o
+wildcard cobre todo slug, e o domínio próprio do cliente é a única parte que
+depende de ACME.
+
+---
+
+### DEC-039 — Uma account nasce do registro, não da compra
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** Account passou a ser a empresa (DEC-034), e a empresa precisa
+existir antes de qualquer coisa pender dela. Duas ordens são possíveis: comprar
+e depois receber acesso, ou registrar-se e depois comprar.
+
+**Decisão.** **Self-serve.** Quem se registra cria, na **mesma transação**, a
+account e o seu `owner`. A compra é um passo posterior de uma account que já
+existe e já tem dono.
+
+**Rationale.** É a ordem que o produto tem: registrar → comprar → usar. Também é
+a que o sistema já faz — o cadastro de hoje cria a linha, e a mudança é o que
+essa linha significa, não quando ela nasce.
+
+Rejeitado o **claim token**, que era a decisão anterior aqui e vale registrar
+porque o raciocínio segue correto para o fluxo que ele atende: numa venda
+conduzida por vendas, a compra acontece antes de existir qualquer pessoa
+cadastrada, o webhook de ativação cria a account, e um terceiro `purpose` em
+`verification_tokens` (`account_claim`) é emitido e enviado a quem comprou —
+reusando o `UPDATE` condicional que já torna um resgate único sob concorrência,
+em vez de inventar um segundo mecanismo desses. Não é o fluxo deste produto
+hoje, e uma tabela não ganha um `purpose` que nada emite.
+
+Rejeitado também criar o user direto de um webhook a partir do e-mail de
+cobrança: o e-mail que paga não é necessariamente o e-mail que administra, e um
+webhook não tem senha para definir.
+
+**Consequências.** Registro deixa de ser um `INSERT` e passa a ser uma
+transação de dois — é o primeiro uso do `TransactionRunner` do kernel fora de
+cobrança. Um `owner` por account é uma restrição, não uma convenção.
+
+O `slug` da account precisa sair de algum lugar no registro: derivado do e-mail,
+pedido no formulário, ou gerado. É decisão de produto e está na spec.
+
+Nenhuma account existe sem user, o que elimina o estado "comprada mas não
+resgatada" — e com ele a operação de suporte que o claim token exigiria.
+
+---
+
+### DEC-040 — Branding é dado da account, aplicado como tokens de tema
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** Cada empresa recebe a plataforma com a identidade visual dela.
+
+**Decisão.** Um logo por `IObjectStorage` e um conjunto **fechado** de tokens de
+tema por account, injetados como variáveis CSS na origem daquele host.
+
+**Rationale.** O mecanismo já existe e é a DEC-021: tokens `@theme` nomeiam
+papéis (`--background`, `--destructive`), nunca cores, e é isso que permite duas
+paletas com um markup só. Trocar a paleta por account é o mesmo movimento que
+trocar claro por escuro. Rejeitado CSS arbitrário do cliente: executa na nossa
+origem, é XSS por definição, e ainda transforma qualquer mudança de UI nossa
+numa quebra silenciosa no tema de um cliente.
+
+**Consequências.** O conjunto de tokens vira contrato: acrescentar um é fácil,
+remover um quebra clientes. Logo é upload, logo é validação de tipo e tamanho, e
+é o primeiro uso real de `IObjectStorage` no produto.
+
+---
+
+### DEC-041 — Refresh token por body no nativo, cookie na web
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** Haverá app mobile (React Native) e desktop (Tauri/Electron). O
+refresh token hoje trafega exclusivamente por cookie httpOnly.
+
+**Decisão.** O mesmo token opaco, a mesma rotação por família, transportes
+diferentes: cookie httpOnly na web, corpo da resposta no nativo — guardado em
+Keychain/Keystore ou no cofre de credenciais do sistema.
+
+**Rationale.** O cookie httpOnly existe para que um XSS na web não alcance o
+token, e essa ameaça é específica de um documento com JavaScript de terceiros.
+Um app nativo não tem esse modelo de ameaça e tem um cofre do sistema, que é a
+garantia equivalente. Rejeitado body para todos: a web passaria a segurar o token
+em JS, e um XSS viraria tomada de conta — estritamente pior que hoje, em nome de
+simetria de código. Rejeitado OAuth device/PKCE: é a resposta certa para SSO
+empresarial e desproporcional para o que existe agora; fica registrado como o
+caminho quando SSO virar entitlement.
+
+**Consequências.** A rota de refresh passa a ter duas formas de receber o token,
+e a escolha precisa ser explícita do cliente — não inferida por presença, que é
+o caminho para um cliente web receber acidentalmente o token no corpo. A DEC-006
+continua intacta: a família, a rotação e a revogação em bloco não mudam.
+
+---
+
+### DEC-042 — Compra só na web
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** Apple e Google exigem compra in-app para assinaturas digitais, com
+comissão de 15 a 30%.
+
+**Decisão.** A compra acontece exclusivamente no domínio web da account. Os apps
+nativos não têm fluxo de compra **nem link para um**.
+
+**Rationale.** Quem compra é uma empresa, e o app é cliente de uma account que já
+existe — que é a forma que as regras de loja permitem. A ausência do link não é
+detalhe: é ela que sustenta a permissão. Rejeitado antecipar um segundo adapter
+de `IBillingProvider` para StoreKit/Play: significaria duas fontes de verdade
+sobre o estado de uma assinatura e uma reconciliação entre elas, para vender a um
+público — o indivíduo comprando pelo celular — que este produto não tem.
+
+**Consequências.** O app precisa degradar com elegância para um user cuja account
+está sem assinatura ativa: explicar, sem oferecer compra e sem mandar para uma
+página que a ofereça. `IBillingProvider` permanece Stripe-only, e a porta
+continua tendo um único motivo para existir.
+
+---
+
+### DEC-043 — Limite contável é restrição de banco, não `count()`
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** `seats` e `devicesPerUser` são entitlements numéricos, aplicados no
+momento em que um convite é aceito ou um device é registrado.
+
+**Decisão.** A checagem acontece dentro da transação da escrita, apoiada em
+`SELECT ... FOR UPDATE` na linha da account ou numa coluna contadora com `CHECK`
+— nunca num `SELECT count(*)` seguido de `INSERT`.
+
+**Rationale.** É literalmente o `if (jáVimos)` que o inegociável nº 3 proíbe:
+dois convites aceitos ao mesmo tempo passam pelo `SELECT` juntos, cada um conta
+24 de 25, e a account termina com 26 users. A diferença em relação à idempotência
+de webhook é que aqui não há chave natural para um unique index — contar não é
+deduplicar — e por isso o mecanismo é bloqueio ou constraint, não índice.
+
+**Consequências.** O caminho de aceitar convite passa a serializar por account, o
+que é aceitável porque a contenção é por empresa e a operação é rara. O downgrade
+fica sem resposta automática: uma account que cai de 100 para 10 seats com 40
+users viola o limite sem que ninguém tenha escrito nada, e decidir o destino
+desses 30 é produto, não schema — está na spec, não aqui.
+
+---
+
+### DEC-044 — Prettier, depois de tudo
+
+**Data:** 2026-08-06 · **Status:** accepted · **Supera:** DEC-022
+
+**Contexto.** A DEC-022 recusou Prettier e escolheu
+`eslint-plugin-better-tailwindcss` para o problema que existia então: ordem de
+classe do Tailwind. O commit `9ba12a9` adotou Prettier assim mesmo — porque o
+repositório havia derivado para dois estilos — e o log nunca registrou a
+reversão. Uma decisão contrariada em silêncio é pior que uma decisão errada:
+quem lê o log conclui o oposto do que o repositório faz.
+
+**Decisão.** Prettier é o formatador. `.prettierrc.json` (tab, aspas simples,
+largura 100, espaços em `json`/`md`/`yaml`), `.prettierignore`, `.editorconfig`,
+e `format:check` como **primeiro** portão de `pnpm verify`.
+
+**Rationale.** O argumento da DEC-022 era proporcional ao problema de então, e a
+premissa mudou: não era mais "adotar um formatador reescreveria o repositório",
+era "o repositório já está em dois estilos e a revisão gasta atenção com isso".
+Formatar de uma vez custa um commit; formatar por revisão custa para sempre.
+
+`format:check` vem antes de lint e typecheck por ser o portão mais barato: falha
+em segundos e a correção é `pnpm format`.
+
+Isto **não** reverte a outra metade da DEC-022: `eslint-plugin-better-tailwindcss`
+continua instalado e continua responsável pela ordem de classe. O que a DEC-022
+rejeitava e continua rejeitado é `prettier-plugin-tailwindcss`, que só ordena e
+não sabe dizer que `bg-surface` não é um token nosso.
+
+**Consequências.** `libs/database/migrations/` e `packages/` estão no
+`.prettierignore` — saída gerada e submodule com workspace próprio não são
+formatados daqui.
+
+Não há hook de pre-commit: a garantia é `pnpm verify` e CI. Um hook é uma
+decisão futura, não uma omissão desta.
+
+---
+
+### DEC-045 — A chave privada nasce no navegador
+
+**Data:** 2026-08-06 · **Status:** accepted
+
+**Contexto.** O produto entrega credenciais de VPN. A pessoa gera uma chave numa
+página, baixa um `.conf` e o importa num cliente WireGuard. A pergunta é onde o
+par de chaves é gerado.
+
+**Decisão.** No **navegador**. O par é gerado com `crypto.subtle` (X25519), o
+`POST` leva **só a chave pública**, e o `.conf` é montado e baixado no cliente. O
+servidor persiste apenas a chave pública, e nunca vê a privada.
+
+**Rationale.** A chave privada é a credencial: quem a tem é o túnel. Não
+transmiti-la remove de uma vez o log que a registra sem querer, o backup que a
+guarda, o response body que um proxy corporativo inspeciona e o incidente em que
+um dump de banco é um conjunto de VPNs funcionando.
+
+Rejeitada a geração no servidor. Não é indefensável — produtos reais fizeram e
+fazem isso, e continua sobrevivível desde que a privada nunca seja persistida —
+mas a alternativa custa uma dependência pequena, e "o servidor não pode vazar o
+que nunca teve" é uma garantia estrutural em vez de uma disciplina.
+
+Rejeitado exigir uma CLI que gere a chave: é a postura mais forte de todas, mas
+transforma a página de chaves num passo que não entrega nada sozinho e faz a CLI
+virar entregável antes de haver produto.
+
+**Consequências.** `crypto.subtle` com X25519 é recente nos navegadores. O
+fallback é `@noble/curves`, e **qual dos dois caminhos vale por navegador é
+coisa a verificar, não a supor** — a versão exata de suporte não foi confirmada
+ao escrever esta decisão.
+
+O `.conf` só existe no cliente: um usuário que perde o arquivo **não** pode
+pedir outro. Ele gera uma chave nova e a antiga é revogada — o que é a
+propriedade certa, e precisa estar na interface, senão vira chamado de suporte.
+
+A chave pública é o identificador do peer, e por isso a tabela de chaves fica sob
+RLS como qualquer outra tabela de domínio (DEC-035).
