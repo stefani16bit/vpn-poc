@@ -26,7 +26,7 @@
   "nx": {
     "tags": [
       "scope:poc-vpn",
-      "type:app"
+      "type:deployment"
     ]
   }
 }
