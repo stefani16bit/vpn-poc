@@ -31,6 +31,19 @@ está falando **antes** de procurar o e-mail.
 account só, então `memberships` teria exatamente uma linha por usuário. É a
 segunda dimensão de autorização, e compõe com a primeira — ver **Entitlement**.
 
+**Owner** — o user que criou a account. É a role de quem se registrou, e é
+**uma por account**: um índice único parcial em `(account_id) where role =
+'owner'` faz disso uma restrição, não uma convenção — a diferença é que uma
+convenção sobrevive a dois `INSERT` concorrentes e uma restrição não. DEC-039.
+
+O inverso também é restrição: um índice único parcial em `(email) where role =
+'owner'` faz um endereço ser owner de **no máximo uma** account. É o que impede
+um duplo clique no cadastro de criar duas empresas — e, pior, de deixar a pessoa
+sem conseguir entrar, já que a DEC-051 responde `INVALID_CREDENTIALS` quando um
+e-mail existe em mais de uma account e nenhum slug foi informado. A mesma pessoa
+continua podendo ser `admin` ou `member` de quantas accounts quiser; o que ela
+não pode é **fundar** duas.
+
 **Verificado** — a conta provou controlar o endereço. É um _timestamp_
 (`email_verified_at`), não um booleano: "quando" responde perguntas de suporte
 que "se" não responde. Verificar de novo não move o timestamp.
@@ -45,9 +58,26 @@ centésima, e a query que vaza não falha, ela devolve dados de outra empresa.
 DEC-035. O que torna isso verificável é a DEC-005: `vpn_app` não tem
 `BYPASSRLS`, então a policy vincula de verdade em vez de ler como correta.
 
+**Transação da requisição** — a transação que o kernel abre por requisição
+autenticada, fixando `app.account_id` com `set_config(…, true)`. É onde a policy
+encontra o valor contra o qual decidir. Nenhuma query de domínio roda fora de
+uma: fora dela não há setting, e sem setting a policy devolve zero linhas **sem
+erro** — por isso o kernel lança em vez de cair para o pool.
+
+**Transação de sistema** — a outra espécie, que assume `app_system` com
+`set local role` e enxerga todas as accounts. Atende o que legitimamente não tem
+tenant: o caminho pré-autenticação (que é o código que descobre quem você é), o
+relay do outbox e o webhook de cobrança. `app_system` não tem `BYPASSRLS`, então
+esse acesso é uma policy escrita, não um atributo de papel. DEC-050.
+
 **Slug** — o identificador legível da account (`acme`). É o que vira subdomínio
 e o que o app nativo pede no primeiro login, porque um cliente nativo não tem
 `Host` para entregar de graça.
+
+**Slug derivado** — como o slug nasce: o local part do e-mail de quem se
+registra, slugificado. A colisão é resolvida pelo `INSERT` perdendo para a
+restrição e tentando de novo com `-2`, `-3` — nunca por um `SELECT` antes, que
+dois registros simultâneos atravessariam juntos. DEC-052.
 
 **Custom domain** — o host próprio de uma account. `{slug}.vpn.example.com` sai
 de um cert wildcard e existe para toda account; um domínio do cliente é uma
@@ -179,8 +209,12 @@ causou**. É o que faz a notificação ser tão durável quanto a mudança de es
 publicar depois do commit perde a mensagem se o publish falhar, e essa é a mesma
 forma do bug de dual-write que o webhook de cobrança tinha. DEC-047.
 
-**Intenção** — o que o outbox guarda: `{ accountId }` e o nome do que enviar,
-nunca a mensagem pronta. Um e-mail de verificação renderizado carregaria o token
+**Intenção** — o que o outbox guarda: a quem se destina e o nome do que enviar,
+nunca a mensagem pronta. "A quem" é `userId` nas intenções de auth e `accountId`
+nas de cobrança — uma fala com uma pessoa, a outra com a empresa, e usar o mesmo
+nome para as duas seria a confusão que este glossário existe para evitar. É
+separado da coluna `account_id` da tabela, que existe para a RLS e é sempre a
+empresa. Um e-mail de verificação renderizado carregaria o token
 **em claro**, e o banco só guarda hash de token. Por isso quem emite o token é o
 worker, no envio. DEC-048.
 

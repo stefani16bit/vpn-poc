@@ -1427,3 +1427,289 @@ em `shared/`.
 
 Um teste de e2e faz grep no payload atrás de token. É feio, e é o que impede a
 regressão silenciosa.
+
+---
+
+### DEC-049 — `IIdentityProvider` é aposentada; identidade é repositório
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** A DEC-026 decidiu que repositório é código nosso e não ganha
+interface: o Postgres já está atrás de uma fronteira, e um repositório mora em
+cima dela, não no lugar dela. Identidade foi a exceção — e a própria DEC-026 a
+citava como parte da justificativa ("para identidade a porta `IIdentityProvider`
+com duas implementações conformes"), o que a manteve de pé por precedência, não
+por argumento.
+
+**Decisão.** `IIdentityProvider` sai de `@vpn/ports`. `DrizzleIdentityProvider`
+vira `AccountRepository`, `UserRepository` e `SessionRepository` em
+`apps/api/src/shared/identity/`, mais um `IdentityService` com a política. A
+suíte de conformidade não é apagada: é **convertida** em teste de integração dos
+repositórios.
+
+**Rationale.** Três fatos, e o primeiro sozinho já bastaria.
+
+Não existe driver `memory` de identidade registrado em `adapters.module.ts` —
+todos os outros portos têm um, este nunca teve. `MemoryIdentityProvider` não roda
+em lugar nenhum, e é exatamente a divergência silenciosa que a DEC-012 existe
+para impedir. O fake que a DEC-012 defende é o que roda todo dia; este não rodava
+nunca.
+
+A DEC-039 exige que o registro crie a account e o seu owner na **mesma
+transação**. Não dá enquanto a criação de conta mora atrás de uma porta que abre
+a própria transação e comita antes de devolver.
+
+A DEC-035 exige que toda query de domínio rode dentro da transação da requisição.
+Tornar a porta transaction-aware não seria um parâmetro opcional em `register` —
+seria em todos os onze métodos, e o tipo de transação do Drizzle vazaria para
+`@vpn/ports`, cujo contrato é **zero import**.
+
+Rejeitado estreitar a porta para a fatia genuinamente substituível: sobraria
+metade da identidade atrás de porta e metade não, que é literalmente o que a
+DEC-026 chamou de "pior que qualquer um dos dois extremos".
+
+Isto **não** supera a DEC-026 — a confirma. O que muda é que a exceção citada lá
+deixa de existir, e o critério do inegociável nº 1 ("eu teria que substituir
+isto?") passa a valer sem asterisco.
+
+**Consequências.** `@vpn/ports` e `@vpn/testing` são publicados, então isto exige
+o ciclo de `packages:publish:local` e o `consumer-check` — cujo `check.mjs`
+afirmava justamente `MemoryIdentityProvider.register()`, e passa a afirmar outra
+coisa.
+
+A regra que impede a mudança de custar cobertura: **política mora num serviço e
+tem teste unitário; forma de SQL mora num repositório e tem teste de
+integração.** `repositories/**` está fora da cobertura por DEC-026, então tudo
+que não for statement atômico sobe para `IdentityService`, que **é** testável em
+unidade — sem essa separação o piso cairia.
+
+**A conversão é feita em duas metades, e só uma delas landou junto com esta
+decisão.** A metade de política virou `slug.spec.ts`, `session-rotation.spec.ts`
+e `identity.service.spec.ts`. A metade de SQL — a atomicidade do
+`UPDATE … WHERE spent_at IS NULL RETURNING`, o `SELECT … FOR UPDATE`, a busca
+case-insensitive contra o Postgres real — **ainda não tem casa**, e segue
+coberta só indiretamente pelo e2e. Ela é escrita junto com a suíte negativa de
+RLS, porque as duas precisam do mesmo harness e porque escrevê-la contra o
+schema que a DEC-034 está prestes a renomear seria escrevê-la duas vezes.
+Enquanto isso não acontece, a dívida "repositório não tem teste de integração"
+continua **aberta** no roadmap.
+
+Identidade vai para `shared/`, não para `modules/auth/`: o
+`NotificationDispatcher` é kernel e precisa ler um user, e kernel não importa de
+módulo (DEC-027).
+
+---
+
+### DEC-050 — O caminho pré-autenticação roda como `app_system`
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** A DEC-035 fixa `app.account_id` com `SET LOCAL` na transação da
+requisição. Mas login, refresh, verificação de e-mail e reset de senha rodam
+**antes** de existir qualquer account conhecida — são precisamente o código que
+descobre quem você é. Não há valor para fixar, e uma policy contra um setting
+vazio devolve zero linhas: o login falharia sempre, sem erro.
+
+**Decisão.** O kernel expõe duas espécies de transação. **Transação da
+requisição** emite `set_config('app.account_id', …, true)` e atende tudo depois
+do guard. **Transação de sistema** emite `set local role app_system` e atende o
+caminho pré-autenticação, o relay do outbox e o webhook de cobrança. Toda tabela
+continua com policy e com o teste negativo obrigatório.
+
+**Rationale.** É o que a DEC-005 criou `app_system` para ser, na frase dela
+mesma: "bypass deliberado para jobs". O caminho pré-auth tem a mesma natureza que
+um job — não tem tenant porque ainda não há tenant, não porque alguém esqueceu.
+
+O detalhe que quase passa: `app_system` **não** tem `BYPASSRLS`. Sem uma policy
+explícita `TO app_system`, ele lê zero linhas igual a `vpn_app`. O bypass precisa
+ser escrito, e escrever `USING (true)` numa policy nomeada é melhor que um
+atributo de papel — aparece no schema, aparece no diff, e some junto com a tabela.
+
+Rejeitado resolver a account antes das credenciais e rodar tudo tenant-scoped: é
+o isolamento mais forte, mas obrigaria o slug a ser obrigatório no login
+(DEC-051 decide o contrário) e ainda deixaria o `refresh` de fora — ele
+apresenta um token opaco e nada mais, e não há de onde tirar uma account antes de
+consultá-lo.
+
+Rejeitado deixar as tabelas de credencial fora da RLS: menor mudança, mas a
+DEC-035 diz "toda tabela de domínio", e uma tabela de token sem policy é por onde
+o próximo join vaza.
+
+**A policy usa `current_setting('app.account_id')` estrito**, sem o segundo
+argumento `missing_ok`. Com `missing_ok`, uma query fora de qualquer escopo lê
+`NULL` e devolve zero linhas — sem erro, sem log, sem nada que aponte para a
+causa. Estrito, ela levanta `42704 unrecognized configuration parameter`, que
+nomeia o problema na primeira vez que alguém esquece de abrir a transação. A
+propriedade que a DEC-035 realmente compra — _tenant errado devolve nada, nunca
+os dados de outro_ — não muda: um setting de outra account continua devolvendo
+zero linhas.
+
+Isso vale também para a limpeza dos testes, que é onde a armadilha ia morder
+primeiro: `DELETE FROM users` como `vpn_app` fora de escopo passa a falhar em vez
+de apagar zero linhas e deixar as asserções seguintes estranhas por um motivo
+invisível.
+
+**Consequências.** `set local role` reverte no commit, então o escopo é a
+transação e não a conexão do pool. O acesso de sistema fica contável: são poucos
+pontos, todos no kernel, e um módulo que precisar de um está fazendo algo errado.
+
+Toda requisição passa a abrir transação, o que hoje quase nenhuma faz. O executor
+ambiente do kernel **lança** quando não há transação corrente, em vez de cair
+para o pool — é a mesma escolha do `current_setting` estrito, um nível acima, e
+os dois juntos fazem "esqueci o escopo" ser sempre barulhento.
+
+O `refresh` roda inteiro como sistema: o cookie chega sem claim `acc`, e a
+account é descoberta **a partir** do token. É correto — o hash do token é a
+autorização, e as FKs compostas garantem que família e user concordam sobre a
+account — mas significa que o caminho mais quente do sistema não tem policy de
+tenant aplicada, e isso merece um teste próprio: um token da account B rotaciona
+para uma sessão de B, nunca de A.
+
+O rate limit continua com chave por e-mail, então o mesmo endereço em duas
+accounts divide o balde e martelar o login de uma tranca a outra. Corrigir exige
+resolver a account **antes** de limitar, que é trabalho antes do throttle.
+Fica como está, e entra no roadmap nomeado em vez de ser descoberto depois.
+
+---
+
+### DEC-051 — Login resolve a account por slug opcional; ambiguidade é credencial inválida
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** Com o único de e-mail virando `(account_id, email)` (DEC-034), a
+mesma pessoa pode ser usuária de duas empresas e `findByEmail` deixa de ser uma
+pergunta bem formada. O `CONTEXT.md` já anotava a consequência: isso "obriga o
+login a saber de qual account está falando **antes** de procurar o e-mail".
+
+**Decisão.** `loginRequestSchema` ganha `slug` **opcional**. Informado, ele
+resolve a account. Ausente, o e-mail é procurado entre as accounts e exige
+exatamente uma correspondência; zero ou mais de uma devolvem
+`INVALID_CREDENTIALS` — idêntico no corpo, no status e no tempo à senha errada.
+
+**Rationale.** O caminho definitivo é a DEC-038: host na web, slug no nativo.
+Ele não cabe aqui — o devstack fala um host só (DEC-032), e implementar
+resolução por host arrastaria roteamento por slug no Traefik e a tabela de
+domínios, que são Fase 3.
+
+Slug obrigatório agora seria honesto com o índice e custaria um campo no
+formulário, uma mudança de contrato e todo login do e2e, para proteger um caso
+que o PoC ainda não produz: hoje todo registro cria a própria account, e o
+primeiro e-mail em duas accounts só aparece quando a página de usuários existir.
+
+Colapsar a ambiguidade em `INVALID_CREDENTIALS` é o que mantém o inegociável nº 4
+válido **por tenant**: "esse e-mail está em mais de uma empresa" é a mesma
+informação que "esse e-mail existe", dita com outras palavras.
+
+**Isto não supera a DEC-038, e a diferença precisa estar escrita** — senão quem
+ler as duas conclui que uma foi contrariada em silêncio, que é o defeito que a
+DEC-044 registrou como pior que uma decisão errada. A DEC-038 rejeitou a
+**descoberta por e-mail**: "digite seu e-mail e achamos sua empresa", uma tela
+cuja resposta _diz_ o que encontrou e por isso enumera. O que fica decidido aqui
+é um **login**, cuja resposta não distingue caso nenhum — e-mail inexistente,
+senha errada, e-mail em outra account e e-mail ambíguo produzem os mesmos bytes,
+o mesmo status e o mesmo tempo. O oráculo que a DEC-038 recusou é a resposta
+diferenciada, não a consulta; sem resposta diferenciada não há oráculo. A DEC-038
+segue valendo e segue sendo o destino: quando o host resolver a account, o ramo
+sem slug deixa de ser alcançável.
+
+**Consequências.** Enquanto o slug for opcional, existe um estado em que uma
+pessoa legítima não consegue entrar sem saber o slug da própria empresa — e a
+mensagem não pode dizer por quê, porque dizer vazaria. Isso é aceitável só
+enquanto a resolução por host não existe, e é a razão de a DEC-038 ser
+pré-requisito da página de usuários, não um item paralelo. Está registrado no
+roadmap.
+
+---
+
+### DEC-052 — Slug derivado do e-mail, colisão resolvida pela restrição
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** A DEC-039 decidiu que a account nasce do registro e deixou
+explícito o que faltava: "o `slug` da account precisa sair de algum lugar no
+registro: derivado do e-mail, pedido no formulário, ou gerado. É decisão de
+produto e está na spec."
+
+**Decisão.** Derivado: o local part do e-mail, slugificado. A inserção é
+`insert … on conflict (slug) do nothing returning id`; conjunto vazio significa
+slug tomado, e a próxima tentativa acrescenta `-2`, `-3`, e assim por diante.
+Nunca um `SELECT` antes.
+
+Um conjunto fechado de slugs reservados (`www`, `api`, `admin`, `app`, `mail`,
+`auth`, `billing`, `static`) conta como tomado desde a primeira tentativa: o slug
+vira host (DEC-038), e `api.vpn.example.com` pertencente a um cliente é um
+problema de roteamento antes de ser um problema de nomes.
+
+**Rationale.** Não acrescenta campo, tela nem chave de i18n a um formulário que
+já é o muro de entrada do produto, e o slug continua sendo algo que uma pessoa
+reconhece — que é o ponto dele, já que vira subdomínio (`CONTEXT.md`).
+
+A colisão resolvida pela restrição não é detalhe de implementação: um
+`SELECT count(*)` seguido de `INSERT` é o `if (jáVimos)` que o inegociável nº 3
+proíbe, e dois registros simultâneos com o mesmo local part passariam juntos pelo
+`SELECT`.
+
+`on conflict do nothing returning` em vez de deixar o `INSERT` levantar e
+capturar o erro: a DEC-039 exige que o registro inteiro seja **uma** transação, e
+no PostgreSQL um comando que falha aborta a transação inteira — a segunda
+tentativa receberia `25P02 current transaction is aborted` e derrubaria o
+cadastro, não só o slug. Conjunto vazio é um resultado, não um erro, e a
+restrição continua sendo quem decide. É a mesma forma que
+`BillingEventRepository.claim()` já usa para idempotência de webhook.
+
+Rejeitado pedir no formulário: honesto para whitelabel, mas exige um erro
+"slug já usado" — e um endpoint público que responde diferente conforme o slug
+exista enumera empresas, que é o inegociável nº 4 com outro sujeito.
+
+Rejeitado slug opaco: zero colisão e zero enumeração, e `x7k2q.vpn.example.com`
+derrota a única razão de o slug ser legível.
+
+**Consequências.** O slug nasce de um e-mail pessoal e frequentemente não será o
+nome que a empresa quer. Renomear é operação de produto, fica de fora desta fase
+e entra no roadmap — e quando entrar, precisa lidar com o subdomínio já em uso.
+
+Dois sufixos numéricos seguidos (`ada-2`, `ada-3`) revelam que alguém com o mesmo
+local part se registrou antes. É informação sobre um endereço, não sobre uma
+conta, e não é observável pelo formulário — só por quem já conhece o slug
+resultante.
+
+---
+
+### DEC-053 — Policies declaradas no schema do Drizzle, não em SQL escrito à mão
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** As policies da DEC-035 precisam chegar ao banco por alguma
+migration. Duas formas: declará-las em `libs/database/src/schema.ts` com
+`pgPolicy`, ou escrevê-las à mão num arquivo `.sql`.
+
+**Decisão.** No schema, com `pgPolicy` e `pgRole(...).existing()`.
+
+**Rationale.** O argumento decisivo é desta fase: `0000_init` é **regenerada**, e
+provavelmente mais de uma vez enquanto o schema assenta. SQL escrito à mão dentro
+dela é apagado silenciosamente no próximo `db:generate` — e o sintoma seria uma
+policy que sumiu sem que nada falhasse, que é precisamente o modo de falha que a
+DEC-035 quer impossível. Declarada no schema, a policy é regenerada **junto** com
+a tabela.
+
+O segundo argumento é de leitura: a policy fica três linhas abaixo da coluna que
+protege. "Esta tabela está coberta?" se responde lendo um arquivo, em vez de um
+arquivo que o `.prettierignore` e todo editor tratam como saída gerada.
+
+Rejeitado um `0001_rls.sql` à mão. Seria seguro — `db:generate` compara schema
+com snapshot, não com o banco, então ele não seria tocado — e daria acesso a
+`FORCE ROW LEVEL SECURITY` e a `GRANT`s. Nenhum dos dois é necessário: o dono é
+`vpn_migrator` e queremos que migration rode sem filtro, e os grants já saem do
+`ALTER DEFAULT PRIVILEGES` da DEC-005. Não vale uma segunda fonte de verdade.
+
+**Consequências.** `drizzle.config.ts` precisa de
+`entities: { roles: { exclude: [...] } }` listando os quatro papéis. Sem isso o
+drizzle-kit passa a gerenciar papéis como entidades e emite `CREATE ROLE` /
+`DROP ROLE` que brigam com `devstack/postgres/init/01-roles.sql` — os papéis são
+criados fora do Drizzle e precisam continuar assim, porque nascem antes de
+qualquer migration.
+
+O comportamento do drizzle-kit para índice único parcial com literal de enum
+(`where role = 'owner'`) e para FK composta é **para conferir na primeira
+geração, não para supor**. Se decepcionar, o remendo daquele pedaço é um
+statement à mão numa migration **separada**, nunca dentro de `0000_init`.

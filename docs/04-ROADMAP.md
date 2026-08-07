@@ -58,14 +58,27 @@ a ignorar suíte vermelha.
 - [ ] Falta Playwright. `apps/web` agora tem teste de tela em jsdom para as seis
       páginas, o que cobre comportamento mas não renderização: nenhum teste vê
       um layout quebrado, um contraste ruim ou um foco perdido de verdade.
+- [ ] A cobertura de `apps/api` caiu de 100%/91,8% (número registrado na
+      DEC-028) para 96,4% de statements e 90,4% de funções, ao aposentar
+      `IIdentityProvider`. O piso de 80 do `@vpn/config` continua intacto e nada
+      foi rebaixado — o que sobrou descoberto são os invólucros finos de
+      repositório, que a DEC-026 exclui de propósito, mais alguns ramos do
+      serviço novo. Aceito por ora porque a Fase 2 mexe nesses mesmos arquivos;
+      revisitar depois que o schema assentar.
 - [ ] `libs/adapters`, `infra` e `packages/` não têm limiar de cobertura. O
       preset de `@vpn/config` está aplicado em `apps/api` e `apps/web`
       (DEC-028), e o número honesto dos dois só apareceu ao ligar
       `coverage.include` — antes disso a corrida contava apenas os arquivos que
       algum teste já importava, e `apps/api` reportava 90% valendo 40%.
-- [ ] Repositório não tem teste de integração. DEC-026 aceita isso e apoia a
-      corretude no e2e; um teste de integração por repositório fecharia a
-      lacuna sem reabrir a discussão de porta.
+- [ ] Repositório não tem teste de integração. A DEC-049 fecha **metade** disso:
+      a suíte de conformidade de `IIdentityProvider` não foi apagada com a porta,
+      e a parte de política dela virou teste unitário de `IdentityService`. A
+      parte de **forma de SQL** — a atomicidade do `UPDATE` condicional que gasta
+      o token, o `SELECT … FOR UPDATE` da rotação e a busca case-insensitive
+      contra o Postgres real — ainda não tem casa e segue coberta só pelo e2e.
+      Entra junto com a suíte
+      negativa de RLS, que precisa do mesmo harness; escrevê-la antes seria
+      escrevê-la contra um schema que a DEC-034 vai renomear.
 - [ ] A página de reset mostra a tela de link inválido só quando o token está
       **ausente**. Um token presente e malformado deixa um formulário que se
       recusa a enviar e não mostra nada, porque o campo de token não tem `Field`
@@ -79,13 +92,36 @@ a ignorar suíte vermelha.
       `price_local_yearly` respondem 404, e nada em `devstack/` os cria — o
       `.env.example` aponta para preços que não existem. O e2e não pega porque
       usa `BILLING_DRIVER=memory`; quem paga é quem testa no navegador.
-- [ ] `pnpm packages:publish:local` **não publica nada** no Git Bash e sai com 0. O filtro `./packages/*` é mangleado pela conversão de caminho do MSYS e
-      o resultado é `No projects matched the filters`. Contorno:
-      `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`. Um publish silenciosamente
-      pulado é o pior modo de falha possível para a DEC-002.
-- [ ] `apps/api` não tem forma de ver o erro real de um 500 no e2e: o setup fixa
-      `LOG_LEVEL=silent` e o `GlobalExceptionFilter` devolve `INTERNAL`. Um bug
-      de driver custou meia hora para virar mensagem legível.
+- [ ] `pnpm packages:publish:local` **não publica nada** no Git Bash e sai com 0.
+      O filtro `./packages/*` não casa e o resultado é
+      `No projects matched the filters`. **As variáveis de ambiente sozinhas não
+      resolvem** — medido em 2026-08-07: com `MSYS_NO_PATHCONV=1` e
+      `MSYS2_ARG_CONV_EXCL='*'` exportadas, o script da raiz continua publicando
+      zero pacotes e saindo com 0. O que funciona é rodar o comando de dentro de
+      `packages/`, invocando o `pnpm -r --filter './packages/*' publish`
+      diretamente em vez de passar pelo `pnpm -C packages` do script da raiz, que
+      resolve o filtro contra o diretório errado. Consertar o script — ou
+      fazê-lo falhar quando publica zero pacotes — vale mais que o contorno,
+      porque um publish silenciosamente pulado é o pior modo de falha possível
+      para a DEC-002. **Confira sempre com
+      `npm view @vpn/<pkg> version --registry …` depois.**
+- [x] ~~`apps/api` não tem forma de ver o erro real de um 500 no e2e.~~
+      `e2e.setup.ts` passou a usar `??=` em vez de fixar `LOG_LEVEL=silent`, então
+      `LOG_LEVEL=debug pnpm --filter @vpn-poc/api test:e2e` mostra o stack que o
+      `GlobalExceptionFilter` já loga. O corpo da resposta continua `INTERNAL`, e
+      isso é correto — o que faltava era o log, não a resposta.
+- [ ] **Rate limit divide balde entre accounts.** A chave é o e-mail, então o
+      mesmo endereço em duas empresas compartilha o limite e martelar o login de
+      uma tranca a pessoa da outra. Corrigir exige resolver a account **antes**
+      de limitar, que é trabalho antes do throttle — daí ficar como está.
+      DEC-050.
+- [ ] **O slug não pode ser renomeado.** Ele nasce derivado de um e-mail pessoal
+      (DEC-052) e frequentemente não é o nome que a empresa quer. Renomear mexe
+      no subdomínio já em uso, então não é só um `UPDATE`.
+- [ ] **Uma transação de requisição atravessa chamada externa.**
+      `BillingService.createCheckout` fala com o Stripe com a transação aberta,
+      prendendo uma conexão do pool pela ida e volta. É um handler hoje; a
+      alternativa era um escape hatch que reabre o buraco da query sem escopo.
 
 ### Fase 2 — o PoC whitelabel
 
@@ -105,7 +141,7 @@ plane que ainda não existe.
       guarda monotônica no upsert. Cobrança é recorrente: todo período gera
       eventos, e um evento fora de ordem retrocedia o período de um cliente
       adimplente. DEC-037, e a porta ganhou `occurredAt` (`@vpn/ports` 0.4.0).
-- [ ] **Account/User e RLS.** `accounts` vira `users`; nasce `accounts` como a
+- [x] **Account/User e RLS.** `accounts` vira `users`; nasce `accounts` como a
       empresa; `subscriptions.account_id` muda de significado sem mudar de nome.
       `0000_init` é regenerada — não há deploy. Policy por tabela e **um teste
       negativo por tabela**. Atenção: o e2e limpa como `vpn_app` e sob RLS isso
