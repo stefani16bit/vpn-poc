@@ -5,6 +5,7 @@ import { DATABASE } from '@vpn-poc/adapters';
 import { subscriptions, type Database } from '@vpn-poc/database';
 import type { Subscription } from '@vpn/ports';
 
+import { currentExecutor } from '../../../shared/database/db-scope.js';
 import type { Executor } from '../../../shared/database/transaction-runner.js';
 
 export interface StoredSubscription {
@@ -17,8 +18,11 @@ export interface StoredSubscription {
 export class SubscriptionRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	async findByAccount(accountId: string): Promise<StoredSubscription | undefined> {
-		const rows = await this.db
+	async findByAccount(
+		accountId: string,
+		executor: Executor = currentExecutor(),
+	): Promise<StoredSubscription | undefined> {
+		const rows = await executor
 			.select()
 			.from(subscriptions)
 			.where(eq(subscriptions.accountId, accountId))
@@ -27,8 +31,11 @@ export class SubscriptionRepository {
 		return rows[0];
 	}
 
-	async findExternalId(accountId: string): Promise<string | undefined> {
-		const rows = await this.db
+	async findExternalId(
+		accountId: string,
+		executor: Executor = currentExecutor(),
+	): Promise<string | undefined> {
+		const rows = await executor
 			.select({ externalId: subscriptions.externalId })
 			.from(subscriptions)
 			.where(eq(subscriptions.accountId, accountId))
@@ -37,8 +44,12 @@ export class SubscriptionRepository {
 		return rows[0]?.externalId;
 	}
 
-	async setCancelAtPeriodEnd(accountId: string, cancelAtPeriodEnd: boolean): Promise<void> {
-		await this.db
+	async setCancelAtPeriodEnd(
+		accountId: string,
+		cancelAtPeriodEnd: boolean,
+		executor: Executor = currentExecutor(),
+	): Promise<void> {
+		await executor
 			.update(subscriptions)
 			.set({ cancelAtPeriodEnd, updatedAt: new Date() })
 			.where(eq(subscriptions.accountId, accountId));
@@ -48,7 +59,7 @@ export class SubscriptionRepository {
 		accountId: string,
 		subscription: Subscription,
 		occurredAt: Date,
-		executor: Executor = this.db,
+		executor: Executor = currentExecutor(),
 	): Promise<void> {
 		await executor
 			.insert(subscriptions)

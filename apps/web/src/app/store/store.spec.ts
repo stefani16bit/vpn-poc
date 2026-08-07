@@ -7,6 +7,8 @@ import { authReducer, sessionCleared, sessionResolved, sessionUnknown } from './
 
 const user = {
 	id: '00000000-0000-0000-0000-000000000001',
+	accountId: 'account-1',
+	role: 'owner' as const,
 	email: 'ada@example.com',
 	emailVerified: true,
 	locale: 'pt-BR' as const,

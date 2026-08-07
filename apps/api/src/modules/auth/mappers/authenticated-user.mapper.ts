@@ -1,14 +1,16 @@
 import type { AuthenticatedUser } from '@vpn/contracts';
-import type { Account } from '@vpn/ports';
 
-import { localeOf } from '../../../shared/locale/account-locale.js';
+import type { User } from '../../../shared/identity/user.js';
+import { localeOf } from '../../../shared/locale/user-locale.js';
 
-export function toAuthenticatedUser(account: Account): AuthenticatedUser {
+export function toAuthenticatedUser(user: User): AuthenticatedUser {
 	return {
-		id: account.id,
-		email: account.email,
-		emailVerified: account.emailVerifiedAt !== null,
-		locale: localeOf(account),
-		createdAt: account.createdAt.toISOString(),
+		id: user.id,
+		accountId: user.accountId,
+		role: user.role,
+		email: user.email,
+		emailVerified: user.emailVerifiedAt !== null,
+		locale: localeOf(user),
+		createdAt: user.createdAt.toISOString(),
 	};
 }

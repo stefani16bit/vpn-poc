@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { JOB_QUEUE, type IJobQueue } from '@vpn/ports';
 
+import { TransactionRunner } from '../database/transaction-runner.js';
 import { parseOutboxMessage } from '../outbox/outbox-message.js';
 import { NotificationDispatcher } from './notification-dispatcher.js';
 
@@ -16,6 +17,7 @@ export class NotificationConsumer {
 	constructor(
 		@Inject(JOB_QUEUE) private readonly queue: IJobQueue,
 		private readonly dispatcher: NotificationDispatcher,
+		private readonly transactions: TransactionRunner,
 	) {}
 
 	async runOnce(waitSeconds = 0): Promise<ConsumerReport> {
@@ -32,7 +34,7 @@ export class NotificationConsumer {
 			}
 
 			try {
-				await this.dispatcher.send(message);
+				await this.transactions.runAsSystem(() => this.dispatcher.send(message));
 			} catch (error) {
 				failed.push({ name: job.name, error });
 				continue;

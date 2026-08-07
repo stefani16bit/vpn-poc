@@ -8,7 +8,13 @@ import { AppError } from '../errors/app-error.js';
 import { AccessTokenService } from './access-token.service.js';
 
 const SECRET = 'a-secret-that-is-at-least-32-characters-long';
-const CLAIMS = { accountId: 'acc-1', sessionId: 'sess-1', emailVerified: true };
+const CLAIMS = {
+	accountId: 'acc-1',
+	role: 'owner' as const,
+	userId: 'user-1',
+	sessionId: 'sess-1',
+	emailVerified: true,
+};
 
 // AccessTokenService reads exactly two fields off Env; the cast avoids building
 // the other forty, which say nothing about this unit.

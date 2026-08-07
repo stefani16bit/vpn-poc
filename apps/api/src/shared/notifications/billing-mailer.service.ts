@@ -3,9 +3,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 import { getTranslator } from '@vpn/i18n';
-import { EMAIL_SENDER, type Account, type IEmailSender } from '@vpn/ports';
+import { EMAIL_SENDER, type IEmailSender } from '@vpn/ports';
+import type { User } from '../identity/user.js';
 
-import { localeOf } from '../locale/account-locale.js';
+import { localeOf } from '../locale/user-locale.js';
 
 @Injectable()
 export class BillingMailer {
@@ -14,7 +15,7 @@ export class BillingMailer {
 		@Inject(ENV) private readonly env: Env,
 	) {}
 
-	async sendPaymentFailed(account: Account, externalEventId: string): Promise<void> {
+	async sendPaymentFailed(account: User, externalEventId: string): Promise<void> {
 		await this.email.send({
 			to: account.email,
 			template: 'payment_failed',
@@ -25,7 +26,7 @@ export class BillingMailer {
 	}
 
 	async sendSubscriptionCanceled(
-		account: Account,
+		account: User,
 		endsAt: Date | null,
 		externalEventId: string,
 	): Promise<void> {

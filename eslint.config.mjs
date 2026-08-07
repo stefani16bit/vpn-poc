@@ -97,6 +97,12 @@ export default [
 							message:
 								'A controller validates, calls a service and formats. Persistence is the service business.',
 						},
+						{
+							target: './apps/api/src/modules/*/controllers/**',
+							from: './apps/api/src/shared/**/repositories/**',
+							message:
+								'A controller validates, calls a service and formats. Persistence is the service business.',
+						},
 					],
 				},
 			],

@@ -24,6 +24,33 @@ prévio, e só a restrição faz o segundo perder.
 **`revoked_at` é timestamp, não booleano.** "Quando foi revogado" responde uma
 pergunta de incidente que "foi revogado" não responde.
 
+## RLS
+
+Toda tabela de domínio tem `account_id`, `ENABLE ROW LEVEL SECURITY` e **duas**
+policies: `<tabela>_tenant` para `vpn_app` contra
+`current_setting('app.account_id')`, e `<tabela>_system` para `app_system` com
+`USING (true)`. A segunda não é frouxidão: `app_system` é `NOBYPASSRLS`, então
+sem policy explícita ele lê zero linhas igual a `vpn_app` — o "bypass
+deliberado" da DEC-005 precisa ser escrito. Ver DEC-050.
+
+O `current_setting` é **estrito**, sem `missing_ok`. Fora de escopo a query
+levanta `42704` em vez de devolver zero linhas em silêncio, que é a diferença
+entre descobrir o erro na hora e descobri-lo num relatório errado. Ver DEC-050.
+
+As policies são declaradas em `schema.ts` com `pgPolicy`, não em SQL à mão:
+`0000_init` é regenerada, e SQL escrito à mão dentro dela é apagado sem aviso na
+próxima geração. Isso exige `entities.roles.exclude` em `drizzle.config.ts` —
+sem ele o drizzle-kit tenta gerenciar os papéis e emite `CREATE ROLE` brigando
+com `01-roles.sql`. Ver DEC-053.
+
+**FK composta precisa de `unique()`, não `uniqueIndex()`.** O drizzle-kit emite
+`ALTER TABLE ADD CONSTRAINT ... FOREIGN KEY` **antes** dos `CREATE UNIQUE INDEX`,
+então uma FK que referencia um índice único falha com
+`42830 there is no unique constraint matching given keys`. `unique()` vira
+constraint inline no `CREATE TABLE` e existe antes de qualquer FK. É o que
+sustenta `users (id, account_id)` e `session_families (id, account_id)`, que por
+sua vez impedem uma linha de credencial de discordar da account do seu user.
+
 ## Papéis
 
 `vpn_migrator` é dono do schema; a aplicação conecta como `vpn_app`, que

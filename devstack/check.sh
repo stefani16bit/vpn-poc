@@ -101,6 +101,13 @@ check_exec 'vpn_app cannot bypass RLS' 'CONFINED' \
 	postgres psql -U postgres -d poc_vpn_dev -tAc \
 	"SELECT CASE WHEN rolsuper OR rolbypassrls THEN 'ESCAPES' ELSE 'CONFINED' END FROM pg_roles WHERE rolname='vpn_app'"
 
+# A table added without a policy is the failure DEC-035's per-table mandate
+# exists to prevent, and it is invisible until something leaks. Catch it here,
+# at the moment someone forgets, rather than in a review.
+check_exec 'every domain table is under RLS' 'COVERED' \
+	postgres psql -U postgres -d poc_vpn_dev -tAc \
+	"SELECT CASE WHEN count(*) = 0 THEN 'COVERED' ELSE 'UNCOVERED' END FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '__drizzle_migrations' AND NOT c.relrowsecurity"
+
 check_exec 'redis answers PING' 'PONG' redis redis-cli ping
 
 check_status 'verdaccio serves its registry API' 200 \

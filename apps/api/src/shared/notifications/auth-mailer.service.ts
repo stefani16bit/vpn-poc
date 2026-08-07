@@ -2,9 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
-import { EMAIL_SENDER, type Account, type IEmailSender } from '@vpn/ports';
+import { EMAIL_SENDER, type IEmailSender } from '@vpn/ports';
+import type { User } from '../identity/user.js';
 
-import { localeOf } from '../locale/account-locale.js';
+import { localeOf } from '../locale/user-locale.js';
 
 const IDEMPOTENCY_TOKEN_LENGTH = 16;
 
@@ -15,7 +16,7 @@ export class AuthMailer {
 		@Inject(ENV) private readonly env: Env,
 	) {}
 
-	async sendVerification(account: Account, token: string, ttlSeconds: number): Promise<void> {
+	async sendVerification(account: User, token: string, ttlSeconds: number): Promise<void> {
 		await this.email.send({
 			to: account.email,
 			template: 'verify_email',
@@ -28,7 +29,7 @@ export class AuthMailer {
 		});
 	}
 
-	async sendPasswordReset(account: Account, token: string, ttlSeconds: number): Promise<void> {
+	async sendPasswordReset(account: User, token: string, ttlSeconds: number): Promise<void> {
 		await this.email.send({
 			to: account.email,
 			template: 'reset_password',
@@ -41,7 +42,7 @@ export class AuthMailer {
 		});
 	}
 
-	async sendWelcome(account: Account): Promise<void> {
+	async sendWelcome(account: User): Promise<void> {
 		await this.email.send({
 			to: account.email,
 			template: 'welcome',
@@ -51,7 +52,7 @@ export class AuthMailer {
 		});
 	}
 
-	async sendPasswordChanged(account: Account, at: Date): Promise<void> {
+	async sendPasswordChanged(account: User, at: Date): Promise<void> {
 		await this.email.send({
 			to: account.email,
 			template: 'password_changed',

@@ -33,15 +33,6 @@ constante fixa quebra ao subir `N`, com um erro do OpenSSL que não aponta para 
 parâmetro que mudou. O padrão do Node (32 MB) é menor que qualquer configuração
 sensata.
 
-**`DrizzleIdentityProvider.authenticate`** roda o hash mesmo quando a conta não
-existe, contra `ABSENT_ACCOUNT_HASH`. Um retorno antecipado torna o caso
-"endereço desconhecido" mensuravelmente mais rápido, e isso enumera contas tão
-bem quanto uma mensagem de erro diferente.
-
-**`DrizzleIdentityProvider.refreshSession`** marca o token gasto dentro de um
-`UPDATE ... WHERE spent_at IS NULL`. Um `SELECT` seguido de `UPDATE` deixa dois
-refreshes concorrentes passarem.
-
 **`StripeBillingProvider.parseWebhookEvent`** confia no `status`, não no nome do
 evento: um `customer.subscription.updated` que chega com `status: 'canceled'` é
 um cancelamento. Confiar no nome é como uma assinatura cancelada acaba gravada

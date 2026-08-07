@@ -10,7 +10,6 @@ import {
 	CLOCK,
 	EMAIL_SENDER,
 	ERROR_REPORTER,
-	IDENTITY_PROVIDER,
 	OBJECT_STORAGE,
 	PASSWORD_HASHER,
 	JOB_QUEUE,
@@ -20,7 +19,6 @@ import {
 	type IClock,
 	type IEmailSender,
 	type IErrorReporter,
-	type IIdentityProvider,
 	type IObjectStorage,
 	type IPasswordHasher,
 	type IJobQueue,
@@ -40,7 +38,6 @@ import { RedisCacheStore } from './cache/RedisCacheStore.js';
 import { ScryptPasswordHasher } from './crypto/ScryptPasswordHasher.js';
 import { SystemClock } from './crypto/SystemClock.js';
 import { SmtpEmailSender } from './email/SmtpEmailSender.js';
-import { DrizzleIdentityProvider } from './identity/DrizzleIdentityProvider.js';
 import { NoopErrorReporter, SentryErrorReporter } from './observability/reporters.js';
 import { defineAdapter, toProviders, tokensOf } from './registry.js';
 import { ConsoleSmsSender } from './sms/ConsoleSmsSender.js';
@@ -141,21 +138,6 @@ export const ADAPTERS = [
 					log: (message) => console.warn(message),
 				}),
 			memory: () => new MemorySmsSender(),
-		},
-	}),
-
-	defineAdapter<IIdentityProvider>({
-		token: IDENTITY_PROVIDER,
-		driver: () => 'drizzle',
-		inject: [DATABASE, PASSWORD_HASHER, CLOCK],
-		drivers: {
-			drizzle: ({ env, resolve }) =>
-				new DrizzleIdentityProvider(
-					resolve<Database>(DATABASE),
-					resolve<IPasswordHasher>(PASSWORD_HASHER),
-					resolve<IClock>(CLOCK),
-					{ refreshTokenTtlSeconds: env.AUTH_REFRESH_TOKEN_TTL },
-				),
 		},
 	}),
 

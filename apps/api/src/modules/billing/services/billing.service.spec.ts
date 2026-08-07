@@ -2,13 +2,7 @@ import { pino } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '@vpn-poc/env';
-import type {
-	Account,
-	IBillingProvider,
-	IIdentityProvider,
-	NormalizedBillingEvent,
-	Subscription,
-} from '@vpn/ports';
+import type { IBillingProvider, NormalizedBillingEvent, Subscription } from '@vpn/ports';
 
 import { AppError } from '../../../shared/errors/app-error.js';
 import type { ModuleLogger } from '../../../shared/http/module-logger.js';
@@ -16,6 +10,10 @@ import type { TransactionRunner } from '../../../shared/database/transaction-run
 import type { BillingEventRepository } from '../repositories/billing-event.repository.js';
 import type { SubscriptionRepository } from '../repositories/subscription.repository.js';
 import type { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
+import type {
+	StoredUser,
+	UserRepository,
+} from '../../../shared/identity/repositories/user.repository.js';
 import { BillingService } from './billing.service.js';
 
 let records: Record<string, unknown>[];
@@ -37,7 +35,7 @@ const env = {
 	STRIPE_PRICE_ID_YEARLY: 'price_yearly',
 } as Env;
 
-const ACCOUNT = { id: 'acc-1', email: 'ada@example.com', locale: 'pt-BR' } as Account;
+const ACCOUNT = { id: 'acc-1', email: 'ada@example.com', locale: 'pt-BR' } as StoredUser;
 
 const OCCURRED_AT = new Date('2026-08-01T00:00:00.000Z');
 
@@ -61,7 +59,7 @@ describe('BillingService', () => {
 		verifyWebhookSignature: ReturnType<typeof vi.fn>;
 		parseWebhookEvent: ReturnType<typeof vi.fn>;
 	};
-	let identity: { findById: ReturnType<typeof vi.fn> };
+	let identity: { findOwner: ReturnType<typeof vi.fn> };
 	let subscriptions: {
 		findByAccount: ReturnType<typeof vi.fn>;
 		findExternalId: ReturnType<typeof vi.fn>;
@@ -70,7 +68,10 @@ describe('BillingService', () => {
 	};
 	let events: { claim: ReturnType<typeof vi.fn> };
 	let outbox: { enqueue: ReturnType<typeof vi.fn> };
-	let transactions: { run: ReturnType<typeof vi.fn> };
+	let transactions: {
+		runAsSystem: ReturnType<typeof vi.fn>;
+		runInAccount: ReturnType<typeof vi.fn>;
+	};
 	let service: BillingService;
 
 	beforeEach(() => {
@@ -80,7 +81,7 @@ describe('BillingService', () => {
 			verifyWebhookSignature: vi.fn().mockReturnValue(true),
 			parseWebhookEvent: vi.fn(),
 		};
-		identity = { findById: vi.fn().mockResolvedValue(ACCOUNT) };
+		identity = { findOwner: vi.fn().mockResolvedValue(ACCOUNT) };
 		subscriptions = {
 			findByAccount: vi.fn().mockResolvedValue(undefined),
 			findExternalId: vi.fn().mockResolvedValue(undefined),
@@ -91,14 +92,17 @@ describe('BillingService', () => {
 		outbox = { enqueue: vi.fn().mockResolvedValue(undefined) };
 
 		transactions = {
-			run: vi.fn((work: (executor: unknown) => Promise<unknown>) => work(EXECUTOR)),
+			runAsSystem: vi.fn((work: (executor: unknown) => Promise<unknown>) => work(EXECUTOR)),
+			runInAccount: vi.fn((_accountId: string, work: (executor: unknown) => Promise<unknown>) =>
+				work(EXECUTOR),
+			),
 		};
 
 		records = [];
 		service = new BillingService(
 			recordingLogger(),
 			billing as unknown as IBillingProvider,
-			identity as unknown as IIdentityProvider,
+			identity as unknown as UserRepository,
 			env,
 			subscriptions as unknown as SubscriptionRepository,
 			events as unknown as BillingEventRepository,
@@ -130,7 +134,7 @@ describe('BillingService', () => {
 		});
 
 		it('rejects an account that no longer exists', async () => {
-			identity.findById.mockResolvedValue(null);
+			identity.findOwner.mockResolvedValue(undefined);
 			await expect(service.createCheckout('acc-1', 'monthly')).rejects.toBeInstanceOf(AppError);
 		});
 
@@ -138,7 +142,7 @@ describe('BillingService', () => {
 			const withoutYearly = new BillingService(
 				recordingLogger(),
 				billing as unknown as IBillingProvider,
-				identity as unknown as IIdentityProvider,
+				identity as unknown as UserRepository,
 				{ ...env, STRIPE_PRICE_ID_YEARLY: undefined } as Env,
 				subscriptions as unknown as SubscriptionRepository,
 				events as unknown as BillingEventRepository,
@@ -286,6 +290,7 @@ describe('BillingService', () => {
 			await service.handleWebhook('{}', 'sig');
 
 			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'acc-1',
 				{ kind: 'billing.payment_failed', accountId: 'acc-1', externalEventId: 'evt-2' },
 				EXECUTOR,
 			);
@@ -306,6 +311,7 @@ describe('BillingService', () => {
 
 			expect(subscriptions.upsert).toHaveBeenCalledWith('acc-1', sub, OCCURRED_AT, EXECUTOR);
 			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'acc-1',
 				{
 					kind: 'billing.subscription_canceled',
 					accountId: 'acc-1',
@@ -342,7 +348,7 @@ describe('BillingService', () => {
 
 			await expect(service.handleWebhook('{}', 'sig')).rejects.toThrow('the database went away');
 
-			expect(transactions.run).toHaveBeenCalledTimes(1);
+			expect(transactions.runAsSystem).toHaveBeenCalledTimes(1);
 			expect(events.claim.mock.invocationCallOrder[0]).toBeLessThan(
 				subscriptions.upsert.mock.invocationCallOrder[0] as number,
 			);
@@ -359,7 +365,7 @@ describe('BillingService', () => {
 
 			await service.handleWebhook('{}', 'sig');
 
-			expect(outbox.enqueue.mock.calls[0]?.[1]).toBe(EXECUTOR);
+			expect(outbox.enqueue.mock.calls[0]?.[2]).toBe(EXECUTOR);
 		});
 
 		it('refuses the whole webhook when the notification cannot be queued', async () => {
@@ -401,7 +407,7 @@ describe('BillingService', () => {
 
 			await service.handleWebhook('{}', 'sig');
 
-			expect(identity.findById).not.toHaveBeenCalled();
+			expect(identity.findOwner).not.toHaveBeenCalled();
 		});
 	});
 });

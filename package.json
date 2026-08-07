@@ -18,7 +18,7 @@
     "typecheck": "pnpm -r run typecheck",
     "verify": "node scripts/check-test-focus.mjs && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "packages:publish:local": "pnpm -C packages publish:local",
-    "test:integration": "pnpm --filter @vpn-poc/adapters test:integration && pnpm --filter @vpn-poc/api test:e2e",
+    "test:integration": "pnpm --filter @vpn-poc/adapters test:integration && pnpm --filter @vpn-poc/api test:integration && pnpm --filter @vpn-poc/api test:e2e",
     "db:migrate": "pnpm --filter @vpn-poc/database db:migrate",
     "synth": "pnpm --filter @vpn-poc/infra synth",
     "lint": "eslint . --max-warnings 0",

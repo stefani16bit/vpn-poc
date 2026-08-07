@@ -1,10 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createDatabase } from '@vpn-poc/database';
 import {
 	describeCacheStoreContract,
 	describeEmailSenderContract,
-	describeIdentityProviderContract,
 	describeObjectStorageContract,
 	describePasswordHasherContract,
 	describeSmsSenderContract,
@@ -18,7 +16,6 @@ import { createTransport } from 'nodemailer';
 import { RedisCacheStore } from './cache/RedisCacheStore.js';
 import { ScryptPasswordHasher } from './crypto/ScryptPasswordHasher.js';
 import { SmtpEmailSender } from './email/SmtpEmailSender.js';
-import { DrizzleIdentityProvider } from './identity/DrizzleIdentityProvider.js';
 import { INTEGRATION } from './integration.env.js';
 import { ConsoleSmsSender } from './sms/ConsoleSmsSender.js';
 import { S3ObjectStorage } from './storage/S3ObjectStorage.js';
@@ -52,43 +49,6 @@ describeCacheStoreContract('RedisCacheStore', async () => {
 		},
 	};
 });
-
-const { db, sql } = createDatabase({ url: INTEGRATION.databaseUrl, maxConnections: 4 });
-
-afterAll(async () => {
-	await sql.end({ timeout: 5 });
-});
-
-async function truncateIdentityTables(): Promise<void> {
-	await sql`DELETE FROM accounts`;
-}
-
-describe('DrizzleIdentityProvider', () => {
-	beforeEach(truncateIdentityTables);
-	afterAll(truncateIdentityTables);
-
-	describeIdentityProviderContract('DrizzleIdentityProvider', () => {
-		const clock = new FixedClock();
-		return {
-			provider: new DrizzleIdentityProvider(db, new FakeHasherForSpeed(), clock, {
-				refreshTokenTtlSeconds: 30 * 24 * 60 * 60,
-			}),
-			advance: (seconds) => clock.advance(seconds),
-		};
-	});
-});
-
-class FakeHasherForSpeed {
-	async hash(plaintext: string): Promise<string> {
-		return `fake$${plaintext}`;
-	}
-	async verify(plaintext: string, hash: string): Promise<boolean> {
-		return hash.startsWith('fake$') && hash.slice(5) === plaintext;
-	}
-	needsRehash(hash: string): boolean {
-		return !hash.startsWith('fake$');
-	}
-}
 
 describePasswordHasherContract('ScryptPasswordHasher', () => new ScryptPasswordHasher());
 

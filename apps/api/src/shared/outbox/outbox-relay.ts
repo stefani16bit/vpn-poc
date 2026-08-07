@@ -16,7 +16,7 @@ export class OutboxRelay {
 	) {}
 
 	async runOnce(batchSize = DEFAULT_BATCH): Promise<number> {
-		return this.transactions.run(async (executor) => {
+		return this.transactions.runAsSystem(async (executor) => {
 			const pending = await this.outbox.claimPending(batchSize, executor);
 
 			for (const entry of pending) {

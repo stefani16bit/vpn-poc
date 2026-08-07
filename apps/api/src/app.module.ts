@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AdaptersModule, DATABASE } from '@vpn-poc/adapters';
 import { CACHE_STORE, type ICacheStore } from '@vpn/ports';
 import { loadEnv } from '@vpn-poc/env';
 
+import { DatabaseModule } from './shared/database/database.module.js';
+import { TenantTransactionInterceptor } from './shared/database/tenant-transaction.interceptor.js';
 import { GlobalExceptionFilter } from './shared/errors/exception.filter.js';
 import { loggerConfig } from './shared/http/logger.config.js';
 import { HealthModule } from './shared/health/health.module.js';
@@ -30,6 +32,7 @@ import { BillingModule } from './modules/billing/billing.module.js';
 			}),
 		),
 		AdaptersModule,
+		DatabaseModule,
 		HealthModule.forRoot({
 			readiness: [
 				{
@@ -48,6 +51,9 @@ import { BillingModule } from './modules/billing/billing.module.js';
 		AuthModule,
 		BillingModule,
 	],
-	providers: [{ provide: APP_FILTER, useClass: GlobalExceptionFilter }],
+	providers: [
+		{ provide: APP_FILTER, useClass: GlobalExceptionFilter },
+		{ provide: APP_INTERCEPTOR, useClass: TenantTransactionInterceptor },
+	],
 })
 export class AppModule {}

@@ -12,6 +12,8 @@ function storeWith(emailVerified: boolean): TestStore {
 		sessionResolved({
 			user: {
 				id: 'acc-1',
+				accountId: 'account-1',
+				role: 'owner' as const,
 				email: 'ada@example.com',
 				emailVerified,
 				locale: 'en',

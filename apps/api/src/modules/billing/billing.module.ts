@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AccessControlModule } from '../../shared/access-control/access-control.module.js';
 import { DatabaseModule } from '../../shared/database/database.module.js';
+import { IdentityModule } from '../../shared/identity/identity.module.js';
 import { moduleLoggerProvider } from '../../shared/http/module-logger.js';
 import { OutboxModule } from '../../shared/outbox/outbox.module.js';
 import { BillingController } from './controllers/billing.controller.js';
@@ -10,7 +11,7 @@ import { SubscriptionRepository } from './repositories/subscription.repository.j
 import { BillingService } from './services/billing.service.js';
 
 @Module({
-	imports: [AccessControlModule, DatabaseModule, OutboxModule],
+	imports: [AccessControlModule, DatabaseModule, IdentityModule, OutboxModule],
 	controllers: [BillingController],
 	providers: [
 		moduleLoggerProvider('billing'),

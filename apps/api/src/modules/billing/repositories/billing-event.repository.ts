@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DATABASE } from '@vpn-poc/adapters';
 import { billingEvents, type Database } from '@vpn-poc/database';
 
+import { currentExecutor } from '../../../shared/database/db-scope.js';
 import type { Executor } from '../../../shared/database/transaction-runner.js';
 
 @Injectable()
@@ -13,7 +14,7 @@ export class BillingEventRepository {
 		source: string,
 		externalEventId: string,
 		kind: string,
-		executor: Executor = this.db,
+		executor: Executor = currentExecutor(),
 	): Promise<boolean> {
 		const claimed = await executor
 			.insert(billingEvents)

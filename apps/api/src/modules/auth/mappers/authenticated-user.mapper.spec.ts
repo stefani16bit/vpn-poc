@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Account } from '@vpn/ports';
+import type { User } from '../../../shared/identity/user.js';
 
 import { toAuthenticatedUser } from './authenticated-user.mapper.js';
 
-function account(overrides: Partial<Account> = {}): Account {
+function account(overrides: Partial<User> = {}): User {
 	return {
 		id: 'acc-1',
 		email: 'ada@example.com',
@@ -12,7 +12,7 @@ function account(overrides: Partial<Account> = {}): Account {
 		emailVerifiedAt: null,
 		createdAt: new Date('2026-03-04T05:06:07.000Z'),
 		...overrides,
-	} as Account;
+	} as User;
 }
 
 describe('toAuthenticatedUser', () => {

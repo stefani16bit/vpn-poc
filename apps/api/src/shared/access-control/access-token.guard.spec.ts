@@ -69,6 +69,8 @@ describe('AccessTokenGuard', () => {
 	it('admits a verified account and attaches the claims to the request', async () => {
 		const token = await tokens.issue({
 			accountId: 'acc-1',
+			role: 'owner' as const,
+			userId: 'user-1',
 			sessionId: 'sess-1',
 			emailVerified: true,
 		});
@@ -79,6 +81,8 @@ describe('AccessTokenGuard', () => {
 		expect(await guard.canActivate(contextFor(request, plainHandler))).toBe(true);
 		expect(request.auth).toEqual({
 			accountId: 'acc-1',
+			role: 'owner' as const,
+			userId: 'user-1',
 			sessionId: 'sess-1',
 			emailVerified: true,
 		});
@@ -87,6 +91,8 @@ describe('AccessTokenGuard', () => {
 	it('rejects an unverified account on a route with no AllowUnverified', async () => {
 		const token = await tokens.issue({
 			accountId: 'acc-1',
+			role: 'owner' as const,
+			userId: 'user-1',
 			sessionId: 'sess-1',
 			emailVerified: false,
 		});
@@ -98,6 +104,8 @@ describe('AccessTokenGuard', () => {
 	it('admits an unverified account when the route allows it', async () => {
 		const token = await tokens.issue({
 			accountId: 'acc-1',
+			role: 'owner' as const,
+			userId: 'user-1',
 			sessionId: 'sess-1',
 			emailVerified: false,
 		});

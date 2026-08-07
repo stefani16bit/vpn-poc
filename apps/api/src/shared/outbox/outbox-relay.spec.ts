@@ -26,7 +26,10 @@ describe('OutboxRelay', () => {
 			queue as unknown as IJobQueue,
 			outbox as unknown as OutboxRepository,
 			{
-				run: vi.fn((work: (executor: unknown) => Promise<unknown>) => work(EXECUTOR)),
+				runAsSystem: vi.fn((work: (executor: unknown) => Promise<unknown>) => work(EXECUTOR)),
+				runInAccount: vi.fn((_accountId: string, work: (executor: unknown) => Promise<unknown>) =>
+					work(EXECUTOR),
+				),
 			} as unknown as TransactionRunner,
 		);
 	});

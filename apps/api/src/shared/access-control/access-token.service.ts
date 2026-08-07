@@ -6,12 +6,15 @@ import { CLOCK, type IClock } from '@vpn/ports';
 
 import { ENV } from '@vpn-poc/adapters';
 import { AppError } from '../errors/app-error.js';
+import type { UserRole } from '../identity/user.js';
 
 const ISSUER = 'poc-vpn';
 const AUDIENCE = 'poc-vpn-api';
 
 export interface AccessTokenClaims {
+	readonly userId: string;
 	readonly accountId: string;
+	readonly role: UserRole;
 	readonly sessionId: string;
 	readonly emailVerified: boolean;
 }
@@ -35,9 +38,14 @@ export class AccessTokenService {
 	async issue(claims: AccessTokenClaims): Promise<string> {
 		const issuedAt = Math.floor(this.#clock.now().getTime() / 1000);
 
-		return new SignJWT({ sid: claims.sessionId, ev: claims.emailVerified })
+		return new SignJWT({
+			sid: claims.sessionId,
+			ev: claims.emailVerified,
+			acc: claims.accountId,
+			rol: claims.role,
+		})
 			.setProtectedHeader({ alg: 'HS256' })
-			.setSubject(claims.accountId)
+			.setSubject(claims.userId)
 			.setIssuer(ISSUER)
 			.setAudience(AUDIENCE)
 			.setIssuedAt(issuedAt)
@@ -57,8 +65,14 @@ export class AccessTokenService {
 				throw new AppError('TOKEN_INVALID', 'access token is missing required claims');
 			}
 
+			if (typeof payload['acc'] !== 'string' || !isUserRole(payload['rol'])) {
+				throw new AppError('TOKEN_INVALID', 'access token is missing tenancy claims');
+			}
+
 			return {
-				accountId: payload.sub,
+				userId: payload.sub,
+				accountId: payload['acc'],
+				role: payload['rol'],
 				sessionId: payload['sid'],
 				emailVerified: payload['ev'] === true,
 			};
@@ -71,4 +85,8 @@ export class AccessTokenService {
 			);
 		}
 	}
+}
+
+function isUserRole(value: unknown): value is UserRole {
+	return value === 'owner' || value === 'admin' || value === 'member';
 }

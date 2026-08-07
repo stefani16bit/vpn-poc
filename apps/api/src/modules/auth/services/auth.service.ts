@@ -3,15 +3,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 import { type AuthenticatedUser, type SessionResponse, type SupportedLocale } from '@vpn/contracts';
-import {
-	CLOCK,
-	IDENTITY_PROVIDER,
-	type Account,
-	type IClock,
-	type IIdentityProvider,
-} from '@vpn/ports';
+import { CLOCK, type IClock } from '@vpn/ports';
 
+import { TransactionRunner } from '../../../shared/database/transaction-runner.js';
 import { AppError } from '../../../shared/errors/app-error.js';
+import { IdentityService } from '../../../shared/identity/identity.service.js';
+import type { User } from '../../../shared/identity/user.js';
 import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 import {
 	MODULE_LOGGER,
@@ -36,13 +33,14 @@ export class AuthService {
 
 	constructor(
 		@Inject(MODULE_LOGGER) logger: ModuleLogger,
-		@Inject(IDENTITY_PROVIDER) private readonly identity: IIdentityProvider,
+		private readonly identity: IdentityService,
 		@Inject(CLOCK) private readonly clock: IClock,
 		@Inject(ENV) private readonly env: Env,
 		private readonly accessTokens: AccessTokenService,
 		private readonly verificationTokens: VerificationTokenService,
 		private readonly rateLimit: RateLimitService,
 		private readonly outbox: OutboxRepository,
+		private readonly transactions: TransactionRunner,
 	) {
 		this.#logger = contextLogger(logger, AuthService.name);
 	}
@@ -50,31 +48,45 @@ export class AuthService {
 	async register(email: string, password: string, locale: SupportedLocale): Promise<void> {
 		await this.rateLimit.consume(RATE_LIMITS.register, email);
 
-		const outcome = await this.identity.register(email, password, locale);
+		const registered = await this.transactions.runAsSystem(async (executor) => {
+			const outcome = await this.identity.register(email, password, locale, executor);
+			if (outcome.kind === 'email_taken') return false;
 
-		if (outcome.kind === 'email_taken') {
+			await this.outbox.enqueue(
+				outcome.user.accountId,
+				{ kind: 'auth.verification', userId: outcome.user.id },
+				executor,
+			);
+			return true;
+		});
+
+		if (!registered) {
 			this.#logger.debug({ event: 'register.duplicate' }, 'registration for an existing address');
-			return;
 		}
-
-		await this.outbox.enqueue({ kind: 'auth.verification', accountId: outcome.account.id });
 	}
 
-	async login(email: string, password: string): Promise<IssuedSession> {
+	async login(email: string, password: string, slug?: string): Promise<IssuedSession> {
 		await this.rateLimit.consume(RATE_LIMITS.login, email);
 
-		const account = await this.identity.authenticate(email, password);
-		if (!account) throw new AppError('INVALID_CREDENTIALS', 'e-mail or password is incorrect');
+		return this.transactions.runAsSystem(async () => {
+			const user = await this.identity.authenticate(email, password, slug);
+			if (!user) throw new AppError('INVALID_CREDENTIALS', 'e-mail or password is incorrect');
 
-		if (!account.emailVerifiedAt) {
-			throw new AppError('EMAIL_NOT_VERIFIED', 'confirm your e-mail address before signing in');
-		}
+			if (!user.emailVerifiedAt) {
+				throw new AppError('EMAIL_NOT_VERIFIED', 'confirm your e-mail address before signing in');
+			}
 
-		return this.#issueSession(account);
+			return this.#issueSession(user);
+		});
 	}
 
 	async refresh(refreshToken: string): Promise<IssuedSession> {
-		const outcome = await this.identity.refreshSession(refreshToken);
+		const { outcome, account } = await this.transactions.runAsSystem(async (executor) => {
+			const rotation = await this.identity.refreshSession(refreshToken, executor);
+			if (rotation.kind !== 'rotated') return { outcome: rotation, account: null };
+
+			return { outcome: rotation, account: await this.identity.findById(rotation.session.userId) };
+		});
 
 		if (outcome.kind === 'reuse_detected') {
 			this.#logger.warn(
@@ -88,14 +100,15 @@ export class AuthService {
 			throw new AppError('UNAUTHENTICATED', 'session is no longer valid');
 		}
 
-		const account = await this.identity.findById(outcome.session.accountId);
 		if (!account) throw new AppError('UNAUTHENTICATED', 'session is no longer valid');
 
 		return {
 			response: {
 				user: toAuthenticatedUser(account),
 				accessToken: await this.accessTokens.issue({
-					accountId: account.id,
+					userId: account.id,
+					accountId: account.accountId,
+					role: account.role,
 					sessionId: outcome.session.sessionId,
 					emailVerified: account.emailVerifiedAt !== null,
 				}),
@@ -107,65 +120,84 @@ export class AuthService {
 	}
 
 	async logout(refreshToken: string | undefined): Promise<void> {
-		if (refreshToken) await this.identity.revokeSession(refreshToken);
+		if (!refreshToken) return;
+		await this.transactions.runAsSystem(() => this.identity.revokeSession(refreshToken));
 	}
 
 	async verifyEmail(token: string): Promise<void> {
-		const accountId = await this.verificationTokens.redeem(token, 'email_verification');
-		await this.identity.markEmailVerified(accountId);
+		await this.transactions.runAsSystem(async (executor) => {
+			const redeemed = await this.verificationTokens.redeem(token, 'email_verification', executor);
+			await this.identity.markEmailVerified(redeemed.userId, executor);
 
-		await this.outbox.enqueue({ kind: 'auth.welcome', accountId });
+			await this.outbox.enqueue(
+				redeemed.accountId,
+				{ kind: 'auth.welcome', userId: redeemed.userId },
+				executor,
+			);
+		});
 	}
 
 	async resendVerification(email: string): Promise<void> {
 		await this.rateLimit.consume(RATE_LIMITS.resendVerification, email);
 
-		const account = await this.identity.findByEmail(email);
-		if (!account || account.emailVerifiedAt) return;
+		await this.transactions.runAsSystem(async () => {
+			const user = await this.identity.findByEmail(email);
+			if (!user || user.emailVerifiedAt) return;
 
-		await this.outbox.enqueue({ kind: 'auth.verification', accountId: account.id });
+			await this.outbox.enqueue(user.accountId, { kind: 'auth.verification', userId: user.id });
+		});
 	}
 
-	async setLocale(accountId: string, locale: SupportedLocale): Promise<AuthenticatedUser> {
-		await this.identity.setLocale(accountId, locale);
-		return this.currentUser(accountId);
+	async setLocale(userId: string, locale: SupportedLocale): Promise<AuthenticatedUser> {
+		await this.identity.setLocale(userId, locale);
+		return this.currentUser(userId);
 	}
 
 	async forgotPassword(email: string): Promise<void> {
 		await this.rateLimit.consume(RATE_LIMITS.forgotPassword, email);
 
-		const account = await this.identity.findByEmail(email);
-		if (!account) return;
+		await this.transactions.runAsSystem(async () => {
+			const user = await this.identity.findByEmail(email);
+			if (!user) return;
 
-		await this.outbox.enqueue({ kind: 'auth.password_reset', accountId: account.id });
-	}
-
-	async resetPassword(token: string, newPassword: string): Promise<void> {
-		const accountId = await this.verificationTokens.redeem(token, 'password_reset');
-
-		await this.identity.changePassword(accountId, newPassword);
-
-		await this.outbox.enqueue({
-			kind: 'auth.password_changed',
-			accountId,
-			changedAt: this.clock.now().toISOString(),
+			await this.outbox.enqueue(user.accountId, { kind: 'auth.password_reset', userId: user.id });
 		});
 	}
 
-	async currentUser(accountId: string): Promise<AuthenticatedUser> {
-		const account = await this.identity.findById(accountId);
-		if (!account) throw new AppError('UNAUTHENTICATED', 'account no longer exists');
-		return toAuthenticatedUser(account);
+	async resetPassword(token: string, newPassword: string): Promise<void> {
+		await this.transactions.runAsSystem(async (executor) => {
+			const redeemed = await this.verificationTokens.redeem(token, 'password_reset', executor);
+
+			await this.identity.changePassword(redeemed.userId, newPassword, executor);
+
+			await this.outbox.enqueue(
+				redeemed.accountId,
+				{
+					kind: 'auth.password_changed',
+					userId: redeemed.userId,
+					changedAt: this.clock.now().toISOString(),
+				},
+				executor,
+			);
+		});
 	}
 
-	async #issueSession(account: Account): Promise<IssuedSession> {
-		const session = await this.identity.startSession(account.id);
+	async currentUser(userId: string): Promise<AuthenticatedUser> {
+		const user = await this.identity.findById(userId);
+		if (!user) throw new AppError('UNAUTHENTICATED', 'user no longer exists');
+		return toAuthenticatedUser(user);
+	}
+
+	async #issueSession(account: User): Promise<IssuedSession> {
+		const session = await this.identity.startSession(account);
 
 		return {
 			response: {
 				user: toAuthenticatedUser(account),
 				accessToken: await this.accessTokens.issue({
-					accountId: account.id,
+					userId: account.id,
+					accountId: account.accountId,
+					role: account.role,
 					sessionId: session.sessionId,
 					emailVerified: account.emailVerifiedAt !== null,
 				}),

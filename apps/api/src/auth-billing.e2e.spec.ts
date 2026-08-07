@@ -2,7 +2,7 @@ import { MAILPIT_URL } from './e2e.setup.js';
 
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DATABASE_CONNECTION } from '@vpn-poc/adapters';
 import { BILLING_PROVIDER } from '@vpn/ports';
@@ -13,9 +13,11 @@ import type { createDatabase } from '@vpn-poc/database';
 import { createApp } from './bootstrap.js';
 import { NotificationConsumer } from './shared/notifications/notification-consumer.js';
 import { OutboxRelay } from './shared/outbox/outbox-relay.js';
+import { OutboxRepository } from './shared/outbox/outbox.repository.js';
 
 let app: INestApplication;
 let sql: ReturnType<typeof createDatabase>['sql'];
+let db: Awaited<ReturnType<ReturnType<typeof createDatabase>['sql']['reserve']>>;
 
 const PASSWORD = 'a-sufficiently-long-password';
 const NEW_PASSWORD = 'an-entirely-different-password';
@@ -24,9 +26,15 @@ beforeAll(async () => {
 	app = await createApp();
 	await app.init();
 	sql = (app.get(DATABASE_CONNECTION) as { sql: typeof sql }).sql;
+
+	// Under RLS a tenant connection reads nothing here: the suite inspects rows
+	// across accounts, which is exactly what app_system exists for.
+	db = await sql.reserve();
+	await db`set role app_system`;
 });
 
 afterAll(async () => {
+	db.release();
 	await app.close();
 });
 
@@ -36,9 +44,9 @@ async function drainNotifications(): Promise<void> {
 }
 
 beforeEach(async () => {
-	await sql`DELETE FROM accounts`;
-	await sql`DELETE FROM billing_events`;
-	await sql`DELETE FROM outbox`;
+	await db`DELETE FROM billing_events`;
+	await db`DELETE FROM outbox`;
+	await db`DELETE FROM accounts`;
 	await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
 });
 
@@ -122,6 +130,66 @@ describe('registration and verification', () => {
 			.expect(200, { acknowledged: true });
 	});
 
+	it('creates the account and its owner in one go', async () => {
+		const email = freshEmail();
+
+		await request(app.getHttpServer())
+			.post('/auth/register')
+			.send({ email, password: PASSWORD })
+			.expect(202);
+
+		const rows = await db`
+			select a.slug, u.role
+			from users u join accounts a on a.id = u.account_id
+			where u.email = ${email}
+		`;
+
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.['role']).toBe('owner');
+		expect(rows[0]?.['slug']).toMatch(/^e2e-/);
+	});
+
+	it('suffixes the slug when two addresses derive the same one', async () => {
+		const localPart = `slugtest-${Date.now()}`;
+		const first = `${localPart}@one.example.com`;
+		const second = `${localPart}@two.example.com`;
+
+		await request(app.getHttpServer())
+			.post('/auth/register')
+			.send({ email: first, password: PASSWORD })
+			.expect(202);
+		await request(app.getHttpServer())
+			.post('/auth/register')
+			.send({ email: second, password: PASSWORD })
+			.expect(202);
+
+		const slugs = await db`
+			select a.slug from users u join accounts a on a.id = u.account_id
+			where u.email in (${first}, ${second}) order by a.created_at
+		`;
+
+		expect(slugs.map((row) => row['slug'])).toEqual([localPart, `${localPart}-2`]);
+	});
+
+	it('refuses a second owner in the same account, by constraint rather than by code', async () => {
+		const email = freshEmail();
+		await request(app.getHttpServer())
+			.post('/auth/register')
+			.send({ email, password: PASSWORD })
+			.expect(202);
+
+		const [account] = await db`
+			select account_id from users where email = ${email}
+		`;
+
+		await expect(
+			db`
+				insert into users (account_id, email, password_hash, role)
+				values (${account?.['account_id']}, ${`second-${email}`}, 'x', 'owner')
+			`,
+		).rejects.toMatchObject({ code: '23505' });
+	});
+
 	it('answers a duplicate registration exactly as it answers a new one', async () => {
 		const email = freshEmail();
 
@@ -197,6 +265,66 @@ describe('registration and verification', () => {
 });
 
 describe('login', () => {
+	it('resolves the account when the address exists in exactly one', async () => {
+		const email = freshEmail();
+		await registerAndVerify(email);
+
+		const response = await loginFor(email);
+
+		const [row] = await db`select account_id from users where email = ${email}`;
+		expect(response.body.user.accountId).toBe(row?.['account_id']);
+		expect(response.body.user.role).toBe('owner');
+	});
+
+	it('accepts a login scoped by the account slug', async () => {
+		const email = freshEmail();
+		await registerAndVerify(email);
+		const [row] = await db`
+			select a.slug from users u join accounts a on a.id = u.account_id where u.email = ${email}
+		`;
+
+		await request(app.getHttpServer())
+			.post('/auth/login')
+			.send({ email, password: PASSWORD, slug: row?.['slug'] })
+			.expect(200);
+	});
+
+	it('answers a slug from another account exactly as it answers a wrong password', async () => {
+		const mine = freshEmail();
+		const theirs = freshEmail();
+		await registerAndVerify(mine);
+		await registerAndVerify(theirs);
+		const [other] = await db`
+			select a.slug from users u join accounts a on a.id = u.account_id where u.email = ${theirs}
+		`;
+
+		const crossed = await request(app.getHttpServer())
+			.post('/auth/login')
+			.send({ email: mine, password: PASSWORD, slug: other?.['slug'] });
+
+		const wrongPassword = await request(app.getHttpServer())
+			.post('/auth/login')
+			.send({ email: mine, password: 'not-the-right-password' });
+
+		expect(crossed.status).toBe(wrongPassword.status);
+		expect({ ...crossed.body, correlationId: undefined }).toEqual({
+			...wrongPassword.body,
+			correlationId: undefined,
+		});
+	});
+
+	it('answers an unknown slug the same way, so companies cannot be enumerated', async () => {
+		const email = freshEmail();
+		await registerAndVerify(email);
+
+		const unknown = await request(app.getHttpServer())
+			.post('/auth/login')
+			.send({ email, password: PASSWORD, slug: 'no-such-company' });
+
+		expect(unknown.status).toBe(401);
+		expect(unknown.body.code).toBe('INVALID_CREDENTIALS');
+	});
+
 	it('issues an access token and sets an httpOnly refresh cookie', async () => {
 		const email = freshEmail();
 		await registerAndVerify(email);
@@ -435,7 +563,7 @@ describe('billing', () => {
 		return {
 			email,
 			accessToken: login.body.accessToken as string,
-			accountId: login.body.user.id as string,
+			accountId: login.body.user.accountId as string,
 		};
 	}
 
@@ -523,7 +651,7 @@ describe('billing', () => {
 		await post().expect(200, { applied: true });
 		await post().expect(200, { applied: false });
 
-		const ledger = await sql`SELECT count(*)::int AS count FROM billing_events`;
+		const ledger = await db`SELECT count(*)::int AS count FROM billing_events`;
 		expect(ledger[0]?.['count']).toBe(1);
 	});
 
@@ -574,7 +702,7 @@ describe('billing', () => {
 		expect(final.status).toBe('active');
 		expect(final.currentPeriodEnd).toBe(periods[2]?.toISOString());
 
-		const ledger = await sql`SELECT count(*)::int AS count FROM billing_events`;
+		const ledger = await db`SELECT count(*)::int AS count FROM billing_events`;
 		expect(ledger[0]?.['count']).toBe(periods.length);
 	});
 
@@ -846,7 +974,7 @@ describe('queued notifications', () => {
 			.send({ email, password: PASSWORD })
 			.expect(202);
 
-		const pending = await sql`SELECT kind FROM outbox WHERE published_at IS NULL`;
+		const pending = await db`SELECT kind FROM outbox WHERE published_at IS NULL`;
 		expect(pending).toHaveLength(1);
 		expect(pending[0]?.['kind']).toBe('auth.verification');
 		expect(await mailpitCount()).toBe(0);
@@ -857,14 +985,14 @@ describe('queued notifications', () => {
 		await request(app.getHttpServer()).post('/auth/register').send({ email, password: PASSWORD });
 		await request(app.getHttpServer()).post('/auth/register').send({ email, password: PASSWORD });
 
-		const rows = await sql`SELECT payload::text AS payload FROM outbox`;
+		const rows = await db`SELECT payload::text AS payload FROM outbox`;
 		const token = await tokenFromMail(email);
 
 		expect(rows.length).toBeGreaterThan(0);
 		for (const row of rows) {
 			const payload = String(row['payload']);
 			expect(payload).not.toContain(token);
-			expect(Object.keys(JSON.parse(payload) as object).sort()).toEqual(['accountId', 'kind']);
+			expect(Object.keys(JSON.parse(payload) as object).sort()).toEqual(['kind', 'userId']);
 		}
 	});
 
@@ -875,7 +1003,7 @@ describe('queued notifications', () => {
 		expect(await app.get(OutboxRelay).runOnce()).toBe(1);
 		expect(await app.get(OutboxRelay).runOnce()).toBe(0);
 
-		const unpublished = await sql`SELECT id FROM outbox WHERE published_at IS NULL`;
+		const unpublished = await db`SELECT id FROM outbox WHERE published_at IS NULL`;
 		expect(unpublished).toHaveLength(0);
 	});
 
@@ -894,7 +1022,7 @@ describe('queued notifications', () => {
 		expect(counts.reduce((total, count) => total + count, 0)).toBe(emails.length);
 
 		const published =
-			await sql`SELECT count(*)::int AS count FROM outbox WHERE published_at IS NOT NULL`;
+			await db`SELECT count(*)::int AS count FROM outbox WHERE published_at IS NOT NULL`;
 		expect(published[0]?.['count']).toBe(emails.length);
 	});
 
@@ -911,13 +1039,34 @@ describe('queued notifications', () => {
 
 	it('leaves nothing behind when the registration transaction fails', async () => {
 		const email = freshEmail();
+		const outbox = app.get(OutboxRepository);
+		const enqueue = vi
+			.spyOn(outbox, 'enqueue')
+			.mockRejectedValueOnce(new Error('outbox unavailable'));
+
+		try {
+			await request(app.getHttpServer())
+				.post('/auth/register')
+				.send({ email, password: PASSWORD })
+				.expect(500);
+		} finally {
+			enqueue.mockRestore();
+		}
+
+		expect(await db`SELECT id FROM users WHERE email = ${email}`).toHaveLength(0);
+		expect(await db`SELECT id FROM outbox`).toHaveLength(0);
+	});
+
+	it('keeps both writes when the registration transaction commits', async () => {
+		const email = freshEmail();
+
 		await request(app.getHttpServer())
 			.post('/auth/register')
-			.send({ email, password: 'short' })
-			.expect(400);
+			.send({ email, password: PASSWORD })
+			.expect(202);
 
-		const rows = await sql`SELECT id FROM outbox`;
-		expect(rows).toHaveLength(0);
+		expect(await db`SELECT id FROM users WHERE email = ${email}`).toHaveLength(1);
+		expect(await db`SELECT id FROM outbox`).toHaveLength(1);
 	});
 });
 

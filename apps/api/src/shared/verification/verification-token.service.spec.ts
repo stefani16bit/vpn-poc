@@ -12,6 +12,7 @@ import type { VerificationPurpose } from './verification-token.purpose.js';
 import { VerificationTokenService } from './verification-token.service.js';
 
 interface IssuedRow {
+	readonly userId: string;
 	readonly accountId: string;
 	readonly purpose: VerificationPurpose;
 	readonly tokenHash: string;
@@ -20,25 +21,20 @@ interface IssuedRow {
 
 class FakeRepository {
 	readonly issued: IssuedRow[] = [];
-	readonly invalidated: { accountId: string; purpose: VerificationPurpose; at: Date }[] = [];
+	readonly invalidated: { userId: string; purpose: VerificationPurpose; at: Date }[] = [];
 	next: ConsumedToken | undefined = undefined;
 	consumeCalls = 0;
 
 	async invalidateOutstanding(
-		accountId: string,
+		userId: string,
 		purpose: VerificationPurpose,
 		at: Date,
 	): Promise<void> {
-		this.invalidated.push({ accountId, purpose, at });
+		this.invalidated.push({ userId, purpose, at });
 	}
 
-	async issue(
-		accountId: string,
-		purpose: VerificationPurpose,
-		tokenHash: string,
-		expiresAt: Date,
-	): Promise<void> {
-		this.issued.push({ accountId, purpose, tokenHash, expiresAt });
+	async issue(values: IssuedRow): Promise<void> {
+		this.issued.push(values);
 	}
 
 	async consume(): Promise<ConsumedToken | undefined> {
@@ -63,29 +59,41 @@ describe('VerificationTokenService', () => {
 	});
 
 	it('invalidates the outstanding tokens before issuing a new one', async () => {
-		await service.issue('acc-1', 'email_verification', 3600);
+		await service.issue({ id: 'acc-1', accountId: 'acc-1' }, 'email_verification', 3600);
 
 		expect(repository.invalidated).toEqual([
-			{ accountId: 'acc-1', purpose: 'email_verification', at: clock.now() },
+			{ userId: 'acc-1', purpose: 'email_verification', at: clock.now() },
 		]);
 	});
 
 	it('stores the hash and never the token itself', async () => {
-		const issued = await service.issue('acc-1', 'email_verification', 3600);
+		const issued = await service.issue(
+			{ id: 'acc-1', accountId: 'acc-1' },
+			'email_verification',
+			3600,
+		);
 
 		expect(repository.issued[0]?.tokenHash).toBe(hashToken(issued.token));
 		expect(repository.issued[0]?.tokenHash).not.toBe(issued.token);
 	});
 
 	it('computes the expiry from the clock and the ttl', async () => {
-		const issued = await service.issue('acc-1', 'password_reset', 3600);
+		const issued = await service.issue({ id: 'acc-1', accountId: 'acc-1' }, 'password_reset', 3600);
 
 		expect(issued.expiresAt).toEqual(new Date('2026-05-01T01:00:00.000Z'));
 	});
 
 	it('issues a different token every time', async () => {
-		const first = await service.issue('acc-1', 'email_verification', 3600);
-		const second = await service.issue('acc-1', 'email_verification', 3600);
+		const first = await service.issue(
+			{ id: 'acc-1', accountId: 'acc-1' },
+			'email_verification',
+			3600,
+		);
+		const second = await service.issue(
+			{ id: 'acc-1', accountId: 'acc-1' },
+			'email_verification',
+			3600,
+		);
 
 		expect(first.token).not.toBe(second.token);
 	});
@@ -103,6 +111,7 @@ describe('VerificationTokenService', () => {
 
 	it('rejects a consumed row whose expiry has passed as TOKEN_EXPIRED', async () => {
 		repository.next = {
+			userId: 'user-1',
 			accountId: 'acc-1',
 			expiresAt: new Date('2026-04-30T23:59:59.000Z'),
 		};
@@ -116,22 +125,30 @@ describe('VerificationTokenService', () => {
 	});
 
 	it('treats an expiry exactly at now as expired', async () => {
-		repository.next = { accountId: 'acc-1', expiresAt: clock.now() };
+		repository.next = { userId: 'user-1', accountId: 'acc-1', expiresAt: clock.now() };
 
 		await expect(service.redeem('tok', 'email_verification')).rejects.toBeInstanceOf(AppError);
 	});
 
-	it('returns the account id for a live token', async () => {
+	it('returns both the user and the account for a live token', async () => {
 		repository.next = {
+			userId: 'user-1',
 			accountId: 'acc-1',
 			expiresAt: new Date('2026-05-01T00:00:01.000Z'),
 		};
 
-		expect(await service.redeem('tok', 'email_verification')).toBe('acc-1');
+		expect(await service.redeem('tok', 'email_verification')).toEqual({
+			userId: 'user-1',
+			accountId: 'acc-1',
+		});
 	});
 
 	it('consumes the token before deciding it expired, so a stale token is spent', async () => {
-		repository.next = { accountId: 'acc-1', expiresAt: new Date('2026-01-01T00:00:00.000Z') };
+		repository.next = {
+			userId: 'user-1',
+			accountId: 'acc-1',
+			expiresAt: new Date('2026-01-01T00:00:00.000Z'),
+		};
 
 		await expect(service.redeem('tok', 'email_verification')).rejects.toBeInstanceOf(AppError);
 		expect(repository.consumeCalls).toBe(1);

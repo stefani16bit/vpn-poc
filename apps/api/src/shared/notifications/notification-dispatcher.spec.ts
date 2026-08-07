@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '@vpn-poc/env';
-import type { Account, IIdentityProvider } from '@vpn/ports';
 
+import type { UserRepository } from '../identity/repositories/user.repository.js';
+import type { User } from '../identity/user.js';
 import type { VerificationTokenService } from '../verification/verification-token.service.js';
 import type { AuthMailer } from './auth-mailer.service.js';
 import type { BillingMailer } from './billing-mailer.service.js';
@@ -15,7 +16,7 @@ const env = {
 	AUTH_PASSWORD_RESET_TTL: 3600,
 } as Env;
 
-function account(overrides: Partial<Account> = {}): Account {
+function account(overrides: Partial<User> = {}): User {
 	return {
 		id: 'acc-1',
 		email: 'ada@example.com',
@@ -23,18 +24,21 @@ function account(overrides: Partial<Account> = {}): Account {
 		emailVerifiedAt: null,
 		createdAt: new Date('2026-01-01T00:00:00.000Z'),
 		...overrides,
-	} as Account;
+	} as User;
 }
 
 describe('NotificationDispatcher', () => {
-	let identity: { findById: Mock };
+	let identity: { findById: Mock; findOwner: Mock };
 	let authMailer: Record<string, Mock>;
 	let billingMailer: Record<string, Mock>;
 	let verificationTokens: { issue: Mock };
 	let dispatcher: NotificationDispatcher;
 
 	beforeEach(() => {
-		identity = { findById: vi.fn().mockResolvedValue(account()) };
+		identity = {
+			findById: vi.fn().mockResolvedValue(account()),
+			findOwner: vi.fn().mockResolvedValue(account()),
+		};
 		authMailer = {
 			sendVerification: vi.fn().mockResolvedValue(undefined),
 			sendPasswordReset: vi.fn().mockResolvedValue(undefined),
@@ -50,7 +54,7 @@ describe('NotificationDispatcher', () => {
 		};
 
 		dispatcher = new NotificationDispatcher(
-			identity as unknown as IIdentityProvider,
+			identity as unknown as UserRepository,
 			env,
 			authMailer as unknown as AuthMailer,
 			billingMailer as unknown as BillingMailer,
@@ -59,31 +63,39 @@ describe('NotificationDispatcher', () => {
 	});
 
 	it('issues the verification token here, not where the request was served', async () => {
-		await dispatcher.send({ kind: 'auth.verification', accountId: 'acc-1' });
+		await dispatcher.send({ kind: 'auth.verification', userId: 'acc-1' });
 
-		expect(verificationTokens.issue).toHaveBeenCalledWith('acc-1', 'email_verification', 86400);
+		expect(verificationTokens.issue).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'acc-1' }),
+			'email_verification',
+			86400,
+		);
 		expect(authMailer['sendVerification']).toHaveBeenCalledWith(expect.anything(), 'tok-1', 86400);
 	});
 
 	it('issues no verification for an account that verified in the meantime', async () => {
 		identity.findById.mockResolvedValue(account({ emailVerifiedAt: new Date() }));
 
-		await dispatcher.send({ kind: 'auth.verification', accountId: 'acc-1' });
+		await dispatcher.send({ kind: 'auth.verification', userId: 'acc-1' });
 
 		expect(verificationTokens.issue).not.toHaveBeenCalled();
 		expect(authMailer['sendVerification']).not.toHaveBeenCalled();
 	});
 
 	it('issues the reset token on the reset ttl', async () => {
-		await dispatcher.send({ kind: 'auth.password_reset', accountId: 'acc-1' });
+		await dispatcher.send({ kind: 'auth.password_reset', userId: 'acc-1' });
 
-		expect(verificationTokens.issue).toHaveBeenCalledWith('acc-1', 'password_reset', 3600);
+		expect(verificationTokens.issue).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'acc-1' }),
+			'password_reset',
+			3600,
+		);
 	});
 
 	it('sends nothing for an account that no longer exists', async () => {
 		identity.findById.mockResolvedValue(null);
 
-		await dispatcher.send({ kind: 'auth.welcome', accountId: 'acc-1' });
+		await dispatcher.send({ kind: 'auth.welcome', userId: 'acc-1' });
 
 		expect(authMailer['sendWelcome']).not.toHaveBeenCalled();
 	});
@@ -91,7 +103,7 @@ describe('NotificationDispatcher', () => {
 	it('revives the change instant that crossed the queue as a string', async () => {
 		await dispatcher.send({
 			kind: 'auth.password_changed',
-			accountId: 'acc-1',
+			userId: 'user-1',
 			changedAt: '2026-05-01T00:00:00.000Z',
 		});
 
@@ -124,5 +136,35 @@ describe('NotificationDispatcher', () => {
 		});
 
 		expect(billingMailer['sendPaymentFailed']).toHaveBeenCalledWith(expect.anything(), 'evt-2');
+	});
+
+	it('resolves an auth intent to the person it names', async () => {
+		await dispatcher.send({ kind: 'auth.welcome', userId: 'user-7' });
+
+		expect(identity.findById).toHaveBeenCalledWith('user-7');
+		expect(identity.findOwner).not.toHaveBeenCalled();
+	});
+
+	it('resolves a billing intent to the account owner, since the company has no inbox', async () => {
+		await dispatcher.send({
+			kind: 'billing.payment_failed',
+			accountId: 'acc-9',
+			externalEventId: 'evt-9',
+		});
+
+		expect(identity.findOwner).toHaveBeenCalledWith('acc-9');
+		expect(identity.findById).not.toHaveBeenCalled();
+	});
+
+	it('stays silent when the account has no owner to write to', async () => {
+		identity.findOwner.mockResolvedValue(undefined);
+
+		await dispatcher.send({
+			kind: 'billing.payment_failed',
+			accountId: 'acc-9',
+			externalEventId: 'evt-9',
+		});
+
+		expect(billingMailer['sendPaymentFailed']).not.toHaveBeenCalled();
 	});
 });

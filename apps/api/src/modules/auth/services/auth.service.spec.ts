@@ -2,15 +2,17 @@ import { pino } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '@vpn-poc/env';
-import type { Account, IIdentityProvider } from '@vpn/ports';
 import { FixedClock } from '@vpn/testing/fakes';
 
 import type { AccessTokenService } from '../../../shared/access-control/access-token.service.js';
 import { AppError } from '../../../shared/errors/app-error.js';
+import type { IdentityService } from '../../../shared/identity/identity.service.js';
+import type { User } from '../../../shared/identity/user.js';
 import type { ModuleLogger } from '../../../shared/http/module-logger.js';
 import type { RateLimitService } from '../../../shared/rate-limit/rate-limit.service.js';
 import { RATE_LIMITS } from '../auth.rate-limits.js';
 import type { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
+import type { TransactionRunner } from '../../../shared/database/transaction-runner.js';
 import { AuthService } from './auth.service.js';
 import type { VerificationTokenService } from '../../../shared/verification/verification-token.service.js';
 
@@ -21,6 +23,8 @@ const env = {
 } as Env;
 
 type Mock = ReturnType<typeof vi.fn>;
+
+const EXECUTOR = Symbol('executor');
 
 let records: Record<string, unknown>[];
 
@@ -48,15 +52,17 @@ interface IdentityMock {
 	startSession: Mock;
 }
 
-function account(overrides: Partial<Account> = {}): Account {
+function account(overrides: Partial<User> = {}): User {
 	return {
 		id: 'acc-1',
+		accountId: 'account-1',
+		role: 'owner',
 		email: 'ada@example.com',
 		locale: 'pt-BR',
 		emailVerifiedAt: new Date('2026-01-02T00:00:00.000Z'),
 		createdAt: new Date('2026-01-01T00:00:00.000Z'),
 		...overrides,
-	} as Account;
+	} as User;
 }
 
 describe('AuthService', () => {
@@ -65,11 +71,12 @@ describe('AuthService', () => {
 	let verificationTokens: { issue: Mock; redeem: Mock };
 	let rateLimit: { consume: Mock };
 	let outbox: { enqueue: Mock };
+	let transactions: { runAsSystem: Mock; runInAccount: Mock };
 	let service: AuthService;
 
 	beforeEach(() => {
 		identity = {
-			register: vi.fn().mockResolvedValue({ kind: 'registered', account: account() }),
+			register: vi.fn().mockResolvedValue({ kind: 'registered', user: account() }),
 			authenticate: vi.fn().mockResolvedValue(account()),
 			refreshSession: vi.fn(),
 			revokeSession: vi.fn().mockResolvedValue(undefined),
@@ -87,21 +94,28 @@ describe('AuthService', () => {
 		accessTokens = { issue: vi.fn().mockResolvedValue('access-1'), ttlSeconds: 900 };
 		verificationTokens = {
 			issue: vi.fn().mockResolvedValue({ token: 'tok-1', expiresAt: new Date() }),
-			redeem: vi.fn().mockResolvedValue('acc-1'),
+			redeem: vi.fn().mockResolvedValue({ userId: 'user-1', accountId: 'account-1' }),
 		};
 		rateLimit = { consume: vi.fn().mockResolvedValue(undefined) };
 		outbox = { enqueue: vi.fn().mockResolvedValue(undefined) };
+		transactions = {
+			runAsSystem: vi.fn((work: (executor: unknown) => Promise<unknown>) => work(EXECUTOR)),
+			runInAccount: vi.fn((_accountId: string, work: (executor: unknown) => Promise<unknown>) =>
+				work(EXECUTOR),
+			),
+		};
 
 		records = [];
 		service = new AuthService(
 			recordingLogger(),
-			identity as unknown as IIdentityProvider,
+			identity as unknown as IdentityService,
 			new FixedClock(new Date('2026-05-01T00:00:00.000Z')),
 			env,
 			accessTokens as unknown as AccessTokenService,
 			verificationTokens as unknown as VerificationTokenService,
 			rateLimit as unknown as RateLimitService,
 			outbox as unknown as OutboxRepository,
+			transactions as unknown as TransactionRunner,
 		);
 	});
 
@@ -114,10 +128,14 @@ describe('AuthService', () => {
 		it('queues a verification for a new account and issues no token itself', async () => {
 			await service.register('ada@example.com', 'pw', 'pt-BR');
 
-			expect(outbox.enqueue).toHaveBeenCalledWith({
-				kind: 'auth.verification',
-				accountId: 'acc-1',
-			});
+			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'account-1',
+				{
+					kind: 'auth.verification',
+					userId: 'acc-1',
+				},
+				EXECUTOR,
+			);
 			expect(verificationTokens.issue).not.toHaveBeenCalled();
 		});
 
@@ -185,9 +203,20 @@ describe('AuthService', () => {
 			await service.login('ada@example.com', 'pw');
 
 			expect(accessTokens.issue).toHaveBeenCalledWith({
-				accountId: 'acc-1',
+				userId: 'acc-1',
+				accountId: 'account-1',
+				role: 'owner',
 				sessionId: 'sess-1',
 				emailVerified: true,
+			});
+		});
+
+		it('carries the account and the role, so the kernel can scope without a lookup', async () => {
+			await service.login('ada@example.com', 'pw');
+
+			expect(accessTokens.issue.mock.calls[0]?.[0]).toMatchObject({
+				accountId: 'account-1',
+				role: 'owner',
 			});
 		});
 	});
@@ -266,15 +295,23 @@ describe('AuthService', () => {
 		it('marks the account verified and welcomes it', async () => {
 			await service.verifyEmail('tok-1');
 
-			expect(verificationTokens.redeem).toHaveBeenCalledWith('tok-1', 'email_verification');
-			expect(identity.markEmailVerified).toHaveBeenCalledWith('acc-1');
-			expect(outbox.enqueue).toHaveBeenCalledWith({ kind: 'auth.welcome', accountId: 'acc-1' });
+			expect(verificationTokens.redeem).toHaveBeenCalledWith(
+				'tok-1',
+				'email_verification',
+				EXECUTOR,
+			);
+			expect(identity.markEmailVerified).toHaveBeenCalledWith('user-1', EXECUTOR);
+			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'account-1',
+				{ kind: 'auth.welcome', userId: 'user-1' },
+				EXECUTOR,
+			);
 		});
 
 		it('does not reload the account: the worker resolves it when it sends', async () => {
 			await service.verifyEmail('tok-1');
 
-			expect(identity.markEmailVerified).toHaveBeenCalledWith('acc-1');
+			expect(identity.markEmailVerified).toHaveBeenCalledWith('user-1', EXECUTOR);
 			expect(identity.findById).not.toHaveBeenCalled();
 		});
 	});
@@ -307,9 +344,9 @@ describe('AuthService', () => {
 
 			await service.resendVerification('ada@example.com');
 
-			expect(outbox.enqueue).toHaveBeenCalledWith({
+			expect(outbox.enqueue).toHaveBeenCalledWith('account-1', {
 				kind: 'auth.verification',
-				accountId: 'acc-1',
+				userId: 'acc-1',
 			});
 		});
 	});
@@ -331,9 +368,9 @@ describe('AuthService', () => {
 			await service.forgotPassword('ada@example.com');
 
 			expect(verificationTokens.issue).not.toHaveBeenCalled();
-			expect(outbox.enqueue).toHaveBeenCalledWith({
+			expect(outbox.enqueue).toHaveBeenCalledWith('account-1', {
 				kind: 'auth.password_reset',
-				accountId: 'acc-1',
+				userId: 'acc-1',
 			});
 		});
 	});
@@ -342,13 +379,17 @@ describe('AuthService', () => {
 		it('redeems the token, changes the password and warns the account', async () => {
 			await service.resetPassword('tok-1', 'new-password');
 
-			expect(verificationTokens.redeem).toHaveBeenCalledWith('tok-1', 'password_reset');
-			expect(identity.changePassword).toHaveBeenCalledWith('acc-1', 'new-password');
-			expect(outbox.enqueue).toHaveBeenCalledWith({
-				kind: 'auth.password_changed',
-				accountId: 'acc-1',
-				changedAt: '2026-05-01T00:00:00.000Z',
-			});
+			expect(verificationTokens.redeem).toHaveBeenCalledWith('tok-1', 'password_reset', EXECUTOR);
+			expect(identity.changePassword).toHaveBeenCalledWith('user-1', 'new-password', EXECUTOR);
+			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'account-1',
+				{
+					kind: 'auth.password_changed',
+					userId: 'user-1',
+					changedAt: '2026-05-01T00:00:00.000Z',
+				},
+				EXECUTOR,
+			);
 		});
 
 		it('does not reload the account: the worker resolves it when it sends', async () => {

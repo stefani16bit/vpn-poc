@@ -14,7 +14,7 @@ export default defineConfig({
 	test: {
 		...preset.test,
 		include: ['src/**/*.spec.ts'],
-		exclude: ['src/**/*.e2e.spec.ts'],
+		exclude: ['src/**/*.e2e.spec.ts', 'src/**/*.integration.spec.ts'],
 		coverage: {
 			...preset.test.coverage,
 			provider: 'v8' as const,

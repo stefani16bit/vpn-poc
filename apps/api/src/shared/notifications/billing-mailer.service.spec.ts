@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Env } from '@vpn-poc/env';
-import type { Account } from '@vpn/ports';
+import type { User } from '../identity/user.js';
 import { MemoryEmailSender } from '@vpn/testing/fakes';
 
 import { runWithContext } from '../http/request-context.js';
@@ -9,7 +9,7 @@ import { BillingMailer } from './billing-mailer.service.js';
 
 const env = { WEB_ORIGIN: 'https://app.example.com' } as Env;
 
-function account(overrides: Partial<Account> = {}): Account {
+function account(overrides: Partial<User> = {}): User {
 	return {
 		id: 'acc-1',
 		email: 'ada@example.com',
@@ -17,7 +17,7 @@ function account(overrides: Partial<Account> = {}): Account {
 		emailVerifiedAt: new Date('2026-01-01T00:00:00.000Z'),
 		createdAt: new Date('2026-01-01T00:00:00.000Z'),
 		...overrides,
-	} as Account;
+	} as User;
 }
 
 describe('BillingMailer', () => {

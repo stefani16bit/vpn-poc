@@ -46,6 +46,8 @@ describe('renderWithProviders', () => {
 			sessionResolved({
 				user: {
 					id: 'acc-1',
+					accountId: 'account-1',
+					role: 'owner' as const,
 					email: 'ada@example.com',
 					emailVerified: true,
 					locale: 'pt-BR',
@@ -67,6 +69,8 @@ describe('renderWithProviders', () => {
 			sessionResolved({
 				user: {
 					id: 'acc-1',
+					accountId: 'account-1',
+					role: 'owner' as const,
 					email: 'ada@example.com',
 					emailVerified: true,
 					locale: 'pt-BR',

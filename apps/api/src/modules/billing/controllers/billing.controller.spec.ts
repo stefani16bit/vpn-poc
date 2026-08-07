@@ -8,6 +8,8 @@ import { BillingController } from './billing.controller.js';
 
 const CLAIMS: AccessTokenClaims = {
 	accountId: 'acc-1',
+	role: 'owner' as const,
+	userId: 'user-1',
 	sessionId: 'sess-1',
 	emailVerified: true,
 };

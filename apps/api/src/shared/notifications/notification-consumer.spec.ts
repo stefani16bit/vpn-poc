@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FixedClock, MemoryJobQueue } from '@vpn/testing/fakes';
 
+import type { TransactionRunner } from '../database/transaction-runner.js';
 import { NotificationConsumer } from './notification-consumer.js';
 import type { NotificationDispatcher } from './notification-dispatcher.js';
 
@@ -15,14 +16,18 @@ describe('NotificationConsumer', () => {
 	beforeEach(() => {
 		queue = new MemoryJobQueue(new FixedClock());
 		dispatcher = { send: vi.fn().mockResolvedValue(undefined) };
-		consumer = new NotificationConsumer(queue, dispatcher as unknown as NotificationDispatcher);
+		consumer = new NotificationConsumer(
+			queue,
+			dispatcher as unknown as NotificationDispatcher,
+			{ runAsSystem: (work: () => Promise<unknown>) => work() } as unknown as TransactionRunner,
+		);
 	});
 
 	it('sends and then acknowledges, so a crash before the send redelivers', async () => {
-		await queue.enqueue({ name: 'auth.welcome', data: { accountId: 'acc-1' } });
+		await queue.enqueue({ name: 'auth.welcome', data: { userId: 'acc-1' } });
 
 		expect((await consumer.runOnce()).received).toBe(1);
-		expect(dispatcher.send).toHaveBeenCalledWith({ kind: 'auth.welcome', accountId: 'acc-1' });
+		expect(dispatcher.send).toHaveBeenCalledWith({ kind: 'auth.welcome', userId: 'acc-1' });
 
 		queue.makeEverythingVisible();
 		expect(await queue.receive()).toEqual([]);
@@ -37,7 +42,7 @@ describe('NotificationConsumer', () => {
 		expect(await queue.receive()).toHaveLength(1);
 	});
 
-	it('leaves a job whose data carries no account on the queue', async () => {
+	it('leaves a job whose data names no recipient on the queue', async () => {
 		await queue.enqueue({ name: 'auth.welcome', data: { nothing: true } });
 
 		expect((await consumer.runOnce()).unknown).toEqual(['auth.welcome']);
@@ -45,7 +50,7 @@ describe('NotificationConsumer', () => {
 
 	it('does not acknowledge a job whose send failed, so it is retried', async () => {
 		dispatcher.send.mockRejectedValue(new Error('smtp is down'));
-		await queue.enqueue({ name: 'auth.welcome', data: { accountId: 'acc-1' } });
+		await queue.enqueue({ name: 'auth.welcome', data: { userId: 'acc-1' } });
 
 		expect((await consumer.runOnce()).failed).toHaveLength(1);
 
@@ -55,8 +60,8 @@ describe('NotificationConsumer', () => {
 
 	it('keeps going after one job fails, so a poisoned entry does not stall the batch', async () => {
 		dispatcher.send.mockRejectedValueOnce(new Error('smtp is down'));
-		await queue.enqueue({ name: 'auth.welcome', data: { accountId: 'acc-1' } });
-		await queue.enqueue({ name: 'auth.password_reset', data: { accountId: 'acc-2' } });
+		await queue.enqueue({ name: 'auth.welcome', data: { userId: 'acc-1' } });
+		await queue.enqueue({ name: 'auth.password_reset', data: { userId: 'acc-2' } });
 
 		const report = await consumer.runOnce();
 

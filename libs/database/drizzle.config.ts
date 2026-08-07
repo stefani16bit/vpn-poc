@@ -16,4 +16,7 @@ export default defineConfig({
 	},
 	strict: true,
 	verbose: true,
+	entities: {
+		roles: { exclude: ['vpn_migrator', 'vpn_app', 'app_system', 'vpn_readonly'] },
+	},
 });

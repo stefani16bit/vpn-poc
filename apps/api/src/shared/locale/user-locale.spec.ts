@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { FALLBACK_LOCALE } from '@vpn/contracts';
 
 import { runWithCorrelation, runWithContext } from '../http/request-context.js';
-import { localeOf } from './account-locale.js';
+import { localeOf } from './user-locale.js';
 
 describe('localeOf', () => {
 	it('prefers the locale on the account', () => {

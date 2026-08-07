@@ -3,15 +3,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 import type { PlanId, SubscriptionResponse } from '@vpn/contracts';
-import {
-	BILLING_PROVIDER,
-	IDENTITY_PROVIDER,
-	type IBillingProvider,
-	type IIdentityProvider,
-	type NormalizedBillingEvent,
-} from '@vpn/ports';
+import { BILLING_PROVIDER, type IBillingProvider, type NormalizedBillingEvent } from '@vpn/ports';
 
 import { TransactionRunner, type Executor } from '../../../shared/database/transaction-runner.js';
+import { UserRepository } from '../../../shared/identity/repositories/user.repository.js';
 import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import {
@@ -37,7 +32,7 @@ export class BillingService {
 	constructor(
 		@Inject(MODULE_LOGGER) logger: ModuleLogger,
 		@Inject(BILLING_PROVIDER) private readonly billing: IBillingProvider,
-		@Inject(IDENTITY_PROVIDER) private readonly identity: IIdentityProvider,
+		private readonly users: UserRepository,
 		@Inject(ENV) private readonly env: Env,
 		private readonly subscriptions: SubscriptionRepository,
 		private readonly events: BillingEventRepository,
@@ -48,12 +43,12 @@ export class BillingService {
 	}
 
 	async createCheckout(accountId: string, plan: PlanId): Promise<string> {
-		const account = await this.identity.findById(accountId);
-		if (!account) throw new AppError('UNAUTHENTICATED', 'account no longer exists');
+		const owner = await this.users.findOwner(accountId);
+		if (!owner) throw new AppError('UNAUTHENTICATED', 'account no longer exists');
 
 		const session = await this.billing.createCheckout({
 			accountId,
-			email: account.email,
+			email: owner.email,
 			priceId: this.#priceFor(plan),
 			successUrl: `${this.env.WEB_ORIGIN}/billing/success`,
 			cancelUrl: `${this.env.WEB_ORIGIN}/billing/cancel`,
@@ -91,7 +86,7 @@ export class BillingService {
 		const event = this.billing.parseWebhookEvent(rawBody);
 		if (!event) return false;
 
-		const applied = await this.transactions.run(async (executor) => {
+		const applied = await this.transactions.runAsSystem(async (executor) => {
 			const claimed = await this.events.claim(SOURCE, event.externalEventId, event.kind, executor);
 			if (!claimed) return false;
 
@@ -122,6 +117,7 @@ export class BillingService {
 	async #enqueueNotification(event: NormalizedBillingEvent, executor: Executor): Promise<void> {
 		if (event.kind === 'payment_failed') {
 			await this.outbox.enqueue(
+				event.accountId,
 				{
 					kind: 'billing.payment_failed',
 					accountId: event.accountId,
@@ -135,6 +131,7 @@ export class BillingService {
 		if (event.kind !== 'subscription_canceled') return;
 
 		await this.outbox.enqueue(
+			event.accountId,
 			{
 				kind: 'billing.subscription_canceled',
 				accountId: event.accountId,

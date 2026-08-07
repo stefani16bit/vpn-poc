@@ -1,5 +1,5 @@
 process.env['NODE_ENV'] = 'test';
-process.env['LOG_LEVEL'] = 'silent';
+process.env['LOG_LEVEL'] ??= 'silent';
 process.env['WEB_ORIGIN'] = 'http://127.0.0.1:5173';
 process.env['DATABASE_URL'] ??= 'postgres://vpn_app:vpn_app_dev@127.0.0.1:25432/poc_vpn_dev';
 process.env['AUTH_JWT_SECRET'] = 'e2e-secret-e2e-secret-e2e-secret-0000';

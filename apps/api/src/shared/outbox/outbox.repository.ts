@@ -5,6 +5,7 @@ import { DATABASE } from '@vpn-poc/adapters';
 import { outbox, type Database } from '@vpn-poc/database';
 import type { JobEnvelope } from '@vpn/ports';
 
+import { currentExecutor } from '../database/db-scope.js';
 import type { Executor } from '../database/transaction-runner.js';
 import type { OutboxMessage } from './outbox-message.js';
 
@@ -17,8 +18,12 @@ export interface PendingEntry {
 export class OutboxRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	async enqueue(message: OutboxMessage, executor: Executor = this.db): Promise<void> {
-		await executor.insert(outbox).values({ kind: message.kind, payload: message });
+	async enqueue(
+		accountId: string,
+		message: OutboxMessage,
+		executor: Executor = currentExecutor(),
+	): Promise<void> {
+		await executor.insert(outbox).values({ accountId, kind: message.kind, payload: message });
 	}
 
 	async claimPending(limit: number, executor: Executor): Promise<readonly PendingEntry[]> {
@@ -36,7 +41,7 @@ export class OutboxRepository {
 		}));
 	}
 
-	async markPublished(id: string, executor: Executor = this.db): Promise<void> {
+	async markPublished(id: string, executor: Executor = currentExecutor()): Promise<void> {
 		await executor
 			.update(outbox)
 			.set({ publishedAt: new Date(), attempts: sql`${outbox.attempts} + 1` })

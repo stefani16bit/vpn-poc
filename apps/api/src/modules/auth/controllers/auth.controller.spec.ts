@@ -10,6 +10,8 @@ import type { RefreshCookie } from './refresh-cookie.js';
 
 const CLAIMS: AccessTokenClaims = {
 	accountId: 'acc-1',
+	role: 'owner' as const,
+	userId: 'user-1',
 	sessionId: 'sess-1',
 	emailVerified: true,
 };
@@ -178,14 +180,14 @@ describe('AuthController', () => {
 			expect(cookie.clear).toHaveBeenCalledWith(response);
 		});
 
-		it('returns the current user for the authenticated account', async () => {
+		it('returns the current user for the person the token names', async () => {
 			expect(await controller.me(CLAIMS)).toEqual(USER);
-			expect(auth.currentUser).toHaveBeenCalledWith('acc-1');
+			expect(auth.currentUser).toHaveBeenCalledWith('user-1');
 		});
 
-		it('updates the locale of the authenticated account only', async () => {
+		it('updates the locale of the person the token names, not the account', async () => {
 			expect(await controller.updateLocale(CLAIMS, { locale: 'en' })).toEqual(USER);
-			expect(auth.setLocale).toHaveBeenCalledWith('acc-1', 'en');
+			expect(auth.setLocale).toHaveBeenCalledWith('user-1', 'en');
 		});
 	});
 });

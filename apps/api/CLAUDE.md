@@ -31,6 +31,19 @@ Vitest transforma com Vite + oxc, que emite os metadados — daí o e2e passar n
 código que o `tsx` não conseguia subir. Runner de dev e transformador dos testes
 andam juntos; ver DEC-018.
 
+**`IdentityService.authenticate` roda o hash mesmo quando o usuário não
+existe**, contra `ABSENT_USER_HASH`. Um retorno antecipado torna o caso
+"endereço desconhecido" mensuravelmente mais rápido, e isso enumera contas tão
+bem quanto uma mensagem de erro diferente. Vale para todo ramo em que o desfecho
+já está decidido — inclusive o e-mail ambíguo entre duas accounts (DEC-051).
+
+**A rotação marca o token gasto dentro de um `UPDATE ... WHERE spent_at IS
+NULL`.** Um `SELECT` seguido de `UPDATE` deixa dois refreshes concorrentes
+passarem. Esse statement mora em `SessionRepository` e não sobe para o serviço:
+a atomicidade **é** a lógica, e é por isso que ela é provada por teste de
+integração e não por unitário. Quem decide `rejected` contra `reuse_detected` é
+`decideRotation`, que é puro e tem teste unitário. Ver DEC-049.
+
 **Sem `ValidationPipe`.** É um front-end de class-validator. A validação aqui é
 zod contra `@vpn/contracts`, os mesmos schemas que o formulário do front usa.
 Ver DEC-008.

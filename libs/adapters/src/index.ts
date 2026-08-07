@@ -13,6 +13,7 @@ export type { AdapterSpec, AdapterFactory, AdapterDeps } from './registry.js';
 export { SystemClock } from './crypto/SystemClock.js';
 export { ScryptPasswordHasher } from './crypto/ScryptPasswordHasher.js';
 export type { ScryptParams } from './crypto/ScryptPasswordHasher.js';
+export { hashToken } from './crypto/token-hash.js';
 
 export { RedisCacheStore } from './cache/RedisCacheStore.js';
 
@@ -21,8 +22,6 @@ export { renderEmail, renderSms } from './email/render.js';
 export type { RenderedEmail } from './email/render.js';
 
 export { ConsoleSmsSender } from './sms/ConsoleSmsSender.js';
-
-export { DrizzleIdentityProvider, hashToken } from './identity/DrizzleIdentityProvider.js';
 
 export { StripeBillingProvider } from './billing/StripeBillingProvider.js';
 export type { StripeBillingProviderOptions } from './billing/StripeBillingProvider.js';

@@ -55,7 +55,7 @@ export class AuthController {
 		@Body(new ZodBody(loginRequestSchema)) body: LoginRequest,
 		@Res({ passthrough: true }) response: Response,
 	): Promise<SessionResponse> {
-		const issued = await this.auth.login(body.email, body.password);
+		const issued = await this.auth.login(body.email, body.password, body.slug);
 		this.refreshCookie.set(response, issued.refreshToken, issued.refreshExpiresAt);
 		return issued.response;
 	}
@@ -127,7 +127,7 @@ export class AuthController {
 	@UseGuards(AccessTokenGuard)
 	@AllowUnverified()
 	async me(@Auth() claims: AccessTokenClaims): Promise<AuthenticatedUser> {
-		return this.auth.currentUser(claims.accountId);
+		return this.auth.currentUser(claims.userId);
 	}
 
 	@Patch('me/locale')
@@ -138,6 +138,6 @@ export class AuthController {
 		@Auth() claims: AccessTokenClaims,
 		@Body(new ZodBody(updateLocaleRequestSchema)) body: UpdateLocaleRequest,
 	): Promise<AuthenticatedUser> {
-		return this.auth.setLocale(claims.accountId, body.locale);
+		return this.auth.setLocale(claims.userId, body.locale);
 	}
 }
