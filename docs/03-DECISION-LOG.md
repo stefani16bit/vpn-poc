@@ -1765,3 +1765,81 @@ O comportamento do drizzle-kit para índice único parcial com literal de enum
 (`where role = 'owner'`) e para FK composta é **para conferir na primeira
 geração, não para supor**. Se decepcionar, o remendo daquele pedaço é um
 statement à mão numa migration **separada**, nunca dentro de `0000_init`.
+
+---
+
+### DEC-054 — O tier vem do status da subscription; o cache guarda o tier
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** A DEC-036 põe os entitlements num mapa por tier, em código. Falta
+dizer de onde sai o tier de uma account, e o que exatamente a DEC-037 manda
+cachear.
+
+**Decisão.** O tier é **derivado** do `status` da subscription: `active` e
+`trialing` resolvem para `pro`, todo o resto resolve para tier nenhum. A função
+que decide mora ao lado do mapa, em `@vpn/contracts`. O cache guarda `{ tier }`;
+os entitlements são derivados do mapa a cada leitura.
+
+**Rationale.** Duas alternativas foram rejeitadas por motivos diferentes.
+
+Uma coluna `tier` na `subscriptions` seria, com um tier só, uma constante
+persistida — e não há de onde escrevê-la: `NormalizedBillingEvent` não carrega
+tier em nenhuma das quatro variantes, então ela nasceria de um mapa priceId →
+tier no adapter, que é acoplar autorização ao provider (o que a DEC-036 recusou).
+Com o segundo tier a coluna passa a valer, e é aí que a porta ganha o campo.
+
+Cachear os entitlements derivados seria pior de um jeito silencioso: o mapa é
+código, e um deploy que muda o que `pro` inclui passaria a conviver com entradas
+antigas até o TTL de cada account. Guardando o tier, o mapa novo vale na primeira
+leitura. É a mesma razão pela qual o mapa não é tabela.
+
+**Consequências.** Um webhook perdido deixa a projeção parada e a account
+entitulada indefinidamente. O TTL **não** conserta isso — ele só encurta a janela
+de uma invalidação perdida, não de um evento que nunca chegou. O conserto é um job
+que pergunta ao provider, e está no roadmap como dívida.
+
+O status `past_due` revoga na hora, sem carência. Dunning é o provider quem faz, e
+enquanto ele tentar de novo a account está `past_due`; dar carência aqui seria
+inventar uma segunda política de cobrança do lado errado da porta.
+
+---
+
+### DEC-055 — O gate é guard, e lê fora da transação da requisição
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** A capability é aplicada no momento da requisição (`CONTEXT.md`), e a
+DEC-025 já decidiu que controle de acesso é kernel. Mas a transação da requisição
+— a que fixa `app.account_id` e sem a qual `currentExecutor()` lança — é um
+**interceptor**, e o Nest roda guard **antes** de interceptor.
+
+**Decisão.** `CapabilityGuard` em `shared/access-control/`, como o
+`AccessTokenGuard`. A leitura do tier é primeiro no cache; no miss, o serviço abre
+a própria transação com `runInAccount`. `SubscriptionRepository` sobe para
+`shared/subscriptions/`, porque o kernel passa a lê-la e `shared/` não importa de
+`modules/`.
+
+**Rationale.** A alternativa era um segundo interceptor global, registrado depois
+do de tenancy, que rodaria dentro da transação e poderia usar o executor corrente.
+Rejeitada: põe a decisão de autorização **dentro** do pipeline do handler, no
+lugar de na frente dele, e um interceptor que lança 402 é um guard escrito com o
+mecanismo errado. Guard é onde o Nest — e quem lê o controller — espera encontrar
+"quem pode chamar isto".
+
+O custo é uma transação a mais **apenas no miss**, que é o que o cache existe para
+absorver (DEC-037 já orçou uma leitura por requisição autorizada). O serviço
+ramifica em `hasScope()`: dentro da transação da requisição usa o executor
+corrente, fora dela abre a sua. O mesmo idioma que o
+`TenantTransactionInterceptor` já usa para não abrir transação duas vezes.
+
+**Consequências.** A invalidação do webhook acontece **depois** do commit. Antes
+dele, uma requisição concorrente leria a linha pré-commit e reescreveria a entrada
+com o valor velho; depois dele, uma queda na janela entre commit e `delete` serve o
+valor velho até o TTL. Escolhemos o pior caso limitado em vez do errado silencioso.
+
+`AccessControlModule` deixa de ser só `jose` mais issuer e audience: passa a
+importar o módulo de entitlements, e portanto o cache e o banco. Isso não recoloca
+domínio no kernel — subscription é projeção de cobrança, não regra de auth — mas o
+argumento da DEC-025 de que o guard "nunca consulta uma conta" vale agora só para
+o `AccessTokenGuard`.

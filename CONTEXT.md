@@ -160,12 +160,20 @@ dele.
 **Subscription** — a projeção local do estado no provider, uma por account. É uma
 projeção, não a verdade: o provider é a autoridade, e o webhook sobrescreve.
 
-**Tier** — o nível do produto. É ele que determina os entitlements.
+**Tier** — o nível do produto. É ele que determina os entitlements. Hoje existe
+**um**, `pro`, e é o único comprável. `TIER_IDS` mora em `@vpn/contracts`.
 
 **Cadence** — mensal ou anual. É só o intervalo de cobrança e não muda o que a
 account pode fazer. `PLAN_IDS = ['monthly','yearly']` era **só a cadência**, sem
 que nada no nome dissesse isso; um plano é o par **tier × cadence**, e o preço
-pende do par enquanto os entitlements pendem só do tier.
+pende do par enquanto os entitlements pendem só do tier. Hoje os dois nomes
+existem separados (`TIER_IDS`, `CADENCES`), e o checkout pede o par.
+
+**Account sem tier** — a que não tem subscription em estado que dê acesso.
+`active` e `trialing` dão; `past_due`, `canceled`, `incomplete` e a ausência de
+linha não dão. Não é um tier chamado "free": é a **ausência** de tier, o mapa não
+a cobre, e o conjunto dela é explícito (`UNSUBSCRIBED_ENTITLEMENTS`). A diferença
+importa porque um tier é comprável e isto não é.
 
 **Cancelar no fim do período** — o padrão. O usuário pagou pelo período; cortar
 na hora é para suporte e exclusão de conta.
@@ -181,8 +189,11 @@ _empresa_ contratou, a **role** diz o que _esta pessoa_ pode fazer. O efetivo é
 interseção. Um `owner` num tier sem a feature não a tem; um `member` numa account
 que a tem pode continuar não podendo usá-la.
 
-**Capability** — o entitlement que é um liga/desliga (`sso`, `audit_log`,
-`split_tunneling`). Verificado no request, por um guard do kernel.
+**Capability** — o entitlement que é um liga/desliga. Verificado no request, por
+um guard do kernel, que responde **402** quando falta: o problema não é quem você
+é, é o que a empresa contratou. Hoje existe **uma**, `vpn_access` — o que assinar
+desbloqueia. `sso`, `audit_log` e `split_tunneling` são ilustrações da forma, não
+capabilities deste produto.
 
 **Seat** — o entitlement que é um contador: quantos users cabem na account.
 `devicesPerUser` é da mesma natureza. Contadores são aplicados na **escrita** e
@@ -199,6 +210,12 @@ revogável, mas um `payment_failed` muda o que a account pode fazer _agora_. Sã
 lidos por requisição a partir da subscription, com cache, e o webhook invalida.
 `accountId` e `role` **estão** no token: mudam por ação nossa, e a rotação de
 família já é o mecanismo de propagação. DEC-037.
+
+O que o cache guarda é o **tier**, não os entitlements: o mapa é código, então
+publicar um mapa novo vale na hora em vez de esperar o TTL de cada account. A
+entrada é `{ owner: accountId, namespace: 'entitlements' }` — a primeira do
+sistema cujo `owner` é de verdade uma account — e o webhook a apaga **depois** do
+commit. DEC-054, DEC-055.
 
 ## Rede
 
