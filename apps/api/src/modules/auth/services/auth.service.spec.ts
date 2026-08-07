@@ -42,7 +42,8 @@ function recordingLogger(): ModuleLogger {
 interface IdentityMock {
 	register: Mock;
 	authenticate: Mock;
-	refreshSession: Mock;
+	lockRotation: Mock;
+	rotateSession: Mock;
 	revokeSession: Mock;
 	findById: Mock;
 	findByEmail: Mock;
@@ -51,6 +52,16 @@ interface IdentityMock {
 	setLocale: Mock;
 	startSession: Mock;
 }
+
+const LOCKED = {
+	familyId: 'family-1',
+	userId: 'user-1',
+	accountId: 'account-1',
+	tokenHash: 'hash-1',
+	spentAt: null,
+	expiresAt: new Date('2026-06-01T00:00:00.000Z'),
+	revokedAt: null,
+};
 
 function account(overrides: Partial<User> = {}): User {
 	return {
@@ -71,14 +82,15 @@ describe('AuthService', () => {
 	let verificationTokens: { issue: Mock; redeem: Mock };
 	let rateLimit: { consume: Mock };
 	let outbox: { enqueue: Mock };
-	let transactions: { runAsSystem: Mock; runInAccount: Mock };
+	let transactions: { runAsSystem: Mock; runInAccount: Mock; runInDiscoveredAccount: Mock };
 	let service: AuthService;
 
 	beforeEach(() => {
 		identity = {
 			register: vi.fn().mockResolvedValue({ kind: 'registered', user: account() }),
 			authenticate: vi.fn().mockResolvedValue(account()),
-			refreshSession: vi.fn(),
+			lockRotation: vi.fn().mockResolvedValue(LOCKED),
+			rotateSession: vi.fn(),
 			revokeSession: vi.fn().mockResolvedValue(undefined),
 			findById: vi.fn().mockResolvedValue(account()),
 			findByEmail: vi.fn().mockResolvedValue(account()),
@@ -102,6 +114,15 @@ describe('AuthService', () => {
 			runAsSystem: vi.fn((work: (executor: unknown) => Promise<unknown>) => work(EXECUTOR)),
 			runInAccount: vi.fn((_accountId: string, work: (executor: unknown) => Promise<unknown>) =>
 				work(EXECUTOR),
+			),
+			runInDiscoveredAccount: vi.fn(
+				async (
+					discover: (executor: unknown) => Promise<unknown>,
+					work: (discovered: unknown, executor: unknown) => Promise<unknown>,
+				) => {
+					const discovered = await discover(EXECUTOR);
+					return discovered ? work(discovered, EXECUTOR) : undefined;
+				},
 			),
 		};
 
@@ -222,8 +243,47 @@ describe('AuthService', () => {
 	});
 
 	describe('refresh', () => {
+		function rotated() {
+			identity.rotateSession.mockResolvedValue({
+				kind: 'rotated',
+				session: {
+					accountId: 'account-1',
+					sessionId: 'sess-2',
+					refreshToken: 'refresh-2',
+					expiresAt: new Date('2026-03-01T00:00:00.000Z'),
+				},
+			});
+		}
+
+		it('holds system privilege for the lookup only, never for the rotation', async () => {
+			rotated();
+			await service.refresh('refresh-1');
+
+			expect(transactions.runInDiscoveredAccount).toHaveBeenCalledTimes(1);
+			expect(transactions.runAsSystem).not.toHaveBeenCalled();
+		});
+
+		it('discovers the account from the token, since the request carries no claim', async () => {
+			rotated();
+			await service.refresh('refresh-1');
+
+			const discover = transactions.runInDiscoveredAccount.mock.calls[0]?.[0] as (
+				executor: unknown,
+			) => Promise<unknown>;
+			await discover(EXECUTOR);
+
+			expect(identity.lockRotation).toHaveBeenCalledWith('refresh-1', EXECUTOR);
+		});
+
+		it('spends and reissues under the account the lookup found', async () => {
+			rotated();
+			await service.refresh('refresh-1');
+
+			expect(identity.rotateSession).toHaveBeenCalledWith(LOCKED, EXECUTOR);
+		});
+
 		it('revokes the family and reports reuse when a token is replayed', async () => {
-			identity.refreshSession.mockResolvedValue({ kind: 'reuse_detected', sessionId: 'sess-1' });
+			identity.rotateSession.mockResolvedValue({ kind: 'reuse_detected', sessionId: 'sess-1' });
 
 			try {
 				await service.refresh('refresh-1');
@@ -233,8 +293,31 @@ describe('AuthService', () => {
 			}
 		});
 
-		it('rejects a token the provider does not recognise', async () => {
-			identity.refreshSession.mockResolvedValue({ kind: 'rejected' });
+		it('lets the family revocation commit before it reports the reuse', async () => {
+			identity.rotateSession.mockResolvedValue({ kind: 'reuse_detected', sessionId: 'sess-1' });
+
+			await expect(service.refresh('refresh-1')).rejects.toBeInstanceOf(AppError);
+			await expect(transactions.runInDiscoveredAccount.mock.results[0]?.value).resolves.toEqual({
+				outcome: { kind: 'reuse_detected', sessionId: 'sess-1' },
+				user: null,
+			});
+		});
+
+		it('rejects a token no family answers to', async () => {
+			identity.lockRotation.mockResolvedValue(undefined);
+
+			try {
+				await service.refresh('refresh-1');
+				expect.unreachable('should have thrown');
+			} catch (error) {
+				expect((error as AppError).code).toBe('UNAUTHENTICATED');
+			}
+
+			expect(identity.rotateSession).not.toHaveBeenCalled();
+		});
+
+		it('rejects a token the rotation does not recognise', async () => {
+			identity.rotateSession.mockResolvedValue({ kind: 'rejected' });
 
 			try {
 				await service.refresh('refresh-1');
@@ -244,31 +327,15 @@ describe('AuthService', () => {
 			}
 		});
 
-		it('rejects a live session whose account has since vanished', async () => {
-			identity.refreshSession.mockResolvedValue({
-				kind: 'rotated',
-				session: {
-					accountId: 'acc-1',
-					sessionId: 'sess-2',
-					refreshToken: 'refresh-2',
-					expiresAt: new Date(),
-				},
-			});
+		it('rejects a live session whose user has since vanished', async () => {
+			rotated();
 			identity.findById.mockResolvedValue(null);
 
 			await expect(service.refresh('refresh-1')).rejects.toBeInstanceOf(AppError);
 		});
 
 		it('returns the rotated refresh token, not the one it was given', async () => {
-			identity.refreshSession.mockResolvedValue({
-				kind: 'rotated',
-				session: {
-					accountId: 'acc-1',
-					sessionId: 'sess-2',
-					refreshToken: 'refresh-2',
-					expiresAt: new Date('2026-03-01T00:00:00.000Z'),
-				},
-			});
+			rotated();
 
 			const issued = await service.refresh('refresh-1');
 

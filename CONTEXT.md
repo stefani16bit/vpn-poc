@@ -66,9 +66,24 @@ erro** — por isso o kernel lança em vez de cair para o pool.
 
 **Transação de sistema** — a outra espécie, que assume `app_system` com
 `set local role` e enxerga todas as accounts. Atende o que legitimamente não tem
-tenant: o caminho pré-autenticação (que é o código que descobre quem você é), o
-relay do outbox e o webhook de cobrança. `app_system` não tem `BYPASSRLS`, então
-esse acesso é uma policy escrita, não um atributo de papel. DEC-050.
+tenant: o resto do caminho pré-autenticação (que é o código que descobre quem
+você é), o relay do outbox e o webhook de cobrança. `app_system` não tem
+`BYPASSRLS`, então esse acesso é uma policy escrita, não um atributo de papel.
+DEC-050.
+
+**Transação de descoberta** — a terceira espécie, e a que existe justamente para
+o caso em que "não tem tenant" dura **uma consulta**. Começa como sistema, faz a
+busca que descobre a account, e nesse instante abandona o papel (`reset role`) e
+fixa `app.account_id` — sem fechar a transação. É o `refresh`: ele apresenta um
+token opaco e nada mais, então a account só pode sair do próprio token; mas
+gastar o token, emitir o novo e ler o user já sabem a account, e não há motivo
+para nenhum deles rodar sem policy.
+
+A transação é uma só porque a **rotação** não pode partir ao meio: entre gastar o
+antigo e emitir o novo não pode existir uma janela em que um crash destrói a
+sessão. E o estreitamento é estrutural, não disciplinar — o trabalho só é
+alcançável depois da troca de papel, então "esqueci de estreitar" não é um
+caminho que exista.
 
 **Slug** — o identificador legível da account (`acme`). É o que vira subdomínio
 e o que o app nativo pede no primeiro login, porque um cliente nativo não tem

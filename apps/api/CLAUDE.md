@@ -51,7 +51,17 @@ que chamasse um método de sistema no meio do caminho escaparia de toda policy
 dali para a frente, sem erro e sem log. Por isso o runner lança em vez de abrir
 o savepoint. Hoje nada dispara isso: o caminho pré-autenticação não passa pelo
 interceptor, e as rotas com guard não chamam sistema. A guarda existe para o dia
-em que alguém escrever a primeira.
+em que alguém escrever a primeira. `runInDiscoveredAccount` começa do mesmo jeito
+e por isso recusa igual.
+
+**O `refresh` segura privilégio de sistema por uma consulta só.** Ele é o único
+usuário de `runInDiscoveredAccount`: descobre a account pelo `token_hash`, emite
+`reset role` + `set_config` e faz o resto — gastar, emitir, ler o user — sob a
+policy. Duas coisas não podem mudar aí. A primeira é que é **uma** transação: a
+rotação não pode partir ao meio. A segunda é que o `SESSION_REUSE_DETECTED` é
+lançado **fora** dela; lançar dentro desfaz a revogação da família e devolve um
+token roubado funcionando. O e2e `revokes the whole family when a refresh token
+is replayed` é o que pega isso.
 
 **Sem `ValidationPipe`.** É um front-end de class-validator. A validação aqui é
 zod contra `@vpn/contracts`, os mesmos schemas que o formulário do front usa.

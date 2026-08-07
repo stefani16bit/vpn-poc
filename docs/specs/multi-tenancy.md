@@ -144,6 +144,18 @@ Quando  ele drena linhas pendentes
 Então   ele as vê todas, porque roda como app_system
 ```
 
+```
+Dado    um refresh token e nenhuma account conhecida
+Quando  a transação descobre a account pelo token_hash
+Então   o privilégio de sistema cai antes de o token ser gasto
+E       gastar, emitir e ler o user acontecem sob a policy da account descoberta
+E       tudo isso numa transação só, porque a rotação não pode partir ao meio
+```
+
+O privilégio "não tem tenant" dura uma consulta, não o handler inteiro. Um token que família
+nenhuma responde não descobre account nenhuma: não há para onde estreitar, o trabalho não roda,
+e a resposta é a mesma rejeição de sempre.
+
 ## Portas afetadas
 
 Nenhuma dependência externa nova. Esta feature **remove** uma porta:
@@ -292,6 +304,14 @@ Três provas que nenhum comando faz sozinho, e que são o ponto desta spec:
    linhas **sem erro**, e toda asserção depois disso fica estranha por um motivo que não aparece
    em lugar nenhum. A limpeza roda como `app_system`, e o jeito de confirmar é contar as linhas
    depois de limpar.
+4. **O `reset role` do `refresh` carrega peso.** Tirar a linha de
+   `runInDiscoveredAccount` e ver o caso "reads nothing from the account it did not discover"
+   ficar **vermelho**. Sem essa sonda, um estreitamento que só emite o `set_config` lê como
+   correto — o papel de sistema ignora a policy que o setting alimenta.
+5. **A rejeição do reuso ainda comita a revogação.** Mover o `throw` de
+   `SESSION_REUSE_DETECTED` para **dentro** da transação e ver
+   `revokes the whole family when a refresh token is replayed` ficar vermelho. É a sonda que
+   separa "a família morreu" de "a família morreu e o rollback a ressuscitou".
 
 No navegador, com `pnpm dev`: cadastrar dois e-mails com o mesmo local part em domínios
 diferentes (`ada@exemplo-a.com` e `ada@exemplo-b.com`), conferir no banco que as accounts

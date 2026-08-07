@@ -81,12 +81,19 @@ export class AuthService {
 	}
 
 	async refresh(refreshToken: string): Promise<IssuedSession> {
-		const { outcome, account } = await this.transactions.runAsSystem(async (executor) => {
-			const rotation = await this.identity.refreshSession(refreshToken, executor);
-			if (rotation.kind !== 'rotated') return { outcome: rotation, account: null };
+		const rotation = await this.transactions.runInDiscoveredAccount(
+			(executor) => this.identity.lockRotation(refreshToken, executor),
+			async (locked, executor) => {
+				const outcome = await this.identity.rotateSession(locked, executor);
+				if (outcome.kind !== 'rotated') return { outcome, user: null };
 
-			return { outcome: rotation, account: await this.identity.findById(rotation.session.userId) };
-		});
+				return { outcome, user: await this.identity.findById(outcome.session.userId) };
+			},
+		);
+
+		if (!rotation) throw new AppError('UNAUTHENTICATED', 'session is no longer valid');
+
+		const { outcome, user } = rotation;
 
 		if (outcome.kind === 'reuse_detected') {
 			this.#logger.warn(
@@ -100,17 +107,17 @@ export class AuthService {
 			throw new AppError('UNAUTHENTICATED', 'session is no longer valid');
 		}
 
-		if (!account) throw new AppError('UNAUTHENTICATED', 'session is no longer valid');
+		if (!user) throw new AppError('UNAUTHENTICATED', 'session is no longer valid');
 
 		return {
 			response: {
-				user: toAuthenticatedUser(account),
+				user: toAuthenticatedUser(user),
 				accessToken: await this.accessTokens.issue({
-					userId: account.id,
-					accountId: account.accountId,
-					role: account.role,
+					userId: user.id,
+					accountId: user.accountId,
+					role: user.role,
 					sessionId: outcome.session.sessionId,
-					emailVerified: account.emailVerifiedAt !== null,
+					emailVerified: user.emailVerifiedAt !== null,
 				}),
 				expiresIn: this.accessTokens.ttlSeconds,
 			},

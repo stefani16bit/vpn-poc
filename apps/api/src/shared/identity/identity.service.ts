@@ -10,7 +10,7 @@ import type { Executor } from '../database/transaction-runner.js';
 import { AccountRepository } from './repositories/account.repository.js';
 import { UserRepository } from './repositories/user.repository.js';
 import { SessionRepository } from './repositories/session.repository.js';
-import { decideRotation } from './session-rotation.js';
+import { decideRotation, type LockedRotation } from './session-rotation.js';
 import { deriveSlug, slugCandidate } from './slug.js';
 import type { RefreshOutcome, RegisterOutcome, Session, User } from './user.js';
 
@@ -102,11 +102,18 @@ export class IdentityService {
 		return this.#issue(familyId, user.id, user.accountId);
 	}
 
-	async refreshSession(refreshToken: string, executor: Executor): Promise<RefreshOutcome> {
+	async lockRotation(
+		refreshToken: string,
+		executor: Executor,
+	): Promise<LockedRotation | undefined> {
 		const tokenHash = hashToken(refreshToken);
-
 		const candidate = await this.sessions.lockByTokenHash(tokenHash, executor);
-		const decision = decideRotation(candidate, this.clock.now());
+
+		return candidate && { ...candidate, tokenHash };
+	}
+
+	async rotateSession(locked: LockedRotation, executor: Executor): Promise<RefreshOutcome> {
+		const decision = decideRotation(locked, this.clock.now());
 
 		if (decision.kind === 'reject') return { kind: 'rejected' };
 
@@ -115,7 +122,7 @@ export class IdentityService {
 			return { kind: 'reuse_detected', sessionId: decision.familyId };
 		}
 
-		const spent = await this.sessions.spendToken(tokenHash, this.clock.now(), executor);
+		const spent = await this.sessions.spendToken(locked.tokenHash, this.clock.now(), executor);
 		if (!spent) return { kind: 'rejected' };
 
 		return {

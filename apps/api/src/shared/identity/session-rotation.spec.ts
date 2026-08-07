@@ -26,10 +26,6 @@ describe('decideRotation', () => {
 		});
 	});
 
-	it('rejects a token it never issued', () => {
-		expect(decideRotation(undefined, NOW)).toEqual({ kind: 'reject' });
-	});
-
 	it('revokes the family when a spent token is replayed', () => {
 		expect(decideRotation(candidate({ spentAt: NOW }), NOW)).toEqual({
 			kind: 'revoke_family',
