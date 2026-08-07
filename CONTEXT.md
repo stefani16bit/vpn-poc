@@ -237,6 +237,14 @@ worker, no envio. DEC-048.
 `name` é o `kind` da intenção. A fila não interpreta o `data` e **não** promete
 ordem nem deduplicação — SQS padrão não faz nenhuma das duas. DEC-046.
 
+O `data` é um **envelope**: a intenção mais o `account_id` da linha do outbox, um
+ao lado do outro e nunca fundidos — são coisas diferentes, e este glossário
+existe para não deixar que virem a mesma. O envelope é o que permite ao consumer
+abrir uma transação da requisição por mensagem em vez de despachar como sistema:
+sem ele, um `userId` resolveria para um user de qualquer account. Job sem account
+não é despachado — volta para a fila e termina na DLQ, como qualquer job que o
+consumer não entende.
+
 **Relay** — quem drena o outbox para a fila, com `for update skip locked`, e
 marca `published_at`. Publica **antes** de marcar: morrer no meio reentrega, e
 reentregar é seguro.

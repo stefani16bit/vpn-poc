@@ -27,8 +27,13 @@ export class OutboxRepository {
 	}
 
 	async claimPending(limit: number, executor: Executor): Promise<readonly PendingEntry[]> {
-		const rows = await executor.execute<{ id: string; kind: string; payload: OutboxMessage }>(sql`
-			select id, kind, payload from outbox
+		const rows = await executor.execute<{
+			id: string;
+			kind: string;
+			accountId: string;
+			payload: OutboxMessage;
+		}>(sql`
+			select id, kind, account_id as "accountId", payload from outbox
 			where published_at is null
 			order by created_at
 			for update skip locked
@@ -37,7 +42,7 @@ export class OutboxRepository {
 
 		return [...rows].map((row) => ({
 			id: row.id,
-			job: { name: row.kind, data: row.payload },
+			job: { name: row.kind, data: { accountId: row.accountId, message: row.payload } },
 		}));
 	}
 

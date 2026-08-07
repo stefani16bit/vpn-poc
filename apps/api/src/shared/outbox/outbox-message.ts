@@ -33,7 +33,24 @@ const BILLING_KINDS: readonly OutboxKind[] = [
 	'billing.subscription_canceled',
 ];
 
-export function parseOutboxMessage(name: string, data: unknown): OutboxMessage | null {
+export type OutboxJob = {
+	readonly accountId: string;
+	readonly message: OutboxMessage;
+};
+
+export function parseOutboxJob(name: string, data: unknown): OutboxJob | null {
+	if (typeof data !== 'object' || data === null) return null;
+
+	const envelope = data as { accountId?: unknown; message?: unknown };
+	if (!isNonEmptyString(envelope.accountId)) return null;
+
+	const message = parseOutboxMessage(name, envelope.message);
+	if (!message) return null;
+
+	return { accountId: envelope.accountId, message };
+}
+
+function parseOutboxMessage(name: string, data: unknown): OutboxMessage | null {
 	if (typeof data !== 'object' || data === null) return null;
 
 	const candidate = data as { userId?: unknown; accountId?: unknown };

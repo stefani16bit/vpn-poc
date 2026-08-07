@@ -156,6 +156,16 @@ O privilégio "não tem tenant" dura uma consulta, não o handler inteiro. Um to
 nenhuma responde não descobre account nenhuma: não há para onde estreitar, o trabalho não roda,
 e a resposta é a mesma rejeição de sempre.
 
+```
+Dado    um job de notificação cujo userId pertence a outra account
+Quando  o consumer despacha, escopado na account da linha do outbox
+Então   a busca não acha o user e nenhum e-mail sai
+E       o mesmo job com a account certa envia um
+```
+
+A metade positiva não é opcional, pela mesma razão do primeiro caso desta seção: um teste que só
+afirma "não mandou" passa contra um dispatcher que não manda nunca.
+
 ## Portas afetadas
 
 Nenhuma dependência externa nova. Esta feature **remove** uma porta:

@@ -92,6 +92,12 @@ consumer; `shared/verification/` tem o serviço de token, que agora é emitido n
 envio e não mais no request (DEC-048). Um serviço **não envia e-mail**: escreve
 uma intenção em `shared/outbox/`, dentro da transação. Quem envia é o worker.
 
+O **relay** é sistema e o **consumer** não. O relay drena uma tabela que é de
+todo mundo; o consumer despacha uma mensagem de cada vez, e cada mensagem tem
+dono — por isso ele abre `runInAccount` com o `account_id` que veio no envelope
+do job. É o que faz `users.findById(userId)` no dispatcher ser verificado pela
+policy em vez de confiar no payload.
+
 **Repositório não tem teste unitário.** Fingir a cadeia fluente do drizzle
 afirma o formato de uma API fluente, não um comportamento; a corretude deles
 segue provada pelo e2e, e por isso `repositories/**` fica fora da cobertura.

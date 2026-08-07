@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { JOB_QUEUE, type IJobQueue } from '@vpn/ports';
 
 import { TransactionRunner } from '../database/transaction-runner.js';
-import { parseOutboxMessage } from '../outbox/outbox-message.js';
+import { parseOutboxJob } from '../outbox/outbox-message.js';
 import { NotificationDispatcher } from './notification-dispatcher.js';
 
 export interface ConsumerReport {
@@ -26,15 +26,17 @@ export class NotificationConsumer {
 		const failed: { name: string; error: unknown }[] = [];
 
 		for (const job of received) {
-			const message = parseOutboxMessage(job.name, job.data);
+			const parsed = parseOutboxJob(job.name, job.data);
 
-			if (!message) {
+			if (!parsed) {
 				unknown.push(job.name);
 				continue;
 			}
 
 			try {
-				await this.transactions.runAsSystem(() => this.dispatcher.send(message));
+				await this.transactions.runInAccount(parsed.accountId, () =>
+					this.dispatcher.send(parsed.message),
+				);
 			} catch (error) {
 				failed.push({ name: job.name, error });
 				continue;

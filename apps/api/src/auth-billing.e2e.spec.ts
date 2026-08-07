@@ -104,6 +104,28 @@ async function registerAndVerify(address: string): Promise<void> {
 		.expect(200);
 }
 
+async function registeredUser(): Promise<{ userId: string; accountId: string }> {
+	const email = freshEmail();
+	await request(app.getHttpServer())
+		.post('/auth/register')
+		.send({ email, password: PASSWORD })
+		.expect(202);
+
+	const [row] = await db`SELECT id, account_id FROM users WHERE email = ${email}`;
+	await db`DELETE FROM outbox`;
+	await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
+
+	return { userId: String(row?.['id']), accountId: String(row?.['account_id']) };
+}
+
+async function queueWelcome(accountId: string, userId: string): Promise<void> {
+	const payload = JSON.stringify({ kind: 'auth.welcome', userId });
+	await db`
+		INSERT INTO outbox (account_id, kind, payload)
+		VALUES (${accountId}, 'auth.welcome', ${payload}::jsonb)
+	`;
+}
+
 async function loginFor(address: string, password = PASSWORD) {
 	const response = await request(app.getHttpServer())
 		.post('/auth/login')
@@ -1067,6 +1089,25 @@ describe('queued notifications', () => {
 
 		expect(await db`SELECT id FROM users WHERE email = ${email}`).toHaveLength(1);
 		expect(await db`SELECT id FROM outbox`).toHaveLength(1);
+	});
+
+	it('mails the user when the job and the row agree on the account', async () => {
+		const { userId, accountId } = await registeredUser();
+		await queueWelcome(accountId, userId);
+
+		await drainNotifications();
+
+		expect(await mailpitCount()).toBe(1);
+	});
+
+	it('mails nobody when the job names a user of another account', async () => {
+		const { userId } = await registeredUser();
+		const stranger = await registeredUser();
+		await queueWelcome(stranger.accountId, userId);
+
+		await drainNotifications();
+
+		expect(await mailpitCount()).toBe(0);
 	});
 });
 

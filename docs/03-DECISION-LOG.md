@@ -1577,6 +1577,51 @@ accounts divide o balde e martelar o login de uma tranca a outra. Corrigir exige
 resolver a account **antes** de limitar, que é trabalho antes do throttle.
 Fica como está, e entra no roadmap nomeado em vez de ser descoberto depois.
 
+**Emenda — 2026-08-07.** Os dois parágrafos acima sobre o `refresh` e sobre o
+consumer descrevem o que valia quando esta decisão foi tomada. A decisão não
+muda; o **escopo** dela encolhe, e é isso que esta emenda registra.
+
+O kernel ganha uma **terceira espécie de transação**. `runInDiscoveredAccount`
+começa como `app_system`, roda **uma** consulta de descoberta, e no instante em
+que a account aparece emite `reset role` e fixa `app.account_id` — tudo dentro da
+mesma transação. O `refresh` passa a usá-la: só o `lockByTokenHash` roda como
+sistema, e gastar o token, emitir o novo e ler o user acontecem sob a policy da
+account descoberta. Que `SET LOCAL ROLE` possa ser abandonado no meio da
+transação foi verificado contra este devstack, não deduzido.
+
+A rotação continua numa transação só, e isso é inegociável: partir em duas
+deixaria uma janela em que o token antigo já foi gasto e o novo ainda não existe,
+e um crash ali destrói a sessão. O `spendToken` — `UPDATE … WHERE spent_at IS
+NULL … RETURNING` — é a garantia de concorrência inteira.
+
+A forma da API é o que torna o estreitamento estrutural em vez de disciplinar: o
+trabalho só é alcançável depois que o runner trocou de papel, então esquecer de
+estreitar não é um caminho que exista. O que a descoberta devolve é uma
+descoberta, não um resultado — quem quiser trabalhar antes de estreitar tem que
+escrever isso de propósito.
+
+Descobrir **nada** não estreita para lugar nenhum: o token que nenhuma família
+responde devolve `undefined`, o trabalho nunca roda, e o handler responde
+`UNAUTHENTICATED`. Detecção de reuso, ao contrário, **descobre** uma account, e a
+revogação da família passa a ser verificada pela policy. O `throw` continua fora
+da transação — lançar dentro desfaz a revogação e devolve um token roubado
+funcionando.
+
+No lado assíncrono, o `claimPending` passa a carregar o `account_id` da linha do
+outbox para dentro do envelope do job, e o consumer abre `runInAccount` por
+mensagem. O `NotificationDispatcher` não muda: as buscas dele simplesmente passam
+a ser verificadas pela policy, e um `userId` de outra account deixa de resolver.
+A correção deixa de repousar sobre o payload ser confiável e passa a repousar
+sobre uma checagem. O **relay** continua sistema — ele drena uma tabela
+compartilhada por todo mundo, e a suíte de RLS afirma exatamente isso.
+
+Sobram como sistema o resto do caminho pré-auth (`register`, `login`,
+`verifyEmail`, `resendVerification`, `forgotPassword`, `resetPassword`), o relay
+e o webhook de cobrança. `login` é o próximo candidato natural, e não cabe aqui:
+a DEC-051 deixa o slug opcional, então a account só é conhecida **depois** da
+busca por e-mail, e estreitar ali exige decidir antes o que fazer com o e-mail
+ambíguo. Fica nomeado no roadmap em vez de ser descoberto depois.
+
 ---
 
 ### DEC-051 — Login resolve a account por slug opcional; ambiguidade é credencial inválida
