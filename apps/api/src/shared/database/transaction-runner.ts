@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 import { DATABASE } from '@vpn-poc/adapters';
 import type { Database } from '@vpn-poc/database';
 
-import { runInScope } from './db-scope.js';
+import { hasScope, runInScope } from './db-scope.js';
 
 export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 export type Executor = Database | Transaction;
@@ -21,6 +21,14 @@ export class TransactionRunner {
 	}
 
 	runAsSystem<T>(work: (executor: Executor) => Promise<T>): Promise<T> {
+		if (hasScope()) {
+			throw new Error(
+				'refusing to assume app_system inside an open transaction: `set local role` ' +
+					'survives the savepoint that set it, so the rest of the request would keep ' +
+					'system privileges and silently escape every policy',
+			);
+		}
+
 		return this.db.transaction(async (tx) => {
 			await tx.execute(sql`set local role app_system`);
 			return runInScope(tx, () => work(tx));

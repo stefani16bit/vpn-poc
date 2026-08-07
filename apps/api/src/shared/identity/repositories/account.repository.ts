@@ -38,12 +38,4 @@ export class AccountRepository {
 		const rows = await executor.select().from(accounts).where(eq(accounts.slug, slug)).limit(1);
 		return rows[0];
 	}
-
-	async findById(
-		id: string,
-		executor: Executor = currentExecutor(),
-	): Promise<StoredAccount | undefined> {
-		const rows = await executor.select().from(accounts).where(eq(accounts.id, id)).limit(1);
-		return rows[0];
-	}
 }

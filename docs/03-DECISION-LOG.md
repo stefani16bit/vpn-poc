@@ -1558,6 +1558,13 @@ ambiente do kernel **lança** quando não há transação corrente, em vez de ca
 para o pool — é a mesma escolha do `current_setting` estrito, um nível acima, e
 os dois juntos fazem "esqueci o escopo" ser sempre barulhento.
 
+Uma transação de sistema **não pode** ser aberta dentro de uma transação da
+requisição, e o runner lança se alguém tentar. `SET LOCAL ROLE` dentro de um
+savepoint sobrevive ao release dele: o resto da transação externa seguiria como
+`app_system`, escapando de toda policy sem erro e sem log. Verificado contra o
+Postgres, não deduzido. Nenhum caminho de hoje faz isso — a guarda existe para o
+primeiro que fizer.
+
 O `refresh` roda inteiro como sistema: o cookie chega sem claim `acc`, e a
 account é descoberta **a partir** do token. É correto — o hash do token é a
 autorização, e as FKs compostas garantem que família e user concordam sobre a

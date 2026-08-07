@@ -44,6 +44,15 @@ a atomicidade **é** a lógica, e é por isso que ela é provada por teste de
 integração e não por unitário. Quem decide `rejected` contra `reuse_detected` é
 `decideRotation`, que é puro e tem teste unitário. Ver DEC-049.
 
+**`runAsSystem` recusa aninhar dentro de uma transação aberta.** No PostgreSQL,
+`SET LOCAL ROLE` feito dentro de um savepoint **sobrevive ao release dele** — o
+resto da transação externa continua como `app_system`. Um handler autenticado
+que chamasse um método de sistema no meio do caminho escaparia de toda policy
+dali para a frente, sem erro e sem log. Por isso o runner lança em vez de abrir
+o savepoint. Hoje nada dispara isso: o caminho pré-autenticação não passa pelo
+interceptor, e as rotas com guard não chamam sistema. A guarda existe para o dia
+em que alguém escrever a primeira.
+
 **Sem `ValidationPipe`.** É um front-end de class-validator. A validação aqui é
 zod contra `@vpn/contracts`, os mesmos schemas que o formulário do front usa.
 Ver DEC-008.

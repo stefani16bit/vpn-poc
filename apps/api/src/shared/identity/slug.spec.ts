@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { deriveSlug, isReservedSlug, slugCandidate } from './slug.js';
+import { deriveSlug, slugCandidate } from './slug.js';
 
 describe('deriveSlug', () => {
 	it('takes the local part of the address', () => {
@@ -69,16 +69,5 @@ describe('slugCandidate', () => {
 
 	it('keeps using a fresh random suffix past the numbered range', () => {
 		expect(slugCandidate('ada', 25, () => 'cafe1234')).toBe('ada-cafe1234');
-	});
-});
-
-describe('isReservedSlug', () => {
-	it('knows the hosts the platform already answers on', () => {
-		expect(isReservedSlug('api')).toBe(true);
-		expect(isReservedSlug('www')).toBe(true);
-	});
-
-	it('leaves an ordinary slug alone', () => {
-		expect(isReservedSlug('ada')).toBe(false);
 	});
 });

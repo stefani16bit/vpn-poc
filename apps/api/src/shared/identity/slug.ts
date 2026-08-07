@@ -42,10 +42,6 @@ export function slugCandidate(
 	return `${base}-${suffix()}`;
 }
 
-export function isReservedSlug(slug: string): boolean {
-	return RESERVED_SLUGS.has(slug);
-}
-
 function randomSuffix(): string {
 	return randomBytes(4).toString('hex');
 }
