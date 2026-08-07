@@ -12,6 +12,7 @@ import {
 } from '@vpn/ports';
 
 import { AppError } from '../../../shared/errors/app-error.js';
+import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 import {
 	MODULE_LOGGER,
 	type ModuleLogger,
@@ -21,8 +22,7 @@ import { AccessTokenService } from '../../../shared/access-control/access-token.
 import { RateLimitService } from '../../../shared/rate-limit/rate-limit.service.js';
 import { RATE_LIMITS } from '../auth.rate-limits.js';
 import { toAuthenticatedUser } from '../mappers/authenticated-user.mapper.js';
-import { AuthMailer } from './auth-mailer.service.js';
-import { VerificationTokenService } from './verification-token.service.js';
+import { VerificationTokenService } from '../../../shared/verification/verification-token.service.js';
 
 export interface IssuedSession {
 	readonly response: SessionResponse;
@@ -42,7 +42,7 @@ export class AuthService {
 		private readonly accessTokens: AccessTokenService,
 		private readonly verificationTokens: VerificationTokenService,
 		private readonly rateLimit: RateLimitService,
-		private readonly mailer: AuthMailer,
+		private readonly outbox: OutboxRepository,
 	) {
 		this.#logger = contextLogger(logger, AuthService.name);
 	}
@@ -57,7 +57,7 @@ export class AuthService {
 			return;
 		}
 
-		await this.#sendVerificationEmail(outcome.account);
+		await this.outbox.enqueue({ kind: 'auth.verification', accountId: outcome.account.id });
 	}
 
 	async login(email: string, password: string): Promise<IssuedSession> {
@@ -114,10 +114,7 @@ export class AuthService {
 		const accountId = await this.verificationTokens.redeem(token, 'email_verification');
 		await this.identity.markEmailVerified(accountId);
 
-		const account = await this.identity.findById(accountId);
-		if (!account) return;
-
-		await this.mailer.sendWelcome(account);
+		await this.outbox.enqueue({ kind: 'auth.welcome', accountId });
 	}
 
 	async resendVerification(email: string): Promise<void> {
@@ -126,7 +123,7 @@ export class AuthService {
 		const account = await this.identity.findByEmail(email);
 		if (!account || account.emailVerifiedAt) return;
 
-		await this.#sendVerificationEmail(account);
+		await this.outbox.enqueue({ kind: 'auth.verification', accountId: account.id });
 	}
 
 	async setLocale(accountId: string, locale: SupportedLocale): Promise<AuthenticatedUser> {
@@ -140,10 +137,7 @@ export class AuthService {
 		const account = await this.identity.findByEmail(email);
 		if (!account) return;
 
-		const ttl = this.env.AUTH_PASSWORD_RESET_TTL;
-		const issued = await this.verificationTokens.issue(account.id, 'password_reset', ttl);
-
-		await this.mailer.sendPasswordReset(account, issued.token, ttl);
+		await this.outbox.enqueue({ kind: 'auth.password_reset', accountId: account.id });
 	}
 
 	async resetPassword(token: string, newPassword: string): Promise<void> {
@@ -151,10 +145,11 @@ export class AuthService {
 
 		await this.identity.changePassword(accountId, newPassword);
 
-		const account = await this.identity.findById(accountId);
-		if (!account) return;
-
-		await this.mailer.sendPasswordChanged(account, this.clock.now());
+		await this.outbox.enqueue({
+			kind: 'auth.password_changed',
+			accountId,
+			changedAt: this.clock.now().toISOString(),
+		});
 	}
 
 	async currentUser(accountId: string): Promise<AuthenticatedUser> {
@@ -179,12 +174,5 @@ export class AuthService {
 			refreshToken: session.refreshToken,
 			refreshExpiresAt: session.expiresAt,
 		};
-	}
-
-	async #sendVerificationEmail(account: Account): Promise<void> {
-		const ttl = this.env.AUTH_EMAIL_VERIFICATION_TTL;
-		const issued = await this.verificationTokens.issue(account.id, 'email_verification', ttl);
-
-		await this.mailer.sendVerification(account, issued.token, ttl);
 	}
 }

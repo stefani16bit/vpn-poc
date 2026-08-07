@@ -4,7 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { DATABASE } from '@vpn-poc/adapters';
 import { type Database, verificationTokens } from '@vpn-poc/database';
 
-import type { VerificationPurpose } from '../services/verification-token.purpose.js';
+import type { VerificationPurpose } from './verification-token.purpose.js';
 
 export interface ConsumedToken {
 	readonly accountId: string;

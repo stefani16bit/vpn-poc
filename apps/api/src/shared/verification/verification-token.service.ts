@@ -5,8 +5,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { hashToken } from '@vpn-poc/adapters';
 import { CLOCK, type IClock } from '@vpn/ports';
 
-import { AppError } from '../../../shared/errors/app-error.js';
-import { VerificationTokenRepository } from '../repositories/verification-token.repository.js';
+import { AppError } from '../errors/app-error.js';
+import { VerificationTokenRepository } from './verification-token.repository.js';
 import type { VerificationPurpose } from './verification-token.purpose.js';
 
 const TOKEN_BYTES = 32;

@@ -4,7 +4,7 @@ import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 import { EMAIL_SENDER, type Account, type IEmailSender } from '@vpn/ports';
 
-import { localeOf } from '../../../shared/locale/account-locale.js';
+import { localeOf } from '../locale/account-locale.js';
 
 const IDEMPOTENCY_TOKEN_LENGTH = 16;
 

@@ -14,6 +14,7 @@ import {
 	databaseIndicator,
 	type QueryableDatabase,
 } from './shared/health/indicators.js';
+import { NotificationsModule } from './shared/notifications/notifications.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { BillingModule } from './modules/billing/billing.module.js';
 
@@ -43,6 +44,7 @@ import { BillingModule } from './modules/billing/billing.module.js';
 				},
 			],
 		}),
+		NotificationsModule,
 		AuthModule,
 		BillingModule,
 	],

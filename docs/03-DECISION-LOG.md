@@ -692,18 +692,19 @@ entra quando resolve um problema que temos, na forma em que o temos. Não entra
 por ser oficial, e não deixa de entrar por ser de terceiro — `nestjs-pino` e
 `@nestjs/terminus` (DEC-030) estão aqui. O veredito por pacote:
 
-| Pacote                                | Veredito                        | Motivo                                                                                                                                                                                                              |
-| ------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `terminus`                            | **adotado**                     | DEC-030                                                                                                                                                                                                             |
-| `throttler`                           | rejeitado                       | ver abaixo                                                                                                                                                                                                          |
-| `config`                              | rejeitado                       | `libs/env` é zod mais descoberta de `.env`, e é consumido fora do Nest — migrations e `infra`. `ConfigModule` só existe dentro do container                                                                         |
-| `jwt`                                 | rejeitado                       | é wrapper de `jsonwebtoken`; usamos `jose`, e `AccessTokenService` injeta a porta `CLOCK`, que um wrapper não aceita                                                                                                |
-| `passport`                            | rejeitado                       | abstrai _várias_ estratégias; temos uma. O refresh é opaco com rotação por família (DEC-006) e não passa por strategy nenhuma                                                                                       |
-| `class-validator` / `ValidationPipe`  | rejeitado                       | DEC-008                                                                                                                                                                                                             |
-| `cache-manager`                       | rejeitado                       | abstração concorrente com `ICacheStore`, que tem suíte de conformidade e chave estruturada em vez de string                                                                                                         |
-| `axios`                               | rejeitado                       | não há HTTP de saída fora de SDK de vendor                                                                                                                                                                          |
-| `schedule`, `bullmq`, `event-emitter` | não se aplica                   | não há cron nem fila; a stack `workers` está vazia (DEC-011) e a idempotência é índice único (DEC-026), não event bus                                                                                               |
-| `swagger`                             | adiado, com a forma já definida | não há OpenAPI hoje. `@ApiProperty` seria a segunda definição de "corpo válido" que DEC-008 rejeita; a forma aceitável é gerar o spec **a partir** de `@vpn/contracts` e usar `@nestjs/swagger` só para servir a UI |
+| Pacote                               | Veredito                        | Motivo                                                                                                                                                                                                               |
+| ------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `terminus`                           | **adotado**                     | DEC-030                                                                                                                                                                                                              |
+| `throttler`                          | rejeitado                       | ver abaixo                                                                                                                                                                                                           |
+| `config`                             | rejeitado                       | `libs/env` é zod mais descoberta de `.env`, e é consumido fora do Nest — migrations e `infra`. `ConfigModule` só existe dentro do container                                                                          |
+| `jwt`                                | rejeitado                       | é wrapper de `jsonwebtoken`; usamos `jose`, e `AccessTokenService` injeta a porta `CLOCK`, que um wrapper não aceita                                                                                                 |
+| `passport`                           | rejeitado                       | abstrai _várias_ estratégias; temos uma. O refresh é opaco com rotação por família (DEC-006) e não passa por strategy nenhuma                                                                                        |
+| `class-validator` / `ValidationPipe` | rejeitado                       | DEC-008                                                                                                                                                                                                              |
+| `cache-manager`                      | rejeitado                       | abstração concorrente com `ICacheStore`, que tem suíte de conformidade e chave estruturada em vez de string                                                                                                          |
+| `axios`                              | rejeitado                       | não há HTTP de saída fora de SDK de vendor                                                                                                                                                                           |
+| `schedule`, `event-emitter`          | não se aplica                   | não há cron; a stack `workers` está vazia (DEC-011) e a idempotência é índice único (DEC-026), não event bus                                                                                                         |
+| `bullmq`                             | rejeitado — **ver DEC-046**     | dizia "não se aplica: não há fila". Passou a haver. É Redis, não SQS; concorre com a porta `IJobQueue`, o mesmo motivo que rejeitou `cache-manager`; e não removeria o outbox, porque `queue.add()` segue dual-write |
+| `swagger`                            | adiado, com a forma já definida | não há OpenAPI hoje. `@ApiProperty` seria a segunda definição de "corpo válido" que DEC-008 rejeita; a forma aceitável é gerar o spec **a partir** de `@vpn/contracts` e usar `@nestjs/swagger` só para servir a UI  |
 
 **Por que `@nestjs/throttler` não substitui `RateLimitService`.** DEC-004 decide
 que rate limit não é porta; isto decide que também não é guard. São três
@@ -1304,3 +1305,125 @@ propriedade certa, e precisa estar na interface, senão vira chamado de suporte.
 
 A chave pública é o identificador do peer, e por isso a tabela de chaves fica sob
 RLS como qualquer outra tabela de domínio (DEC-035).
+
+---
+
+### DEC-046 — Fila é uma porta, no nível de job
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** Envio de e-mail saiu da requisição (DEC-047), e isso precisa de uma
+fila. O SQS já estava semeado no devstack desde o começo, com DLQ e
+`maxReceiveCount: 5`, sem nada publicando nem consumindo.
+
+**Decisão.** `IJobQueue` em `@vpn/ports`, token `JOB_QUEUE`, com
+`enqueue({ name, data, idempotencyKey? })`, `receive` e `acknowledge`. Dois
+adapters: `SqsJobQueue` e `MemoryJobQueue` (que é também o driver `memory`,
+DEC-012), escolhidos por `QUEUE_DRIVER`.
+
+**Rationale.** SQS é serviço externo, e o inegociável nº 1 não abre exceção. Não
+estamos escrevendo uma fila: são 22 linhas de interface e 69 de wrapper de SDK.
+
+A **forma** vem do `atlas`, que abstrai em `enqueue({name, data, ...})`; o
+**driver**, do `convoy`, que usa SQS atrás de um `JobQueue` com
+`SqsJobQueue`/`InProcessJobQueue`. A primeira versão desta porta era
+`publish(body: string)` — transporte, não job — e obrigava o chamador a
+serializar. Os dois repositórios de referência abstraem um nível acima, e estão
+certos.
+
+Rejeitado `@nestjs/bullmq`: é Redis, não SQS; seria abstração concorrente com
+esta porta, que é exatamente o motivo pelo qual a DEC-029 rejeitou
+`cache-manager`; e **não removeria o outbox**, porque `queue.add()` continua
+sendo uma escrita fora da transação do Postgres. Ele conserta o que já está
+resolvido e não toca no que dói. A linha de `bullmq` na tabela da DEC-029 foi
+atualizada: dizia "não se aplica, não há fila", e a premissa caiu.
+
+**Consequências — o que a porta deliberadamente não promete.**
+
+**Não promete ordem.** Fila SQS padrão não é FIFO. Uma suíte que exigisse ordem
+passaria contra a memória e reprovaria em produção.
+
+**Não promete deduplicação.** O Inngest do `atlas` deduplica por
+`idempotencyKey`; SQS padrão só deduplica em fila FIFO. O contrato afirma que a
+chave **atravessa intacta**, e quem deduplica de fato é a chave de idempotência
+que o `SmtpEmailSender` já reivindica no cache antes de enviar.
+
+**Não tem `runAt`.** O `atlas` tem, e nós não temos chamador. O
+`libs/providers/jobs/CLAUDE.md` dele diz que a forma de método único é
+deliberada e que o resto entra "só quando houver necessidade documentada" —
+seguir isso é mais fiel do que copiar a assinatura. Além disso `DelaySeconds` do
+SQS teto em 900s, então a porta prometeria o que o adapter não entrega.
+
+---
+
+### DEC-047 — Outbox transacional, não publicar depois do commit
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** Todo e-mail saía dentro da requisição: `register` emitia o token e
+chamava o SMTP antes de responder. Um SMTP lento é um cadastro lento, e um SMTP
+fora do ar é um usuário que não consegue verificar a conta e não tem como
+perceber.
+
+**Decisão.** Serviço escreve uma linha em `outbox` **dentro da transação que já
+existe**. Um **relay** drena (`for update skip locked`), publica na fila e marca
+`published_at`. Um **consumer** recebe, despacha e só então reconhece.
+
+**Rationale.** Enfileirar depois do commit não resolve: commit passa, publish
+falha, notificação perdida. É a mesma forma do bug que a Fase 0 removeu do
+webhook de cobrança, com outro nome. Dentro da transação, a notificação passa a
+ser tão durável quanto a mudança de estado que a causou.
+
+Não é teórico: o `convoy` envolve `enqueueEmail` num try/catch e loga
+`pwd_reset_email_enqueue_failed`. É o dual-write, nomeado e aceito lá. Nem
+`convoy` nem `atlas` têm outbox.
+
+**Consequências.** Entrega é **at-least-once** nos dois saltos — o relay pode
+morrer entre publicar e marcar; o consumer, entre enviar e reconhecer. Isso é
+seguro porque o `SmtpEmailSender` já reivindica uma chave de idempotência antes
+de enviar. Essa propriedade, que já existia, é o que torna o desenho viável.
+
+Um job com `kind` desconhecido **não** é reconhecido: volta para a fila e o
+`maxReceiveCount: 5` do devstack o manda para a DLQ. Descartar seria perder em
+silêncio.
+
+`OutboxRelay` e `NotificationConsumer` são serviços do kernel, não do worker:
+`apps/worker` é só o laço e o ciclo de vida do processo. É o que permite o e2e
+drenar no mesmo processo em vez de duplicar a lógica num helper de teste.
+
+---
+
+### DEC-048 — O outbox carrega intenção, nunca um token
+
+**Data:** 2026-08-07 · **Status:** accepted
+
+**Contexto.** `AuthMailer.sendVerification` monta a URL com o token **em claro**.
+Isso era seguro enquanto o token só existia em memória: `libs/database/CLAUDE.md`
+afirma que _"nenhum token é guardado em claro… um dump do banco não é um conjunto
+de credenciais funcionando"_.
+
+**Decisão.** O payload do outbox é uma **intenção** — `{ accountId }` — e nunca
+uma mensagem renderizada. Quem emite o token é o **worker**, no momento do envio.
+
+**Rationale.** Enfileirar o e-mail pronto colocaria o token em claro no `outbox`
+**e** no SQS até a entrega, e um dump naquela janela seria um conjunto de
+credenciais válidas. Vale para `verify_email` e `reset_password`, que são os dois
+do caminho crítico.
+
+Rejeitado cifrar o payload: resolveria o dump do banco e não resolveria o SQS, e
+trocaria uma propriedade estrutural por uma chave para administrar e rotacionar.
+Rejeitado aceitar a janela com exclusão imediata: transformaria uma invariante
+escrita em "quase sempre", que é o tipo de erosão que ninguém percebe depois.
+
+**Consequências.** A emissão sai da requisição. "Emitir invalida o anterior"
+passa a valer no envio, não no `POST` — dois `resend` seguidos são resolvidos
+pela ordem em que o worker processa. O rate limit continua no request, que é onde
+protege.
+
+`AuthMailer`, `BillingMailer` e `VerificationTokenService` subiram para o kernel
+(`shared/notifications/`, `shared/verification/`): dois consumidores passaram a
+precisar deles, e a regra do `CLAUDE.md` é que o que dois módulos precisam mora
+em `shared/`.
+
+Um teste de e2e faz grep no payload atrás de token. É feio, e é o que impede a
+regressão silenciosa.

@@ -105,8 +105,8 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0
       '@vpn/ports':
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.6.0
+        version: 0.6.0
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -157,8 +157,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(vitest@4.1.10)
       '@vpn/testing':
-        specifier: ^0.3.0
-        version: 0.3.0(vitest@4.1.10)
+        specifier: ^0.5.0
+        version: 0.5.0(vitest@4.1.10)
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
@@ -276,6 +276,37 @@ importers:
         specifier: ^6.0.7
         version: 6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.5)(yaml@2.9.0)
 
+  apps/worker:
+    dependencies:
+      '@nestjs/core':
+        specifier: ^11.0.0
+        version: 11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.28)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@vpn-poc/api':
+        specifier: workspace:*
+        version: link:../api
+      '@vpn-poc/env':
+        specifier: workspace:*
+        version: link:../../libs/env
+      '@vpn/ports':
+        specifier: ^0.6.0
+        version: 0.6.0
+      nestjs-pino:
+        specifier: ^4.3.0
+        version: 4.6.1(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(pino-http@10.5.0)(pino@9.14.0)(rxjs@7.8.2)
+      reflect-metadata:
+        specifier: ^0.2.2
+        version: 0.2.2
+    devDependencies:
+      '@vpn/config':
+        specifier: ^0.1.0
+        version: 0.1.0(vitest@4.1.10)
+      '@vpn/testing':
+        specifier: ^0.5.0
+        version: 0.5.0(vitest@4.1.10)
+      vite-node:
+        specifier: ^6.0.0
+        version: 6.0.0(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)(yaml@2.9.0)
+
   infra:
     dependencies:
       aws-cdk-lib:
@@ -294,6 +325,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.716.0
         version: 3.1103.0
+      '@aws-sdk/client-sqs':
+        specifier: ^3.1104.0
+        version: 3.1104.0
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.716.0
         version: 3.1103.0
@@ -316,11 +350,11 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0
       '@vpn/ports':
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.6.0
+        version: 0.6.0
       '@vpn/testing':
-        specifier: ^0.3.0
-        version: 0.3.0(vitest@4.1.10)
+        specifier: ^0.5.0
+        version: 0.5.0(vitest@4.1.10)
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
@@ -395,6 +429,10 @@ packages:
     resolution: {integrity: sha512-FO7SB2vLhZRN3lBHVhMhRm3YKSHK8e917qjB8LMEEhU69cQ0Ahd/OMyezu+KqNANqEtyxfSnFVvYt81x6ZKGZA==}
     engines: {node: '>=20.0.0'}
 
+  '@aws-sdk/client-sqs@3.1104.0':
+    resolution: {integrity: sha512-JT/X9bqJQ8yRuQ3E8QMyrewIvBHpllxhpvBnruw3j/702lH4XwgVmyEEa+9axVz2VayPPSmt02jindNg3b5aSw==}
+    engines: {node: '>=20.0.0'}
+
   '@aws-sdk/core@3.977.6':
     resolution: {integrity: sha512-QiaJV4/zDrB4ZY2mfeSXSzSTc36W16sZXcGz+SPFk0CJ26gziO0cS+4LjJUMAbdeeBOvS0k0Aq1cZpfGdUXxSw==}
     engines: {node: '>=20.0.0'}
@@ -433,6 +471,10 @@ packages:
 
   '@aws-sdk/middleware-sdk-s3@3.972.72':
     resolution: {integrity: sha512-lSAoVPvQxX1d8TOM6waKDBQrvvZcm4w6pCldFAsRUffEaXq6lYY0pPyew3KlLu6Xqb74DXI42hGvSsbGBLljlw==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/middleware-sdk-sqs@3.972.39':
+    resolution: {integrity: sha512-dlKLmJg1dLQVfFXUPS+f+SqXrRGHDVumY4gjM8sCLGao+zkDXEu8TObTyiaheKjT20ruok9Xs8oLocNItKQ0fw==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/nested-clients@3.997.41':
@@ -3831,11 +3873,11 @@ packages:
   '@vpn/i18n@0.3.0':
     resolution: {integrity: sha512-ph6MDnYOIpSOEmgOlNE7p7aHH9rqenFVZkq5eGxrR4NKUefLCVhW5po/jkExrI9fnif5H9CJ+ZX/0XiwC9CmGA==}
 
-  '@vpn/ports@0.4.0':
-    resolution: {integrity: sha512-HDSGR5zeYx/FT1AR/rIjkUhHriMsIc2jid6dfk6K8WFjAe6l6sgxmi4BpFFlav9NwpphxOvtwV7PfXqQG9ZiPw==}
+  '@vpn/ports@0.6.0':
+    resolution: {integrity: sha512-jVjECZzpc1OKbyDUWRiOinadjAqLyORbIE6s+yTkn3PgEt2F2tq3mSoYBBuxsEhyAVPVASladWsy2IsELKxiZg==}
 
-  '@vpn/testing@0.3.0':
-    resolution: {integrity: sha512-srqjyGydKwlsR44OHqczfHhPyj6hSXz8B/Vpa6LK8RSmq+phnl2kNcz8J4pK5Gt24gy3FwwKp2IE+HfqYSzz+w==}
+  '@vpn/testing@0.5.0':
+    resolution: {integrity: sha512-y4zhIKF4kDFTYm2rEo+afPmL3QRZd+VM2aiGAxxd+eTwVpF5/dm/lERqz2O94Vq9gQ69sgjsg3LwqPMMT3nIrw==}
     peerDependencies:
       vitest: '>=2'
     peerDependenciesMeta:
@@ -7670,6 +7712,18 @@ snapshots:
       '@smithy/types': 4.16.1
       tslib: 2.8.1
 
+  '@aws-sdk/client-sqs@3.1104.0':
+    dependencies:
+      '@aws-sdk/core': 3.977.6
+      '@aws-sdk/credential-provider-node': 3.972.78
+      '@aws-sdk/middleware-sdk-sqs': 3.972.39
+      '@aws-sdk/types': 3.974.2
+      '@smithy/core': 3.31.1
+      '@smithy/fetch-http-handler': 5.6.13
+      '@smithy/node-http-handler': 4.9.13
+      '@smithy/types': 4.16.1
+      tslib: 2.8.1
+
   '@aws-sdk/core@3.977.6':
     dependencies:
       '@aws-sdk/types': 3.974.2
@@ -7769,6 +7823,13 @@ snapshots:
     dependencies:
       '@aws-sdk/core': 3.977.6
       '@aws-sdk/signature-v4-multi-region': 3.996.43
+      '@aws-sdk/types': 3.974.2
+      '@smithy/core': 3.31.1
+      '@smithy/types': 4.16.1
+      tslib: 2.8.1
+
+  '@aws-sdk/middleware-sdk-sqs@3.972.39':
+    dependencies:
       '@aws-sdk/types': 3.974.2
       '@smithy/core': 3.31.1
       '@smithy/types': 4.16.1
@@ -11164,11 +11225,11 @@ snapshots:
     dependencies:
       '@vpn/contracts': 0.4.0
 
-  '@vpn/ports@0.4.0': {}
+  '@vpn/ports@0.6.0': {}
 
-  '@vpn/testing@0.3.0(vitest@4.1.10)':
+  '@vpn/testing@0.5.0(vitest@4.1.10)':
     dependencies:
-      '@vpn/ports': 0.4.0
+      '@vpn/ports': 0.6.0
     optionalDependencies:
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@8.2.0(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)(yaml@2.9.0))
 

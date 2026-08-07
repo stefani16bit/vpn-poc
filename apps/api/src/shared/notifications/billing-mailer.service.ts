@@ -5,7 +5,7 @@ import type { Env } from '@vpn-poc/env';
 import { getTranslator } from '@vpn/i18n';
 import { EMAIL_SENDER, type Account, type IEmailSender } from '@vpn/ports';
 
-import { localeOf } from '../../../shared/locale/account-locale.js';
+import { localeOf } from '../locale/account-locale.js';
 
 @Injectable()
 export class BillingMailer {

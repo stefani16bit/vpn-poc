@@ -1,6 +1,9 @@
+import { sql } from 'drizzle-orm';
 import {
 	boolean,
 	index,
+	integer,
+	jsonb,
 	pgEnum,
 	pgTable,
 	text,
@@ -106,5 +109,22 @@ export const billingEvents = pgTable(
 	},
 	(table) => [
 		uniqueIndex('billing_events_source_external_id_key').on(table.source, table.externalEventId),
+	],
+);
+
+export const outbox = pgTable(
+	'outbox',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		kind: text('kind').notNull(),
+		payload: jsonb('payload').notNull(),
+		attempts: integer('attempts').notNull().default(0),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		publishedAt: timestamp('published_at', { withTimezone: true }),
+	},
+	(table) => [
+		index('outbox_pending_key')
+			.on(table.createdAt)
+			.where(sql`${table.publishedAt} is null`),
 	],
 );

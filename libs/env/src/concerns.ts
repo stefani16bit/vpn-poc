@@ -58,6 +58,11 @@ export const storageEnvSchema = z.object({
 	S3_BUCKET: z.string().optional(),
 });
 
+export const queueEnvSchema = z.object({
+	QUEUE_DRIVER: z.enum(['sqs', 'memory']).default('memory'),
+	QUEUE_URL: z.string().url().optional(),
+});
+
 export const observabilityEnvSchema = z.object({
 	SENTRY_DSN: z.string().default(''),
 });
@@ -73,6 +78,8 @@ export function assertDriverConfiguration(env: {
 	STRIPE_WEBHOOK_SECRET?: string | undefined;
 	STORAGE_DRIVER: string;
 	S3_BUCKET?: string | undefined;
+	QUEUE_DRIVER: string;
+	QUEUE_URL?: string | undefined;
 }): void {
 	const missing: string[] = [];
 
@@ -87,6 +94,7 @@ export function assertDriverConfiguration(env: {
 		if (!env.STRIPE_WEBHOOK_SECRET) missing.push('STRIPE_WEBHOOK_SECRET (BILLING_DRIVER=stripe)');
 	}
 	if (env.STORAGE_DRIVER === 's3' && !env.S3_BUCKET) missing.push('S3_BUCKET (STORAGE_DRIVER=s3)');
+	if (env.QUEUE_DRIVER === 'sqs' && !env.QUEUE_URL) missing.push('QUEUE_URL (QUEUE_DRIVER=sqs)');
 
 	if (missing.length > 0) {
 		throw new Error(`missing environment configuration:\n  - ${missing.join('\n  - ')}`);

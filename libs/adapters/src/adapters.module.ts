@@ -13,6 +13,7 @@ import {
 	IDENTITY_PROVIDER,
 	OBJECT_STORAGE,
 	PASSWORD_HASHER,
+	JOB_QUEUE,
 	SMS_SENDER,
 	type IBillingProvider,
 	type ICacheStore,
@@ -22,6 +23,7 @@ import {
 	type IIdentityProvider,
 	type IObjectStorage,
 	type IPasswordHasher,
+	type IJobQueue,
 	type ISmsSender,
 } from '@vpn/ports';
 import {
@@ -29,6 +31,7 @@ import {
 	MemoryCacheStore,
 	MemoryEmailSender,
 	MemoryObjectStorage,
+	MemoryJobQueue,
 	MemorySmsSender,
 } from '@vpn/testing/fakes';
 
@@ -41,6 +44,7 @@ import { DrizzleIdentityProvider } from './identity/DrizzleIdentityProvider.js';
 import { NoopErrorReporter, SentryErrorReporter } from './observability/reporters.js';
 import { defineAdapter, toProviders, tokensOf } from './registry.js';
 import { ConsoleSmsSender } from './sms/ConsoleSmsSender.js';
+import { SqsJobQueue } from './queue/SqsJobQueue.js';
 import { S3ObjectStorage } from './storage/S3ObjectStorage.js';
 
 export const ENV: unique symbol = Symbol.for('vpn.env');
@@ -181,6 +185,21 @@ export const ADAPTERS = [
 					endpoint: env.AWS_ENDPOINT_URL,
 				}),
 			memory: () => new MemoryObjectStorage(),
+		},
+	}),
+
+	defineAdapter<IJobQueue>({
+		token: JOB_QUEUE,
+		driver: (env) => env.QUEUE_DRIVER,
+		inject: [CLOCK],
+		drivers: {
+			sqs: ({ env }) =>
+				new SqsJobQueue({
+					queueUrl: env.QUEUE_URL ?? '',
+					region: env.AWS_REGION,
+					endpoint: env.AWS_ENDPOINT_URL,
+				}),
+			memory: ({ resolve }) => new MemoryJobQueue(resolve<IClock>(CLOCK)),
 		},
 	}),
 

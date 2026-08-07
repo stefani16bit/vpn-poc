@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.716.0",
+    "@aws-sdk/client-sqs": "^3.1104.0",
     "@aws-sdk/s3-request-presigner": "^3.716.0",
     "@nestjs/common": "^11.0.1",
     "@sentry/node": "^8.47.0",
@@ -19,8 +20,8 @@
     "@vpn-poc/env": "workspace:*",
     "@vpn/contracts": "^0.4.0",
     "@vpn/i18n": "^0.3.0",
-    "@vpn/ports": "^0.4.0",
-    "@vpn/testing": "^0.3.0",
+    "@vpn/ports": "^0.6.0",
+    "@vpn/testing": "^0.5.0",
     "drizzle-orm": "^0.38.3",
     "ioredis": "^5.4.2",
     "nodemailer": "^6.9.16",

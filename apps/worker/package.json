@@ -1,0 +1,32 @@
+{
+  "name": "@vpn-poc/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite-node --watch src/main.ts",
+    "start": "node dist/main.js",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@nestjs/core": "^11.0.0",
+    "@vpn-poc/api": "workspace:*",
+    "@vpn-poc/env": "workspace:*",
+    "@vpn/ports": "^0.6.0",
+    "nestjs-pino": "^4.3.0",
+    "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "@vpn/config": "^0.1.0",
+    "@vpn/testing": "^0.5.0",
+    "vite-node": "^6.0.0"
+  },
+  "nx": {
+    "tags": [
+      "scope:poc-vpn",
+      "type:app"
+    ]
+  }
+}

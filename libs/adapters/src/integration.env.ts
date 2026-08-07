@@ -6,6 +6,7 @@ export const INTEGRATION = {
 	smtpPort: Number(process.env['SMTP_PORT'] ?? 21025),
 	mailpitUrl: process.env['MAILPIT_URL'] ?? 'http://127.0.0.1:28025',
 	s3Endpoint: process.env['AWS_ENDPOINT_URL'] ?? 'http://127.0.0.1:24566',
+	sqsEndpoint: process.env['AWS_ENDPOINT_URL'] ?? 'http://127.0.0.1:24566',
 	s3Bucket: process.env['S3_BUCKET'] ?? 'poc-vpn-assets',
 	awsRegion: process.env['AWS_REGION'] ?? 'us-east-1',
 	stripeApiBase: process.env['STRIPE_API_BASE'] ?? 'http://127.0.0.1:28420',

@@ -75,8 +75,10 @@ a ignorar suíte vermelha.
       `getTranslator` (DEC-014).
 - [ ] Não há lint que proíba string literal voltada ao usuário. A disciplina de
       i18n é revisão, não ferramenta.
-- [ ] `.env.example` não define `STRIPE_PRICE_ID_YEARLY`. O plano anual estoura
-      localmente com `INTERNAL "no price configured"`, e o único aviso é o 500.
+- [ ] **O localstripe não semeia preço nenhum.** `price_local_monthly` e
+      `price_local_yearly` respondem 404, e nada em `devstack/` os cria — o
+      `.env.example` aponta para preços que não existem. O e2e não pega porque
+      usa `BILLING_DRIVER=memory`; quem paga é quem testa no navegador.
 - [ ] `pnpm packages:publish:local` **não publica nada** no Git Bash e sai com 0. O filtro `./packages/*` é mangleado pela conversão de caminho do MSYS e
       o resultado é `No projects matched the filters`. Contorno:
       `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`. Um publish silenciosamente
@@ -94,6 +96,11 @@ capability se aplica no request, contador na escrita, região no
 provisionamento, tráfego continuamente — e as duas últimas dependem de um data
 plane que ainda não existe.
 
+- [x] **Tirar o envio de e-mail da requisição.** Outbox transacional, porta
+      `IJobQueue` sobre SQS, relay e consumer no kernel, `apps/worker` como laço.
+      Publicar depois do commit teria sido o mesmo dual-write de novo — o
+      `convoy` documenta essa lacuna como `*_enqueue_failed`. DEC-046/047/048, e
+      `docs/specs/queued-notifications.md`.
 - [x] **Corrigir o webhook.** Reivindicação e aplicação na mesma transação, e
       guarda monotônica no upsert. Cobrança é recorrente: todo período gera
       eventos, e um evento fora de ordem retrocedia o período de um cliente
@@ -127,8 +134,8 @@ plane que ainda não existe.
       tiers anunciarem; a aplicação depende do data plane e é explicitamente
       adiada.
 - [ ] SMS de verdade atrás de `ISmsSender` (SNS ou Twilio).
-- [ ] Fila para envio de e-mail. Hoje o envio é síncrono dentro da requisição:
-      um SMTP lento é um cadastro lento.
+- [ ] Expurgo do `outbox` publicado. Como `verification_tokens` e
+      `refresh_tokens`, cresce para sempre; é o mesmo job.
 
 ---
 

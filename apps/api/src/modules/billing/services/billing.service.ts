@@ -11,7 +11,8 @@ import {
 	type NormalizedBillingEvent,
 } from '@vpn/ports';
 
-import { TransactionRunner } from '../../../shared/database/transaction-runner.js';
+import { TransactionRunner, type Executor } from '../../../shared/database/transaction-runner.js';
+import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import {
 	MODULE_LOGGER,
@@ -20,7 +21,6 @@ import {
 } from '../../../shared/http/module-logger.js';
 import { BillingEventRepository } from '../repositories/billing-event.repository.js';
 import { SubscriptionRepository } from '../repositories/subscription.repository.js';
-import { BillingMailer } from './billing-mailer.service.js';
 
 const SOURCE = 'stripe';
 
@@ -41,7 +41,7 @@ export class BillingService {
 		@Inject(ENV) private readonly env: Env,
 		private readonly subscriptions: SubscriptionRepository,
 		private readonly events: BillingEventRepository,
-		private readonly mailer: BillingMailer,
+		private readonly outbox: OutboxRepository,
 		private readonly transactions: TransactionRunner,
 	) {
 		this.#logger = contextLogger(logger, BillingService.name);
@@ -103,6 +103,8 @@ export class BillingService {
 					executor,
 				);
 			}
+
+			await this.#enqueueNotification(event, executor);
 			return true;
 		});
 
@@ -114,33 +116,33 @@ export class BillingService {
 			return false;
 		}
 
-		await this.#notify(event);
 		return true;
 	}
 
-	async #notify(event: NormalizedBillingEvent): Promise<void> {
-		if (event.kind !== 'payment_failed' && event.kind !== 'subscription_canceled') return;
-
-		try {
-			const account = await this.identity.findById(event.accountId);
-			if (!account) return;
-
-			if (event.kind === 'payment_failed') {
-				await this.mailer.sendPaymentFailed(account, event.externalEventId);
-				return;
-			}
-
-			await this.mailer.sendSubscriptionCanceled(
-				account,
-				event.subscription.currentPeriodEnd,
-				event.externalEventId,
+	async #enqueueNotification(event: NormalizedBillingEvent, executor: Executor): Promise<void> {
+		if (event.kind === 'payment_failed') {
+			await this.outbox.enqueue(
+				{
+					kind: 'billing.payment_failed',
+					accountId: event.accountId,
+					externalEventId: event.externalEventId,
+				},
+				executor,
 			);
-		} catch (error) {
-			this.#logger.error(
-				{ event: 'billing.webhook.notify_failed', externalEventId: event.externalEventId, error },
-				'billing state was applied but the notification did not go out',
-			);
+			return;
 		}
+
+		if (event.kind !== 'subscription_canceled') return;
+
+		await this.outbox.enqueue(
+			{
+				kind: 'billing.subscription_canceled',
+				accountId: event.accountId,
+				externalEventId: event.externalEventId,
+				endsAt: event.subscription.currentPeriodEnd?.toISOString() ?? null,
+			},
+			executor,
+		);
 	}
 
 	#priceFor(plan: PlanId): string {

@@ -47,5 +47,18 @@ module.exports = {
 			out_file: './logs/web.out.log',
 			error_file: './logs/web.err.log',
 		},
+		{
+			name: 'worker',
+			script: 'sh',
+			args: ['-c', 'pnpm --filter @vpn-poc/worker dev'],
+			interpreter: 'none',
+			cwd: __dirname,
+			// Fork for the same reason as the API: it opens its own database pool.
+			exec_mode: 'fork',
+			autorestart: false,
+			windowsHide: true,
+			out_file: './logs/worker.out.log',
+			error_file: './logs/worker.err.log',
+		},
 	],
 };

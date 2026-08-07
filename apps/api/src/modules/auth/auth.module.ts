@@ -2,24 +2,16 @@ import { Module } from '@nestjs/common';
 
 import { AccessControlModule } from '../../shared/access-control/access-control.module.js';
 import { moduleLoggerProvider } from '../../shared/http/module-logger.js';
+import { OutboxModule } from '../../shared/outbox/outbox.module.js';
+import { VerificationModule } from '../../shared/verification/verification.module.js';
 import { RateLimitModule } from '../../shared/rate-limit/rate-limit.module.js';
 import { AuthController } from './controllers/auth.controller.js';
 import { RefreshCookie } from './controllers/refresh-cookie.js';
-import { VerificationTokenRepository } from './repositories/verification-token.repository.js';
-import { AuthMailer } from './services/auth-mailer.service.js';
 import { AuthService } from './services/auth.service.js';
-import { VerificationTokenService } from './services/verification-token.service.js';
 
 @Module({
-	imports: [AccessControlModule, RateLimitModule],
+	imports: [AccessControlModule, RateLimitModule, OutboxModule, VerificationModule],
 	controllers: [AuthController],
-	providers: [
-		moduleLoggerProvider('auth'),
-		AuthService,
-		AuthMailer,
-		VerificationTokenService,
-		VerificationTokenRepository,
-		RefreshCookie,
-	],
+	providers: [moduleLoggerProvider('auth'), AuthService, RefreshCookie],
 })
 export class AuthModule {}

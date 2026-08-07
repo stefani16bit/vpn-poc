@@ -11,6 +11,8 @@ import type { MemoryBillingProvider } from '@vpn/testing/fakes';
 import type { createDatabase } from '@vpn-poc/database';
 
 import { createApp } from './bootstrap.js';
+import { NotificationConsumer } from './shared/notifications/notification-consumer.js';
+import { OutboxRelay } from './shared/outbox/outbox-relay.js';
 
 let app: INestApplication;
 let sql: ReturnType<typeof createDatabase>['sql'];
@@ -28,9 +30,15 @@ afterAll(async () => {
 	await app.close();
 });
 
+async function drainNotifications(): Promise<void> {
+	await app.get(OutboxRelay).runOnce();
+	await app.get(NotificationConsumer).runOnce();
+}
+
 beforeEach(async () => {
 	await sql`DELETE FROM accounts`;
 	await sql`DELETE FROM billing_events`;
+	await sql`DELETE FROM outbox`;
 	await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
 });
 
@@ -46,7 +54,14 @@ interface MailpitSummary {
 	readonly To: readonly { readonly Address: string }[];
 }
 
+async function mailpitCount(): Promise<number> {
+	const response = await fetch(`${MAILPIT_URL}/api/v1/messages`);
+	const payload = (await response.json()) as { messages: MailpitSummary[] };
+	return payload.messages.length;
+}
+
 async function inbox(): Promise<readonly MailpitSummary[]> {
+	await drainNotifications();
 	const response = await fetch(`${MAILPIT_URL}/api/v1/messages`);
 	const payload = (await response.json()) as { messages: MailpitSummary[] };
 	return payload.messages;
@@ -125,6 +140,7 @@ describe('registration and verification', () => {
 	it('does not mail the address owner when someone re-registers it', async () => {
 		const email = freshEmail();
 		await request(app.getHttpServer()).post('/auth/register').send({ email, password: PASSWORD });
+		await drainNotifications();
 		await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
 
 		await request(app.getHttpServer()).post('/auth/register').send({ email, password: PASSWORD });
@@ -818,6 +834,90 @@ describe('locale', () => {
 			.expect(400);
 
 		expect(response.body.fields.password).toBe('validation.password.tooShort');
+	});
+});
+
+describe('queued notifications', () => {
+	it('answers the registration without the mail server on the path', async () => {
+		const email = freshEmail();
+
+		await request(app.getHttpServer())
+			.post('/auth/register')
+			.send({ email, password: PASSWORD })
+			.expect(202);
+
+		const pending = await sql`SELECT kind FROM outbox WHERE published_at IS NULL`;
+		expect(pending).toHaveLength(1);
+		expect(pending[0]?.['kind']).toBe('auth.verification');
+		expect(await mailpitCount()).toBe(0);
+	});
+
+	it('never writes a token into the outbox payload', async () => {
+		const email = freshEmail();
+		await request(app.getHttpServer()).post('/auth/register').send({ email, password: PASSWORD });
+		await request(app.getHttpServer()).post('/auth/register').send({ email, password: PASSWORD });
+
+		const rows = await sql`SELECT payload::text AS payload FROM outbox`;
+		const token = await tokenFromMail(email);
+
+		expect(rows.length).toBeGreaterThan(0);
+		for (const row of rows) {
+			const payload = String(row['payload']);
+			expect(payload).not.toContain(token);
+			expect(Object.keys(JSON.parse(payload) as object).sort()).toEqual(['accountId', 'kind']);
+		}
+	});
+
+	it('marks a relayed row published, so a second relay does not enqueue it twice', async () => {
+		const email = freshEmail();
+		await request(app.getHttpServer()).post('/auth/register').send({ email, password: PASSWORD });
+
+		expect(await app.get(OutboxRelay).runOnce()).toBe(1);
+		expect(await app.get(OutboxRelay).runOnce()).toBe(0);
+
+		const unpublished = await sql`SELECT id FROM outbox WHERE published_at IS NULL`;
+		expect(unpublished).toHaveLength(0);
+	});
+
+	it('does not hand the same row to two relays running at once', async () => {
+		const emails = Array.from({ length: 12 }, () => freshEmail());
+		for (const email of emails) {
+			await request(app.getHttpServer())
+				.post('/auth/register')
+				.send({ email, password: PASSWORD })
+				.expect(202);
+		}
+
+		const relay = app.get(OutboxRelay);
+		const counts = await Promise.all([relay.runOnce(), relay.runOnce(), relay.runOnce()]);
+
+		expect(counts.reduce((total, count) => total + count, 0)).toBe(emails.length);
+
+		const published =
+			await sql`SELECT count(*)::int AS count FROM outbox WHERE published_at IS NOT NULL`;
+		expect(published[0]?.['count']).toBe(emails.length);
+	});
+
+	it('delivers one e-mail even when the consumer runs twice over the same job', async () => {
+		const email = freshEmail();
+		await request(app.getHttpServer()).post('/auth/register').send({ email, password: PASSWORD });
+
+		await app.get(OutboxRelay).runOnce();
+		await app.get(NotificationConsumer).runOnce();
+		await app.get(NotificationConsumer).runOnce();
+
+		expect(await mailpitCount()).toBe(1);
+	});
+
+	it('leaves nothing behind when the registration transaction fails', async () => {
+		const email = freshEmail();
+		await request(app.getHttpServer())
+			.post('/auth/register')
+			.send({ email, password: 'short' })
+			.expect(400);
+
+		const rows = await sql`SELECT id FROM outbox`;
+		expect(rows).toHaveLength(0);
 	});
 });
 

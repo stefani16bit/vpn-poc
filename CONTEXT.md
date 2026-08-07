@@ -172,6 +172,34 @@ entitula. Um cliente escolhe região; qual nó atende é nosso.
 Estes quatro termos descrevem um sistema **ainda não construído**. Estão aqui
 porque o vocabulário precede o schema, não porque o data plane exista.
 
+## Trabalho assíncrono
+
+**Outbox** — a tabela onde uma notificação é escrita **dentro da transação que a
+causou**. É o que faz a notificação ser tão durável quanto a mudança de estado:
+publicar depois do commit perde a mensagem se o publish falhar, e essa é a mesma
+forma do bug de dual-write que o webhook de cobrança tinha. DEC-047.
+
+**Intenção** — o que o outbox guarda: `{ accountId }` e o nome do que enviar,
+nunca a mensagem pronta. Um e-mail de verificação renderizado carregaria o token
+**em claro**, e o banco só guarda hash de token. Por isso quem emite o token é o
+worker, no envio. DEC-048.
+
+**Job** — uma unidade de trabalho na fila: `{ name, data, idempotencyKey? }`. O
+`name` é o `kind` da intenção. A fila não interpreta o `data` e **não** promete
+ordem nem deduplicação — SQS padrão não faz nenhuma das duas. DEC-046.
+
+**Relay** — quem drena o outbox para a fila, com `for update skip locked`, e
+marca `published_at`. Publica **antes** de marcar: morrer no meio reentrega, e
+reentregar é seguro.
+
+**Consumer** — quem recebe da fila, despacha e só então reconhece. Reconhecer
+antes de enviar perderia o e-mail num crash. Um job desconhecido não é
+reconhecido: volta para a fila e termina na DLQ, em vez de sumir.
+
+**At-least-once** — a garantia dos dois saltos. É segura porque o
+`SmtpEmailSender` já reivindica uma chave de idempotência no cache antes de
+enviar: repetir é inofensivo, perder não seria.
+
 ## Infraestrutura
 
 **Port** (porta) — a interface por onde uma dependência externa entra

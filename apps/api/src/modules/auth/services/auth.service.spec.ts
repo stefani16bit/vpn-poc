@@ -10,9 +10,9 @@ import { AppError } from '../../../shared/errors/app-error.js';
 import type { ModuleLogger } from '../../../shared/http/module-logger.js';
 import type { RateLimitService } from '../../../shared/rate-limit/rate-limit.service.js';
 import { RATE_LIMITS } from '../auth.rate-limits.js';
-import type { AuthMailer } from './auth-mailer.service.js';
+import type { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 import { AuthService } from './auth.service.js';
-import type { VerificationTokenService } from './verification-token.service.js';
+import type { VerificationTokenService } from '../../../shared/verification/verification-token.service.js';
 
 const env = {
 	WEB_ORIGIN: 'https://app.example.com',
@@ -48,13 +48,6 @@ interface IdentityMock {
 	startSession: Mock;
 }
 
-interface MailerMock {
-	sendVerification: Mock;
-	sendPasswordReset: Mock;
-	sendWelcome: Mock;
-	sendPasswordChanged: Mock;
-}
-
 function account(overrides: Partial<Account> = {}): Account {
 	return {
 		id: 'acc-1',
@@ -71,7 +64,7 @@ describe('AuthService', () => {
 	let accessTokens: { issue: Mock; ttlSeconds: number };
 	let verificationTokens: { issue: Mock; redeem: Mock };
 	let rateLimit: { consume: Mock };
-	let mailer: MailerMock;
+	let outbox: { enqueue: Mock };
 	let service: AuthService;
 
 	beforeEach(() => {
@@ -97,12 +90,7 @@ describe('AuthService', () => {
 			redeem: vi.fn().mockResolvedValue('acc-1'),
 		};
 		rateLimit = { consume: vi.fn().mockResolvedValue(undefined) };
-		mailer = {
-			sendVerification: vi.fn().mockResolvedValue(undefined),
-			sendPasswordReset: vi.fn().mockResolvedValue(undefined),
-			sendWelcome: vi.fn().mockResolvedValue(undefined),
-			sendPasswordChanged: vi.fn().mockResolvedValue(undefined),
-		};
+		outbox = { enqueue: vi.fn().mockResolvedValue(undefined) };
 
 		records = [];
 		service = new AuthService(
@@ -113,7 +101,7 @@ describe('AuthService', () => {
 			accessTokens as unknown as AccessTokenService,
 			verificationTokens as unknown as VerificationTokenService,
 			rateLimit as unknown as RateLimitService,
-			mailer as unknown as AuthMailer,
+			outbox as unknown as OutboxRepository,
 		);
 	});
 
@@ -123,18 +111,21 @@ describe('AuthService', () => {
 			expect(rateLimit.consume).toHaveBeenCalledWith(RATE_LIMITS.register, 'ada@example.com');
 		});
 
-		it('mails a verification token to a new account', async () => {
+		it('queues a verification for a new account and issues no token itself', async () => {
 			await service.register('ada@example.com', 'pw', 'pt-BR');
 
-			expect(verificationTokens.issue).toHaveBeenCalledWith('acc-1', 'email_verification', 86400);
-			expect(mailer.sendVerification).toHaveBeenCalledWith(expect.anything(), 'tok-1', 86400);
+			expect(outbox.enqueue).toHaveBeenCalledWith({
+				kind: 'auth.verification',
+				accountId: 'acc-1',
+			});
+			expect(verificationTokens.issue).not.toHaveBeenCalled();
 		});
 
 		it('says and does nothing different when the address is taken', async () => {
 			identity.register.mockResolvedValue({ kind: 'email_taken' });
 
 			await expect(service.register('ada@example.com', 'pw', 'pt-BR')).resolves.toBeUndefined();
-			expect(mailer.sendVerification).not.toHaveBeenCalled();
+			expect(outbox.enqueue).not.toHaveBeenCalled();
 		});
 
 		it('files what it swallowed under the module that swallowed it', async () => {
@@ -277,16 +268,14 @@ describe('AuthService', () => {
 
 			expect(verificationTokens.redeem).toHaveBeenCalledWith('tok-1', 'email_verification');
 			expect(identity.markEmailVerified).toHaveBeenCalledWith('acc-1');
-			expect(mailer.sendWelcome).toHaveBeenCalled();
+			expect(outbox.enqueue).toHaveBeenCalledWith({ kind: 'auth.welcome', accountId: 'acc-1' });
 		});
 
-		it('still marks verified when the account cannot be reloaded', async () => {
-			identity.findById.mockResolvedValue(null);
-
+		it('does not reload the account: the worker resolves it when it sends', async () => {
 			await service.verifyEmail('tok-1');
 
 			expect(identity.markEmailVerified).toHaveBeenCalledWith('acc-1');
-			expect(mailer.sendWelcome).not.toHaveBeenCalled();
+			expect(identity.findById).not.toHaveBeenCalled();
 		});
 	});
 
@@ -305,12 +294,12 @@ describe('AuthService', () => {
 			identity.findByEmail.mockResolvedValue(null);
 
 			await expect(service.resendVerification('nobody@example.com')).resolves.toBeUndefined();
-			expect(mailer.sendVerification).not.toHaveBeenCalled();
+			expect(outbox.enqueue).not.toHaveBeenCalled();
 		});
 
 		it('sends nothing for an account that is already verified', async () => {
 			await service.resendVerification('ada@example.com');
-			expect(mailer.sendVerification).not.toHaveBeenCalled();
+			expect(outbox.enqueue).not.toHaveBeenCalled();
 		});
 
 		it('issues a fresh token for an unverified account', async () => {
@@ -318,7 +307,10 @@ describe('AuthService', () => {
 
 			await service.resendVerification('ada@example.com');
 
-			expect(mailer.sendVerification).toHaveBeenCalledWith(expect.anything(), 'tok-1', 86400);
+			expect(outbox.enqueue).toHaveBeenCalledWith({
+				kind: 'auth.verification',
+				accountId: 'acc-1',
+			});
 		});
 	});
 
@@ -332,14 +324,17 @@ describe('AuthService', () => {
 			identity.findByEmail.mockResolvedValue(null);
 
 			await expect(service.forgotPassword('nobody@example.com')).resolves.toBeUndefined();
-			expect(mailer.sendPasswordReset).not.toHaveBeenCalled();
+			expect(outbox.enqueue).not.toHaveBeenCalled();
 		});
 
-		it('issues a reset token on the reset ttl', async () => {
+		it('queues a reset without issuing the token, which never reaches the outbox', async () => {
 			await service.forgotPassword('ada@example.com');
 
-			expect(verificationTokens.issue).toHaveBeenCalledWith('acc-1', 'password_reset', 3600);
-			expect(mailer.sendPasswordReset).toHaveBeenCalledWith(expect.anything(), 'tok-1', 3600);
+			expect(verificationTokens.issue).not.toHaveBeenCalled();
+			expect(outbox.enqueue).toHaveBeenCalledWith({
+				kind: 'auth.password_reset',
+				accountId: 'acc-1',
+			});
 		});
 	});
 
@@ -349,16 +344,18 @@ describe('AuthService', () => {
 
 			expect(verificationTokens.redeem).toHaveBeenCalledWith('tok-1', 'password_reset');
 			expect(identity.changePassword).toHaveBeenCalledWith('acc-1', 'new-password');
-			expect(mailer.sendPasswordChanged).toHaveBeenCalled();
+			expect(outbox.enqueue).toHaveBeenCalledWith({
+				kind: 'auth.password_changed',
+				accountId: 'acc-1',
+				changedAt: '2026-05-01T00:00:00.000Z',
+			});
 		});
 
-		it('still changes the password when the account cannot be reloaded', async () => {
-			identity.findById.mockResolvedValue(null);
-
+		it('does not reload the account: the worker resolves it when it sends', async () => {
 			await service.resetPassword('tok-1', 'new-password');
 
 			expect(identity.changePassword).toHaveBeenCalled();
-			expect(mailer.sendPasswordChanged).not.toHaveBeenCalled();
+			expect(identity.findById).not.toHaveBeenCalled();
 		});
 	});
 

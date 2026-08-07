@@ -29,6 +29,9 @@ export type { StripeBillingProviderOptions } from './billing/StripeBillingProvid
 
 export { S3ObjectStorage } from './storage/S3ObjectStorage.js';
 
+export { SqsJobQueue } from './queue/SqsJobQueue.js';
+export type { SqsJobQueueOptions } from './queue/SqsJobQueue.js';
+
 export {
 	NoopErrorReporter,
 	SentryErrorReporter,

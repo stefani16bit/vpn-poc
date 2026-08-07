@@ -3,11 +3,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { hashToken } from '@vpn-poc/adapters';
 import { FixedClock } from '@vpn/testing/fakes';
 
-import { AppError } from '../../../shared/errors/app-error.js';
+import { AppError } from '../errors/app-error.js';
 import type {
 	ConsumedToken,
 	VerificationTokenRepository,
-} from '../repositories/verification-token.repository.js';
+} from './verification-token.repository.js';
 import type { VerificationPurpose } from './verification-token.purpose.js';
 import { VerificationTokenService } from './verification-token.service.js';
 

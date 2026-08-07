@@ -146,6 +146,7 @@ describe('assertDriverConfiguration', () => {
 		EMAIL_DRIVER: 'memory',
 		BILLING_DRIVER: 'memory',
 		STORAGE_DRIVER: 'memory',
+		QUEUE_DRIVER: 'memory',
 	};
 
 	it('passes when every driver is in-memory', () => {
@@ -177,6 +178,10 @@ describe('assertDriverConfiguration', () => {
 
 	it('demands a bucket when the storage driver is s3', () => {
 		expect(() => assertDriverConfiguration({ ...base, STORAGE_DRIVER: 's3' })).toThrow(/S3_BUCKET/);
+	});
+
+	it('demands a queue URL when the queue driver is sqs', () => {
+		expect(() => assertDriverConfiguration({ ...base, QUEUE_DRIVER: 'sqs' })).toThrow(/QUEUE_URL/);
 	});
 
 	it('ignores configuration belonging to a driver that is not selected', () => {

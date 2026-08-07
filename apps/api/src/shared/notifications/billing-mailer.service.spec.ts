@@ -4,7 +4,7 @@ import type { Env } from '@vpn-poc/env';
 import type { Account } from '@vpn/ports';
 import { MemoryEmailSender } from '@vpn/testing/fakes';
 
-import { runWithContext } from '../../../shared/http/request-context.js';
+import { runWithContext } from '../http/request-context.js';
 import { BillingMailer } from './billing-mailer.service.js';
 
 const env = { WEB_ORIGIN: 'https://app.example.com' } as Env;

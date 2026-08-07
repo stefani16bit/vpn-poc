@@ -54,6 +54,12 @@ Controle de acesso mora no kernel, não em auth: o guard lê uma claim de dentro
 do JWT e nunca consulta uma conta. Por isso `BillingModule` importa
 `AccessControlModule` e não `AuthModule` — ver DEC-024 e DEC-025.
 
+**Notificação também subiu para o kernel**, e pela mesma regra: dois módulos
+passaram a precisar. `shared/notifications/` tem os mailers, o dispatcher e o
+consumer; `shared/verification/` tem o serviço de token, que agora é emitido no
+envio e não mais no request (DEC-048). Um serviço **não envia e-mail**: escreve
+uma intenção em `shared/outbox/`, dentro da transação. Quem envia é o worker.
+
 **Repositório não tem teste unitário.** Fingir a cadeia fluente do drizzle
 afirma o formato de uma API fluente, não um comportamento; a corretude deles
 segue provada pelo e2e, e por isso `repositories/**` fica fora da cobertura.
