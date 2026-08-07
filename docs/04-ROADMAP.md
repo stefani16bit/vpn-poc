@@ -16,14 +16,14 @@ toda tabela de domínio sob RLS.
 | `packages/` — portas, contratos, i18n, fakes                | 199     | não                 |
 | `libs/env`                                                  | 15      | não                 |
 | `libs/adapters` — render de e-mail/SMS, redação             | 13      | não                 |
-| `apps/api` — kernel, serviços, controllers                  | 311     | não                 |
+| `apps/api` — kernel, serviços, controllers                  | 352     | não                 |
 | `apps/web` — store, telas, normalização de erro, locale     | 147     | não                 |
 | `infra` — validação de config CDK                           | 11      | não                 |
-| **Subtotal `pnpm verify`**                                  | **696** | **não**             |
+| **Subtotal `pnpm verify`**                                  | **737** | **não**             |
 | `libs/adapters` — as mesmas suítes contra os serviços reais | 73      | sim                 |
-| `apps/api` — isolamento por RLS, tabela a tabela            | 30      | sim                 |
-| `apps/api` — fluxo completo mais a matriz de locale         | 65      | sim                 |
-| **Total**                                                   | **864** |                     |
+| `apps/api` — RLS, transações e as formas de SQL dos repos   | 49      | sim                 |
+| `apps/api` — fluxo completo mais a matriz de locale         | 67      | sim                 |
+| **Total**                                                   | **926** |                     |
 
 `make check` 13/13 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
@@ -72,15 +72,20 @@ sem Docker ensina a ignorar suíte vermelha.
       (DEC-028), e o número honesto dos dois só apareceu ao ligar
       `coverage.include` — antes disso a corrida contava apenas os arquivos que
       algum teste já importava, e `apps/api` reportava 90% valendo 40%.
-- [ ] Repositório não tem teste de integração. A DEC-049 fecha **metade** disso:
-      a suíte de conformidade de `IIdentityProvider` não foi apagada com a porta,
-      e a parte de política dela virou teste unitário de `IdentityService`. A
-      parte de **forma de SQL** — a atomicidade do `UPDATE` condicional que gasta
-      o token, o `SELECT … FOR UPDATE` da rotação e a busca case-insensitive
-      contra o Postgres real — ainda não tem casa e segue coberta só pelo e2e.
-      Entra junto com a suíte
-      negativa de RLS, que precisa do mesmo harness; escrevê-la antes seria
-      escrevê-la contra um schema que a DEC-034 vai renomear.
+- [x] ~~Repositório não tem teste de integração.~~
+      `apps/api/src/shared/identity/identity.integration.spec.ts` fecha a metade
+      que a DEC-049 deixou aberta, no mesmo harness da suíte de RLS: a
+      atomicidade do `UPDATE` condicional que gasta um refresh token, o
+      `SELECT … FOR UPDATE` da rotação, o `consume` do token de verificação, as
+      duas restrições parciais de owner (DEC-039, DEC-052) e a corrida de slug.
+      O `FOR UPDATE` é provado **removendo** o lock: sem ele o perdedor de duas
+      rotações concorrentes decide por uma linha velha e devolve `rejected` em
+      vez de `reuse_detected`, e só esse teste fica vermelho.
+      Duas correções ao que esta linha dizia antes: a busca não é
+      case-insensitive — a normalização mora em `@vpn/contracts` e o índice é o
+      que a torna obrigatória —, então o que a suíte prova ali é a regra de
+      ambiguidade da DEC-051; e a suíte negativa de RLS não estava pendente, ela
+      chegou com a DEC-035.
 - [ ] A página de reset mostra a tela de link inválido só quando o token está
       **ausente**. Um token presente e malformado deixa um formulário que se
       recusa a enviar e não mostra nada, porque o campo de token não tem `Field`
@@ -180,9 +185,10 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 12/12
-pnpm --filter @vpn-poc/api test:e2e                  # 37, o fluxo inteiro
-pnpm --filter @vpn-poc/adapters test:integration     # 86, adapters reais
+make up && make check                                # devstack: 13/13
+pnpm --filter @vpn-poc/api test:e2e                  # 67, o fluxo inteiro
+pnpm --filter @vpn-poc/api test:integration          # 49, RLS e formas de SQL
+pnpm --filter @vpn-poc/adapters test:integration     # 73, adapters reais
 pnpm dev                                             # api :3000, web :5173
 ```
 
