@@ -1,8 +1,9 @@
+import { config as loadDotenv } from 'dotenv';
 import { defineConfig } from 'drizzle-kit';
 
-import { loadWorkspaceDotenv } from '@vpn-poc/env';
-
-loadWorkspaceDotenv();
+for (const path of ['../../.env.local', '../../.env']) {
+	loadDotenv({ path, override: false });
+}
 
 export default defineConfig({
 	schema: './src/schema.ts',
