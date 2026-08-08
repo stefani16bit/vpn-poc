@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import type { PlanId, SubscriptionResponse } from '@vpn/contracts';
+import type { Cadence, SubscriptionResponse } from '@vpn/contracts';
 
 import { Button } from '@/components/ui/button.tsx';
 import { useTranslator } from '@/i18n/locale-context.tsx';
@@ -13,7 +13,7 @@ export function PlanActions({
 }: {
 	subscription: SubscriptionResponse | undefined;
 	pending: boolean;
-	onSubscribe: (plan: PlanId) => void;
+	onSubscribe: (cadence: Cadence) => void;
 	onCancel: () => void;
 }): ReactNode {
 	const t = useTranslator();

@@ -6,24 +6,25 @@ Este arquivo faz as vezes de issue tracker. Não abra issues; edite aqui.
 
 ## Estado — 2026-08-07
 
-**Fase 1 + i18n entregues. Fase 2: outbox, webhook e Account/User + RLS
-entregues.** Cadastro, verificação, login, rotação de sessão, reset de senha e
-assinatura funcionando de ponta a ponta contra o devstack, em pt-BR e en, com
-toda tabela de domínio sob RLS.
+**Fase 1 + i18n entregues. Fase 2: outbox, webhook, Account/User + RLS e
+entitlements entregues.** Cadastro, verificação, login, rotação de sessão, reset
+de senha e assinatura funcionando de ponta a ponta contra o devstack, em pt-BR e
+en, com toda tabela de domínio sob RLS. Assinar agora muda o que a account tem:
+o tier sai da subscription a cada requisição, com cache, e o webhook invalida.
 
 | Suíte                                                       | Testes  | Precisa do devstack |
 | ----------------------------------------------------------- | ------- | ------------------- |
-| `packages/` — portas, contratos, i18n, fakes                | 199     | não                 |
+| `packages/` — portas, contratos, i18n, fakes                | 209     | não                 |
 | `libs/env`                                                  | 15      | não                 |
 | `libs/adapters` — render de e-mail/SMS, redação             | 13      | não                 |
-| `apps/api` — kernel, serviços, controllers                  | 352     | não                 |
-| `apps/web` — store, telas, normalização de erro, locale     | 147     | não                 |
+| `apps/api` — kernel, serviços, controllers                  | 375     | não                 |
+| `apps/web` — store, telas, normalização de erro, locale     | 148     | não                 |
 | `infra` — validação de config CDK                           | 11      | não                 |
-| **Subtotal `pnpm verify`**                                  | **737** | **não**             |
+| **Subtotal `pnpm verify`**                                  | **771** | **não**             |
 | `libs/adapters` — as mesmas suítes contra os serviços reais | 73      | sim                 |
-| `apps/api` — RLS, transações e as formas de SQL dos repos   | 49      | sim                 |
-| `apps/api` — fluxo completo mais a matriz de locale         | 67      | sim                 |
-| **Total**                                                   | **926** |                     |
+| `apps/api` — RLS, transações e as formas de SQL dos repos   | 54      | sim                 |
+| `apps/api` — fluxo completo mais a matriz de locale         | 73      | sim                 |
+| **Total**                                                   | **971** |                     |
 
 `make check` 13/13 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
@@ -125,6 +126,28 @@ sem Docker ensina a ignorar suíte vermelha.
 - [ ] **O slug não pode ser renomeado.** Ele nasce derivado de um e-mail pessoal
       (DEC-052) e frequentemente não é o nome que a empresa quer. Renomear mexe
       no subdomínio já em uso, então não é só um `UPDATE`.
+- [ ] **Nada reconcilia a subscription com o provider.** Se um webhook se perder,
+      a projeção fica parada e a account continua entitulada para sempre — o TTL
+      de 60s do cache encurta a janela de uma invalidação perdida, não a de um
+      evento que nunca chegou. O conserto é um job que pergunta ao provider, e é o
+      mesmo `WorkersStack` do expurgo. DEC-054.
+- [ ] **`@RequiresCapability` não tem chamador em produção.** O guard, a leitura e
+      a invalidação estão de pé e cobertos, mas a primeira rota de produto a
+      guardar é a de chaves e conexão. Até lá o gate é provado por unitário e o
+      caminho de leitura pelo e2e.
+- [ ] **`seats`, `devicesPerUser`, `monthlyTrafficGb` e `regions` são anunciados e
+      não aplicados.** Estão no tipo para os tiers se descreverem; o contador
+      depende da DEC-043 e os dois últimos do data plane. Com um tier só não há o
+      que aplicar, e meio-aplicar um contador parece aplicado.
+- [ ] **`pnpm --filter @vpn-poc/api build` falha.** `tsconfig.build.json` tem
+      `rootDir: src`, e os imports de `libs/*` entram por caminho de fonte, fora
+      dele. Não aparece no `pnpm verify`, que roda `typecheck` e não `build`; o
+      deploy real é `apps/api-lambda`. Anterior a este trabalho.
+- [ ] **`pnpm lint` passa vazio sem grafo do Nx.** `@nx/enforce-module-boundaries`
+      emite "No cached ProjectGraph is available. The rule will be skipped" e sai
+      com 0 — depois de um `nx reset`, toda a verificação de fronteira da DEC-017 e
+      da DEC-027 não roda e nada avisa. Foi assim que a tag errada de
+      `apps/worker` ficou vermelha sem ninguém ver.
 - [ ] **Uma transação de requisição atravessa chamada externa.**
       `BillingService.createCheckout` fala com o Stripe com a transação aberta,
       prendendo uma conexão do pool pela ida e volta. É um handler hoje; a
@@ -153,9 +176,13 @@ plane que ainda não existe.
       `0000_init` é regenerada — não há deploy. Policy por tabela e **um teste
       negativo por tabela**. Atenção: o e2e limpa como `vpn_app` e sob RLS isso
       passa a apagar zero linhas em silêncio. DEC-034, DEC-035.
-- [ ] **Entitlements e o gate de assinatura.** O mapa em `@vpn/contracts` com
-      **um** tier, leitura por requisição com cache, invalidação no webhook.
-      É aqui que assinar passa a desbloquear alguma coisa. DEC-036, DEC-037.
+- [x] **Entitlements e o gate de assinatura.** O mapa em `@vpn/contracts` com um
+      tier (`pro`) e uma capability (`vpn_access`), `resolveTier` a partir do
+      status, leitura por requisição via `ICacheStore` guardando o **tier**,
+      `GET /entitlements`, `CapabilityGuard` no kernel e invalidação no webhook —
+      provada removendo a chamada e vendo os dois cenários de cache quente ficarem
+      vermelhos. DEC-036, DEC-037, DEC-054, DEC-055, e
+      `docs/specs/entitlements-and-plans.md`.
 - [ ] **Página de usuários.** Admin cria user direto com senha, dentro da
       account. Sem convite por e-mail no PoC. Seats não são aplicados com um
       tier só; DEC-043 registra o mecanismo para quando forem.
@@ -186,8 +213,8 @@ plane que ainda não existe.
 
 ```bash
 make up && make check                                # devstack: 13/13
-pnpm --filter @vpn-poc/api test:e2e                  # 67, o fluxo inteiro
-pnpm --filter @vpn-poc/api test:integration          # 49, RLS e formas de SQL
+pnpm --filter @vpn-poc/api test:e2e                  # 73, o fluxo inteiro
+pnpm --filter @vpn-poc/api test:integration          # 54, RLS e formas de SQL
 pnpm --filter @vpn-poc/adapters test:integration     # 73, adapters reais
 pnpm dev                                             # api :3000, web :5173
 ```

@@ -8,7 +8,8 @@ import { AppError } from '../../../shared/errors/app-error.js';
 import type { ModuleLogger } from '../../../shared/http/module-logger.js';
 import type { TransactionRunner } from '../../../shared/database/transaction-runner.js';
 import type { BillingEventRepository } from '../repositories/billing-event.repository.js';
-import type { SubscriptionRepository } from '../repositories/subscription.repository.js';
+import type { SubscriptionRepository } from '../../../shared/subscriptions/subscription.repository.js';
+import type { EntitlementsService } from '../../../shared/entitlements/entitlements.service.js';
 import type { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 import type {
 	StoredUser,
@@ -72,6 +73,7 @@ describe('BillingService', () => {
 		runAsSystem: ReturnType<typeof vi.fn>;
 		runInAccount: ReturnType<typeof vi.fn>;
 	};
+	let entitlements: { invalidate: ReturnType<typeof vi.fn> };
 	let service: BillingService;
 
 	beforeEach(() => {
@@ -98,6 +100,8 @@ describe('BillingService', () => {
 			),
 		};
 
+		entitlements = { invalidate: vi.fn().mockResolvedValue(undefined) };
+
 		records = [];
 		service = new BillingService(
 			recordingLogger(),
@@ -108,34 +112,37 @@ describe('BillingService', () => {
 			events as unknown as BillingEventRepository,
 			outbox as unknown as OutboxRepository,
 			transactions as unknown as TransactionRunner,
+			entitlements as unknown as EntitlementsService,
 		);
 	});
 
 	describe('createCheckout', () => {
-		it('picks the yearly price for the yearly plan', async () => {
-			await service.createCheckout('acc-1', 'yearly');
+		it('picks the price of the tier and cadence pair, not of the cadence alone', async () => {
+			await service.createCheckout('acc-1', 'pro', 'yearly');
 			expect(billing.createCheckout.mock.calls[0]?.[0]).toMatchObject({
 				priceId: 'price_yearly',
 			});
 		});
 
 		it('picks the monthly price otherwise', async () => {
-			await service.createCheckout('acc-1', 'monthly');
+			await service.createCheckout('acc-1', 'pro', 'monthly');
 			expect(billing.createCheckout.mock.calls[0]?.[0]).toMatchObject({
 				priceId: 'price_monthly',
 			});
 		});
 
 		it('keys the session on account and plan, so a double click is one session', async () => {
-			await service.createCheckout('acc-1', 'monthly');
+			await service.createCheckout('acc-1', 'pro', 'monthly');
 			expect(billing.createCheckout.mock.calls[0]?.[0]).toMatchObject({
-				idempotencyKey: 'checkout:acc-1:monthly',
+				idempotencyKey: 'checkout:acc-1:pro:monthly',
 			});
 		});
 
 		it('rejects an account that no longer exists', async () => {
 			identity.findOwner.mockResolvedValue(undefined);
-			await expect(service.createCheckout('acc-1', 'monthly')).rejects.toBeInstanceOf(AppError);
+			await expect(service.createCheckout('acc-1', 'pro', 'monthly')).rejects.toBeInstanceOf(
+				AppError,
+			);
 		});
 
 		it('fails loudly when the plan has no configured price', async () => {
@@ -148,9 +155,10 @@ describe('BillingService', () => {
 				events as unknown as BillingEventRepository,
 				outbox as unknown as OutboxRepository,
 				transactions as unknown as TransactionRunner,
+				entitlements as unknown as EntitlementsService,
 			);
 
-			await expect(withoutYearly.createCheckout('acc-1', 'yearly')).rejects.toBeInstanceOf(
+			await expect(withoutYearly.createCheckout('acc-1', 'pro', 'yearly')).rejects.toBeInstanceOf(
 				AppError,
 			);
 		});
@@ -236,6 +244,7 @@ describe('BillingService', () => {
 			expect(await service.handleWebhook('{}', 'sig')).toBe(false);
 			expect(subscriptions.upsert).not.toHaveBeenCalled();
 			expect(outbox.enqueue).not.toHaveBeenCalled();
+			expect(entitlements.invalidate).not.toHaveBeenCalled();
 			expect(records).toContainEqual(
 				expect.objectContaining({
 					module: 'billing',
@@ -408,6 +417,76 @@ describe('BillingService', () => {
 			await service.handleWebhook('{}', 'sig');
 
 			expect(identity.findOwner).not.toHaveBeenCalled();
+		});
+
+		const APPLIED_EVENTS: NormalizedBillingEvent[] = [
+			{
+				kind: 'subscription_activated',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-10',
+				subscription: subscription(),
+			},
+			{
+				kind: 'subscription_updated',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-11',
+				subscription: subscription({ status: 'past_due' }),
+			},
+			{
+				kind: 'subscription_canceled',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-12',
+				subscription: subscription({ status: 'canceled' }),
+			},
+			{
+				kind: 'payment_failed',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-13',
+				externalCustomerId: 'cus_1',
+			},
+		];
+
+		it.each(APPLIED_EVENTS)('drops the cached entitlements of a $kind', async (event) => {
+			billing.parseWebhookEvent.mockReturnValue(event);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(entitlements.invalidate).toHaveBeenCalledWith('acc-1');
+		});
+
+		it('drops them after the transaction commits, not inside it', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				kind: 'subscription_updated',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-14',
+				subscription: subscription({ status: 'past_due' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(subscriptions.upsert.mock.invocationCallOrder[0]).toBeLessThan(
+				entitlements.invalidate.mock.invocationCallOrder[0] as number,
+			);
+		});
+
+		it('leaves the cache alone when the write never landed', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				kind: 'subscription_activated',
+				occurredAt: OCCURRED_AT,
+				accountId: 'acc-1',
+				externalEventId: 'evt-15',
+				subscription: subscription(),
+			} satisfies NormalizedBillingEvent);
+			subscriptions.upsert.mockRejectedValue(new Error('the database went away'));
+
+			await expect(service.handleWebhook('{}', 'sig')).rejects.toThrow('the database went away');
+
+			expect(entitlements.invalidate).not.toHaveBeenCalled();
 		});
 	});
 });

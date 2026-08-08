@@ -2,10 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
-import type { PlanId, SubscriptionResponse } from '@vpn/contracts';
+import type { Cadence, SubscriptionResponse, TierId } from '@vpn/contracts';
 import { BILLING_PROVIDER, type IBillingProvider, type NormalizedBillingEvent } from '@vpn/ports';
 
 import { TransactionRunner, type Executor } from '../../../shared/database/transaction-runner.js';
+import { EntitlementsService } from '../../../shared/entitlements/entitlements.service.js';
 import { UserRepository } from '../../../shared/identity/repositories/user.repository.js';
 import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 import { AppError } from '../../../shared/errors/app-error.js';
@@ -14,10 +15,14 @@ import {
 	type ModuleLogger,
 	contextLogger,
 } from '../../../shared/http/module-logger.js';
+import { SubscriptionRepository } from '../../../shared/subscriptions/subscription.repository.js';
 import { BillingEventRepository } from '../repositories/billing-event.repository.js';
-import { SubscriptionRepository } from '../repositories/subscription.repository.js';
 
 const SOURCE = 'stripe';
+
+const PRICE_ENV_BY_PLAN: Record<TierId, Record<Cadence, keyof Env>> = {
+	pro: { monthly: 'STRIPE_PRICE_ID', yearly: 'STRIPE_PRICE_ID_YEARLY' },
+};
 
 const NO_SUBSCRIPTION: SubscriptionResponse = {
 	status: 'none',
@@ -38,21 +43,22 @@ export class BillingService {
 		private readonly events: BillingEventRepository,
 		private readonly outbox: OutboxRepository,
 		private readonly transactions: TransactionRunner,
+		private readonly entitlements: EntitlementsService,
 	) {
 		this.#logger = contextLogger(logger, BillingService.name);
 	}
 
-	async createCheckout(accountId: string, plan: PlanId): Promise<string> {
+	async createCheckout(accountId: string, tier: TierId, cadence: Cadence): Promise<string> {
 		const owner = await this.users.findOwner(accountId);
 		if (!owner) throw new AppError('UNAUTHENTICATED', 'account no longer exists');
 
 		const session = await this.billing.createCheckout({
 			accountId,
 			email: owner.email,
-			priceId: this.#priceFor(plan),
+			priceId: this.#priceFor(tier, cadence),
 			successUrl: `${this.env.WEB_ORIGIN}/billing/success`,
 			cancelUrl: `${this.env.WEB_ORIGIN}/billing/cancel`,
-			idempotencyKey: `checkout:${accountId}:${plan}`,
+			idempotencyKey: `checkout:${accountId}:${tier}:${cadence}`,
 		});
 
 		return session.url;
@@ -111,6 +117,8 @@ export class BillingService {
 			return false;
 		}
 
+		await this.entitlements.invalidate(event.accountId);
+
 		return true;
 	}
 
@@ -142,10 +150,10 @@ export class BillingService {
 		);
 	}
 
-	#priceFor(plan: PlanId): string {
-		const priceId = plan === 'yearly' ? this.env.STRIPE_PRICE_ID_YEARLY : this.env.STRIPE_PRICE_ID;
-		if (!priceId) {
-			throw new AppError('INTERNAL', `no price configured for plan "${plan}"`);
+	#priceFor(tier: TierId, cadence: Cadence): string {
+		const priceId = this.env[PRICE_ENV_BY_PLAN[tier][cadence]];
+		if (typeof priceId !== 'string' || priceId.length === 0) {
+			throw new AppError('INTERNAL', `no price configured for plan "${tier}/${cadence}"`);
 		}
 		return priceId;
 	}

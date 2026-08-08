@@ -1,6 +1,6 @@
 # Entitlements e planos
 
-**Status:** em implementação
+**Status:** entregue
 **Decisões relacionadas:** DEC-036, DEC-037, DEC-043, DEC-054, DEC-055
 
 ## Problema

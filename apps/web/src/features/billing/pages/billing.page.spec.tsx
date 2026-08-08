@@ -105,7 +105,17 @@ describe('BillingPage', () => {
 		await userEvent.click(monthly);
 
 		await waitFor(() => expect(assign).toHaveBeenCalledWith('https://checkout.example/session'));
-		expect(api.lastRequest()?.body).toEqual({ plan: 'monthly' });
+		expect(api.lastRequest()?.body).toEqual({ tier: 'pro', cadence: 'monthly' });
+	});
+
+	it('lists what the tier includes, straight from the shared map', async () => {
+		api.reply({ status: 'active', currentPeriodEnd: null, cancelAtPeriodEnd: false });
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn() });
+
+		expect(await screen.findByText('The plan includes')).toBeInTheDocument();
+		expect(screen.getByText('25 users')).toBeInTheDocument();
+		expect(screen.getByText('5 devices per user')).toBeInTheDocument();
+		expect(screen.getByText('Regions: US, EU')).toBeInTheDocument();
 	});
 
 	it('clears the session when the user signs out', async () => {

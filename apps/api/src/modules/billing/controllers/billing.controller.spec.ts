@@ -44,10 +44,13 @@ describe('BillingController', () => {
 	});
 
 	it('wraps the checkout url in the response shape', async () => {
-		const response = await controller.createCheckout(CLAIMS, { plan: 'monthly' });
+		const response = await controller.createCheckout(CLAIMS, {
+			tier: 'pro',
+			cadence: 'monthly',
+		});
 
 		expect(response).toEqual({ checkoutUrl: 'https://checkout.example/session' });
-		expect(billing.createCheckout).toHaveBeenCalledWith('acc-1', 'monthly');
+		expect(billing.createCheckout).toHaveBeenCalledWith('acc-1', 'pro', 'monthly');
 	});
 
 	it('reads the subscription for the authenticated account only', async () => {

@@ -1,6 +1,6 @@
 import { useDispatch, useSelector } from 'react-redux';
 
-import type { PlanId } from '@vpn/contracts';
+import type { Cadence } from '@vpn/contracts';
 
 import { normalizeError } from '@/app/store/api-error.js';
 import { sessionCleared } from '@/app/store/auth-slice.js';
@@ -16,6 +16,7 @@ import {
 	useSubscriptionQuery,
 } from '@/features/billing/api/billing.api.js';
 import { PlanActions } from '@/features/billing/components/plan-actions.tsx';
+import { PlanEntitlements } from '@/features/billing/components/plan-entitlements.tsx';
 import { SubscriptionStatus } from '@/features/billing/components/subscription-status.tsx';
 import { LanguagePicker } from '@/i18n/language-picker.tsx';
 import { useTranslator } from '@/i18n/locale-context.tsx';
@@ -30,8 +31,8 @@ export function BillingPage() {
 	const [cancelSubscription, cancelState] = useCancelSubscriptionMutation();
 	const [logout] = useLogoutMutation();
 
-	async function subscribe(plan: PlanId) {
-		const result = await createCheckout({ plan });
+	async function subscribe(cadence: Cadence) {
+		const result = await createCheckout({ tier: 'pro', cadence });
 		if ('data' in result && result.data) window.location.assign(result.data.checkoutUrl);
 	}
 
@@ -69,9 +70,10 @@ export function BillingPage() {
 						<PlanActions
 							subscription={subscription.data}
 							pending={checkoutState.isLoading || cancelState.isLoading}
-							onSubscribe={(plan) => void subscribe(plan)}
+							onSubscribe={(cadence) => void subscribe(cadence)}
 							onCancel={() => void cancelSubscription()}
 						/>
+						<PlanEntitlements tier="pro" />
 					</>
 				)}
 			</CardContent>

@@ -5,7 +5,8 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DATABASE_CONNECTION } from '@vpn-poc/adapters';
-import { BILLING_PROVIDER } from '@vpn/ports';
+import { ENTITLEMENTS, UNSUBSCRIBED_ENTITLEMENTS } from '@vpn/contracts';
+import { BILLING_PROVIDER, type SubscriptionStatus } from '@vpn/ports';
 import type { MemoryBillingProvider } from '@vpn/testing/fakes';
 
 import type { createDatabase } from '@vpn-poc/database';
@@ -595,7 +596,7 @@ describe('billing', () => {
 		const response = await request(app.getHttpServer())
 			.post('/billing/checkout')
 			.set('Authorization', `Bearer ${session.accessToken}`)
-			.send({ plan: 'monthly' })
+			.send({ tier: 'pro', cadence: 'monthly' })
 			.expect(200);
 
 		expect(response.body.checkoutUrl).toContain('price_local_monthly');
@@ -607,7 +608,7 @@ describe('billing', () => {
 			request(app.getHttpServer())
 				.post('/billing/checkout')
 				.set('Authorization', `Bearer ${session.accessToken}`)
-				.send({ plan: 'monthly' });
+				.send({ tier: 'pro', cadence: 'monthly' });
 
 		const [first, second] = [await send(), await send()];
 		expect(second.body.checkoutUrl).toBe(first.body.checkoutUrl);
@@ -616,7 +617,7 @@ describe('billing', () => {
 	it('requires authentication to start a checkout', async () => {
 		await request(app.getHttpServer())
 			.post('/billing/checkout')
-			.send({ plan: 'monthly' })
+			.send({ tier: 'pro', cadence: 'monthly' })
 			.expect(401);
 	});
 
@@ -860,6 +861,95 @@ describe('billing', () => {
 			.expect(200);
 
 		expect(response.body).toMatchObject({ status: 'active', cancelAtPeriodEnd: true });
+	});
+
+	describe('entitlements', () => {
+		async function entitlementsOf(accessToken: string) {
+			const response = await request(app.getHttpServer())
+				.get('/entitlements')
+				.set('Authorization', `Bearer ${accessToken}`)
+				.expect(200);
+			return response.body as { tier: string | null; entitlements: { capabilities: string[] } };
+		}
+
+		function activation(accountId: string, status: SubscriptionStatus = 'active') {
+			const billing = provider();
+			return billing.emit('subscription_activated', accountId, {
+				subscription: { ...billing.seedSubscription(`sub_${accountId}`, accountId), status },
+			});
+		}
+
+		function statusChange(accountId: string, status: SubscriptionStatus, at: string) {
+			const billing = provider();
+			return billing.emit('subscription_updated', accountId, {
+				subscription: { ...billing.seedSubscription(`sub_${accountId}`, accountId), status },
+				occurredAt: new Date(at),
+			});
+		}
+
+		it('unlocks nothing for an account that never subscribed', async () => {
+			const session = await subscribedSession();
+
+			expect(await entitlementsOf(session.accessToken)).toEqual({
+				tier: null,
+				entitlements: UNSUBSCRIBED_ENTITLEMENTS,
+			});
+		});
+
+		it('requires a token, since the answer is about one account', async () => {
+			await request(app.getHttpServer()).get('/entitlements').expect(401);
+		});
+
+		it('grants the tier on the next request after the activation webhook', async () => {
+			const session = await subscribedSession();
+			expect((await entitlementsOf(session.accessToken)).tier).toBeNull();
+
+			await deliver(activation(session.accountId)).expect(200, { applied: true });
+
+			expect(await entitlementsOf(session.accessToken)).toEqual({
+				tier: 'pro',
+				entitlements: ENTITLEMENTS.pro,
+			});
+		});
+
+		it('takes the tier away on the next request after the status goes past_due', async () => {
+			const session = await subscribedSession();
+			await deliver(activation(session.accountId)).expect(200, { applied: true });
+			expect((await entitlementsOf(session.accessToken)).tier).toBe('pro');
+
+			await deliver(statusChange(session.accountId, 'past_due', '2026-09-02T00:00:00.000Z')).expect(
+				200,
+				{ applied: true },
+			);
+
+			expect(await entitlementsOf(session.accessToken)).toEqual({
+				tier: null,
+				entitlements: UNSUBSCRIBED_ENTITLEMENTS,
+			});
+		});
+
+		it('leaves the tier standing on a payment_failed, which carries no subscription', async () => {
+			const session = await subscribedSession();
+			await deliver(activation(session.accountId)).expect(200, { applied: true });
+			expect((await entitlementsOf(session.accessToken)).tier).toBe('pro');
+
+			const hook = provider().emit('payment_failed', session.accountId, {
+				externalCustomerId: 'cus_e2e',
+			});
+			await deliver(hook).expect(200, { applied: true });
+
+			expect((await entitlementsOf(session.accessToken)).tier).toBe('pro');
+		});
+
+		it('never serves one account the tier of another', async () => {
+			const paid = await subscribedSession();
+			const unpaid = await subscribedSession();
+
+			await deliver(activation(paid.accountId)).expect(200, { applied: true });
+
+			expect((await entitlementsOf(paid.accessToken)).tier).toBe('pro');
+			expect((await entitlementsOf(unpaid.accessToken)).tier).toBeNull();
+		});
 	});
 });
 

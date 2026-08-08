@@ -40,7 +40,9 @@ export class BillingController {
 		@Auth() claims: AccessTokenClaims,
 		@Body(new ZodBody(createCheckoutRequestSchema)) body: CreateCheckoutRequest,
 	): Promise<CreateCheckoutResponse> {
-		return { checkoutUrl: await this.billing.createCheckout(claims.accountId, body.plan) };
+		return {
+			checkoutUrl: await this.billing.createCheckout(claims.accountId, body.tier, body.cadence),
+		};
 	}
 
 	@Get('subscription')

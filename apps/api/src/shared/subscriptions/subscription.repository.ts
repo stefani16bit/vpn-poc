@@ -5,8 +5,8 @@ import { DATABASE } from '@vpn-poc/adapters';
 import { subscriptions, type Database } from '@vpn-poc/database';
 import type { Subscription } from '@vpn/ports';
 
-import { currentExecutor } from '../../../shared/database/db-scope.js';
-import type { Executor } from '../../../shared/database/transaction-runner.js';
+import { currentExecutor } from '../database/db-scope.js';
+import type { Executor } from '../database/transaction-runner.js';
 
 export interface StoredSubscription {
 	readonly status: typeof subscriptions.$inferSelect.status;

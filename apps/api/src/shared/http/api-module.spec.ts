@@ -6,6 +6,7 @@ describe('api module', () => {
 	it('attributes a route to the module that owns its prefix', () => {
 		expect(moduleForUrl('/auth/login')).toBe('auth');
 		expect(moduleForUrl('/billing/webhook')).toBe('billing');
+		expect(moduleForUrl('/entitlements')).toBe('entitlements');
 		expect(moduleForUrl('/health/ready')).toBe('health');
 	});
 

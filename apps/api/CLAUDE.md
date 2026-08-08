@@ -63,6 +63,20 @@ lançado **fora** dela; lançar dentro desfaz a revogação da família e devolv
 token roubado funcionando. O e2e `revokes the whole family when a refresh token
 is replayed` é o que pega isso.
 
+**Guard roda antes de interceptor, e a transação é um interceptor.** Dentro de um
+`canActivate` não existe escopo de banco: `currentExecutor()` lança. É por isso
+que o `CapabilityGuard` lê o tier pelo cache e, no miss, o
+`EntitlementsService` abre a **própria** transação com `runInAccount` — ele
+ramifica em `hasScope()` justamente para servir os dois chamadores, o guard (sem
+escopo) e um handler (dentro do escopo da requisição). Mover essa checagem para
+um segundo interceptor global faria a leitura acontecer dentro do escopo, mas
+poria autorização depois do pipeline em vez de na frente dele. Ver DEC-055.
+
+**A invalidação do cache de entitlement é efeito do webhook, depois do commit.**
+Antes do commit, uma requisição concorrente reescreve a entrada com a linha
+pré-commit e a invalidação se perde. Os dois cenários de cache quente no e2e
+ficam vermelhos se a chamada sair — foi assim que eles foram conferidos.
+
 **Sem `ValidationPipe`.** É um front-end de class-validator. A validação aqui é
 zod contra `@vpn/contracts`, os mesmos schemas que o formulário do front usa.
 Ver DEC-008.
@@ -82,9 +96,16 @@ módulo nenhum. Dentro de um módulo, `controllers/ services/ repositories/
 mappers/`. As quatro fronteiras são verificadas por lint (DEC-027), cada uma
 provada com uma sonda.
 
-Controle de acesso mora no kernel, não em auth: o guard lê uma claim de dentro
-do JWT e nunca consulta uma conta. Por isso `BillingModule` importa
+Controle de acesso mora no kernel, não em auth: o `AccessTokenGuard` lê uma claim
+de dentro do JWT e nunca consulta uma conta. Por isso `BillingModule` importa
 `AccessControlModule` e não `AuthModule` — ver DEC-024 e DEC-025.
+
+A segunda dimensão de autorização mora ao lado: `shared/entitlements/` lê o tier
+da subscription com cache, e `shared/subscriptions/` tem o repositório que os dois
+lados usam — o webhook escreve, o kernel lê, e o kernel não pode importar de
+`modules/`. `AccessControlModule` importa `EntitlementsModule` e exporta o
+`CapabilityGuard`; quem tem rota de produto para guardar importa só
+`AccessControlModule`.
 
 **Notificação também subiu para o kernel**, e pela mesma regra: dois módulos
 passaram a precisar. `shared/notifications/` tem os mailers, o dispatcher e o
