@@ -16,15 +16,15 @@ o tier sai da subscription a cada requisição, com cache, e o webhook invalida.
 | ----------------------------------------------------------- | ------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                | 209     | não                 |
 | `libs/env`                                                  | 19      | não                 |
-| `libs/adapters` — render de e-mail/SMS, redação             | 13      | não                 |
+| `libs/adapters` — render de e-mail/SMS, redação, webhook    | 20      | não                 |
 | `apps/api` — kernel, serviços, controllers                  | 375     | não                 |
 | `apps/web` — store, telas, normalização de erro, locale     | 148     | não                 |
 | `infra` — validação de config CDK                           | 11      | não                 |
-| **Subtotal `pnpm verify`**                                  | **775** | **não**             |
+| **Subtotal `pnpm verify`**                                  | **782** | **não**             |
 | `libs/adapters` — as mesmas suítes contra os serviços reais | 73      | sim                 |
 | `apps/api` — RLS, transações e as formas de SQL dos repos   | 54      | sim                 |
 | `apps/api` — fluxo completo mais a matriz de locale         | 73      | sim                 |
-| **Total**                                                   | **975** |                     |
+| **Total**                                                   | **982** |                     |
 
 `make check` 14/14 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
@@ -37,13 +37,21 @@ sem Docker ensina a ignorar suíte vermelha.
 
 ### Antes de qualquer deploy
 
-- [ ] **Validar Stripe Checkout contra a API real.** localstripe não tem o
-      endpoint (DEC-009), então `createCheckout` do adapter Stripe é o único ponto
-      do sistema sem cobertura contra o provider. **Não depende mais de staging:**
-      test mode mais `stripe listen` fazem o fluxo inteiro numa máquina de
-      desenvolvimento (DEC-056, `docs/06-AMBIENTE-LOCAL.md` §7.2). O que falta é
-      alguém rodar e registrar o resultado — e, depois disso, decidir se vale
-      automatizar contra a conta de test mode em CI.
+- [x] ~~**Validar Stripe Checkout contra a API real.**~~ Rodado em 2026-08-08
+      contra uma conta em test mode, com `stripe listen` encaminhando: o
+      `createCheckout` devolve uma sessão `checkout.stripe.com` de verdade; um
+      `customer.subscription.created` real verifica assinatura, normaliza,
+      atualiza a projeção e invalida o cache — `GET /entitlements` passou a `pro`;
+      e um cartão que falha ao ser cobrado (`pm_card_chargeCustomerFail`) produziu
+      `invoice.payment_failed` aplicado, com o e-mail de dunning na caixa.
+      **Achou dois bugs, os dois corrigidos na DEC-057.** Falta só o clique humano
+      na página hospedada, que nenhum teste automatiza.
+- [ ] **`stripe` está no 17 e o npm no 22; a versão de API que fixamos é de
+      2025-02.** Não é urgente: a DEC-057 fez o parser aguentar as duas formas de
+      payload. Mas as **nossas chamadas** continuam falando uma versão de 18 meses
+      atrás, então campo novo não existe para nós e os tipos descrevem um passado.
+      Subir são cinco majors de mudança de tipos, e o alvo natural é a versão
+      default da conta.
 - [ ] Preencher as stacks CDK. Ordem: `network` → `data` → `events` → `api`.
 - [ ] Secrets Manager em vez de variáveis de ambiente para `AUTH_JWT_SECRET` e
       `STRIPE_WEBHOOK_SECRET`.

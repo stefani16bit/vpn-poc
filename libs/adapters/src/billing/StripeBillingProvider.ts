@@ -124,7 +124,7 @@ export class StripeBillingProvider implements IBillingProvider {
 
 			case 'invoice.payment_failed': {
 				const invoice = event.data.object as Stripe.Invoice;
-				const accountId = accountIdOf(invoice.subscription_details?.metadata ?? null);
+				const accountId = accountIdOf(subscriptionMetadataOf(invoice));
 				if (!accountId) return null;
 				return {
 					kind: 'payment_failed',
@@ -151,11 +151,42 @@ function toSubscription(subscription: Stripe.Subscription): Subscription {
 		externalId: subscription.id,
 		externalCustomerId: String(subscription.customer),
 		status: toStatus(subscription.status),
-		currentPeriodEnd: subscription.current_period_end
-			? new Date(subscription.current_period_end * 1000)
-			: null,
+		currentPeriodEnd: periodEndOf(subscription),
 		cancelAtPeriodEnd: subscription.cancel_at_period_end,
 	};
+}
+
+function periodEndOf(subscription: Stripe.Subscription): Date | null {
+	const seconds =
+		secondsAt(subscription, 'current_period_end') ??
+		secondsAt(subscription.items?.data?.[0], 'current_period_end');
+
+	return seconds === null ? null : new Date(seconds * 1000);
+}
+
+function subscriptionMetadataOf(invoice: Stripe.Invoice): Stripe.Metadata | null {
+	const parent = propertyOf(invoice, 'parent');
+	const nested = propertyOf(propertyOf(parent, 'subscription_details'), 'metadata');
+
+	if (nested !== undefined && typeof nested === 'object' && nested !== null) {
+		return nested as Stripe.Metadata;
+	}
+
+	return invoice.subscription_details?.metadata ?? null;
+}
+
+// The SDK types each field where the API version it was built against puts it, and
+// both of these moved: current_period_end onto subscription items, and
+// subscription_details under invoice.parent. A webhook endpoint keeps whatever
+// version it was created with, so a payload of either shape can arrive at any time.
+function propertyOf(value: unknown, key: string): unknown {
+	if (typeof value !== 'object' || value === null) return undefined;
+	return (value as Record<string, unknown>)[key];
+}
+
+function secondsAt(value: unknown, key: string): number | null {
+	const seconds = propertyOf(value, key);
+	return typeof seconds === 'number' ? seconds : null;
 }
 
 function toStatus(status: Stripe.Subscription.Status): SubscriptionStatus {

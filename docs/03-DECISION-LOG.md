@@ -1894,3 +1894,47 @@ do Stripe, que é o que a suíte de conformidade impede. O script tem
 
 A validação do Stripe Checkout contra a API real sai de "só em staging" para
 "qualquer laptop com a CLI", e a linha do roadmap muda de bloqueio para tarefa.
+
+---
+
+### DEC-057 — O parser de webhook lê as duas formas de payload
+
+**Data:** 2026-08-08 · **Status:** accepted
+
+**Contexto.** Medido contra a conta real em test mode: o default dela é
+`2026-04-22.dahlia`, enquanto `StripeBillingProvider` fixa
+`2025-02-24.acacia` e o SDK é o `stripe@17` (o npm está no 22). Dois campos que o
+adapter lê mudaram de lugar nesse intervalo:
+
+| Lido em                                 | Onde está hoje                                 |
+| --------------------------------------- | ---------------------------------------------- |
+| `subscription.current_period_end`       | `subscription.items.data[].current_period_end` |
+| `invoice.subscription_details.metadata` | `invoice.parent.subscription_details.metadata` |
+
+O primeiro gravava `current_period_end` nulo — a tela cai no texto "o fim do
+período vigente" e ninguém percebe. O segundo é pior: `accountIdOf` devolvia
+`null`, o evento normalizava para `null`, o webhook respondia `applied: false` e o
+e-mail de "não conseguimos processar seu pagamento" **nunca saía**. Silencioso, e
+invisível para toda a suíte: as fixtures foram escritas na forma antiga.
+
+**Decisão.** O parser lê as duas formas: subscription primeiro, item depois;
+`parent.subscription_details` primeiro, raiz depois. Fixtures das duas versões no
+teste unitário.
+
+**Rationale.** Não é tolerância defensiva por hábito — é o contrato do provider.
+Um endpoint de webhook guarda a versão com que foi criado **para sempre**, então
+um payload antigo pode chegar amanhã, de um endpoint criado ano passado, e uma
+reentrega de evento chega na versão de quando ele nasceu.
+
+Rejeitado fixar a versão no endpoint: funciona, e continua sendo uma boa ideia no
+deploy, mas faz a correção depender de um campo de dashboard que não aparece em
+lugar nenhum do código — e não resolve o endpoint que já existe.
+
+Rejeitado subir o SDK e ler só a forma nova: a versão do SDK decide o que as
+**nossas chamadas** recebem, não o que um endpoint entrega. Ler só a forma nova
+troca um bug silencioso por outro.
+
+**Consequências.** Duas leituras estruturais com cast documentado, porque o SDK
+tipa cada campo só onde a versão dele o coloca. Subir o `stripe` para o 22 segue
+desejável e agora é separado: o parser aguenta as duas pontas, então a atualização
+deixou de ser urgente. Está no roadmap.

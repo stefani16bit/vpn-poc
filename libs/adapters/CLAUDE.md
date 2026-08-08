@@ -38,6 +38,14 @@ evento: um `customer.subscription.updated` que chega com `status: 'canceled'` é
 um cancelamento. Confiar no nome é como uma assinatura cancelada acaba gravada
 como ativa.
 
+**E lê as duas formas de payload**, porque um endpoint de webhook guarda para
+sempre a versão de API com que foi criado, enquanto o default da conta anda para
+frente. `current_period_end` mora na subscription até `2025-02-24.acacia` e nos
+**items** depois; `subscription_details` da invoice mora na raiz antes e sob
+`parent` depois. Ler só uma das formas é o que fazia um `invoice.payment_failed`
+real normalizar para `null` — webhook respondendo `applied: false`, e-mail de
+dunning nunca enviado, nada vermelho em nenhum teste. Ver DEC-057.
+
 **`ConsoleSmsSender`** lança no construtor se `NODE_ENV=production`. Ele imprime
 o código em vez de enviar; falhar no boot é melhor que o usuário nunca receber.
 
