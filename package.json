@@ -20,6 +20,8 @@
     "packages:publish:local": "pnpm -C packages publish:local",
     "test:integration": "pnpm --filter @vpn-poc/adapters test:integration && pnpm --filter @vpn-poc/api test:integration && pnpm --filter @vpn-poc/api test:e2e",
     "db:migrate": "pnpm --filter @vpn-poc/database db:migrate",
+    "billing:prices": "node scripts/billing-prices.mjs",
+    "billing:activate": "pnpm --filter @vpn-poc/api billing:activate",
     "synth": "pnpm --filter @vpn-poc/infra synth",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",

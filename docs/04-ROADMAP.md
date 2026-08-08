@@ -15,18 +15,18 @@ o tier sai da subscription a cada requisição, com cache, e o webhook invalida.
 | Suíte                                                       | Testes  | Precisa do devstack |
 | ----------------------------------------------------------- | ------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                | 209     | não                 |
-| `libs/env`                                                  | 15      | não                 |
+| `libs/env`                                                  | 19      | não                 |
 | `libs/adapters` — render de e-mail/SMS, redação             | 13      | não                 |
 | `apps/api` — kernel, serviços, controllers                  | 375     | não                 |
 | `apps/web` — store, telas, normalização de erro, locale     | 148     | não                 |
 | `infra` — validação de config CDK                           | 11      | não                 |
-| **Subtotal `pnpm verify`**                                  | **771** | **não**             |
+| **Subtotal `pnpm verify`**                                  | **775** | **não**             |
 | `libs/adapters` — as mesmas suítes contra os serviços reais | 73      | sim                 |
 | `apps/api` — RLS, transações e as formas de SQL dos repos   | 54      | sim                 |
 | `apps/api` — fluxo completo mais a matriz de locale         | 73      | sim                 |
-| **Total**                                                   | **971** |                     |
+| **Total**                                                   | **975** |                     |
 
-`make check` 13/13 · `cdk synth` 6 stacks · `consumer-check` verde ·
+`make check` 14/14 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
 
 `pnpm verify` roda com o Docker parado, de propósito: `*.integration.spec.ts` e
@@ -37,9 +37,13 @@ sem Docker ensina a ignorar suíte vermelha.
 
 ### Antes de qualquer deploy
 
-- [ ] **Validar Stripe Checkout contra a API real em staging.** localstripe não
-      tem o endpoint (DEC-009), então `createCheckout` do adapter Stripe é o
-      único ponto do sistema sem cobertura contra o provider.
+- [ ] **Validar Stripe Checkout contra a API real.** localstripe não tem o
+      endpoint (DEC-009), então `createCheckout` do adapter Stripe é o único ponto
+      do sistema sem cobertura contra o provider. **Não depende mais de staging:**
+      test mode mais `stripe listen` fazem o fluxo inteiro numa máquina de
+      desenvolvimento (DEC-056, `docs/06-AMBIENTE-LOCAL.md` §7.2). O que falta é
+      alguém rodar e registrar o resultado — e, depois disso, decidir se vale
+      automatizar contra a conta de test mode em CI.
 - [ ] Preencher as stacks CDK. Ordem: `network` → `data` → `events` → `api`.
 - [ ] Secrets Manager em vez de variáveis de ambiente para `AUTH_JWT_SECRET` e
       `STRIPE_WEBHOOK_SECRET`.
@@ -96,10 +100,16 @@ sem Docker ensina a ignorar suíte vermelha.
       `getTranslator` (DEC-014).
 - [ ] Não há lint que proíba string literal voltada ao usuário. A disciplina de
       i18n é revisão, não ferramenta.
-- [ ] **O localstripe não semeia preço nenhum.** `price_local_monthly` e
-      `price_local_yearly` respondem 404, e nada em `devstack/` os cria — o
-      `.env.example` aponta para preços que não existem. O e2e não pega porque
-      usa `BILLING_DRIVER=memory`; quem paga é quem testa no navegador.
+- [x] ~~**O localstripe não semeia preço nenhum.**~~ Estava certo e **insuficiente**:
+      semear preço só moveria a falha do `#priceFor` para a criação da sessão,
+      porque o localstripe não implementa `/v1/checkout/sessions` **nem**
+      `/v1/prices` — as duas respondem `404 text/plain`, e é isso que o SDK relata
+      como "Invalid JSON received from the Stripe API". Medido em 2026-08-08.
+      Fechado pelo outro lado (DEC-056): cobrança de verdade roda contra o Stripe
+      em test mode com a CLI, `pnpm billing:prices` cria os preços na conta de quem
+      roda, e a combinação impossível é recusada no boot em vez de dar 500 no
+      clique. O modo offline continua no `memory`, agora com um checkout que o
+      navegador abre e `pnpm billing:activate` para a ativação.
 - [ ] `pnpm packages:publish:local` **não publica nada** no Git Bash e sai com 0.
       O filtro `./packages/*` não casa e o resultado é
       `No projects matched the filters`. **As variáveis de ambiente sozinhas não
@@ -126,6 +136,14 @@ sem Docker ensina a ignorar suíte vermelha.
 - [ ] **O slug não pode ser renomeado.** Ele nasce derivado de um e-mail pessoal
       (DEC-052) e frequentemente não é o nome que a empresa quer. Renomear mexe
       no subdomínio já em uso, então não é só um `UPDATE`.
+- [ ] **O e2e e o `worker` do `pnpm dev` disputam o mesmo `outbox`.** O relay do
+      worker reivindica com `for update skip locked` as linhas que o teste ia
+      drenar, e o sintoma é um teste diferente vermelho a cada corrida — e-mail
+      que não chega, contagem de linhas que não bate. Hoje a resposta é parar o
+      worker (`pm2 stop worker`), documentado em `docs/06-AMBIENTE-LOCAL.md` §4.
+      O conserto real é o e2e ter banco ou schema próprio, que também acabaria
+      com o `DELETE FROM accounts` global do `beforeEach`. O e2e já fixa
+      `QUEUE_DRIVER=memory` para não dividir a fila; a tabela é o que sobra.
 - [ ] **Nada reconcilia a subscription com o provider.** Se um webhook se perder,
       a projeção fica parada e a account continua entitulada para sempre — o TTL
       de 60s do cache encurta a janela de uma invalidação perdida, não a de um

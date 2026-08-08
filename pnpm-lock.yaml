@@ -157,8 +157,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(vitest@4.1.10)
       '@vpn/testing':
-        specifier: ^0.6.0
-        version: 0.6.0(vitest@4.1.10)
+        specifier: ^0.7.0
+        version: 0.7.0(vitest@4.1.10)
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
@@ -301,8 +301,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(vitest@4.1.10)
       '@vpn/testing':
-        specifier: ^0.6.0
-        version: 0.6.0(vitest@4.1.10)
+        specifier: ^0.7.0
+        version: 0.7.0(vitest@4.1.10)
       vite-node:
         specifier: ^6.0.0
         version: 6.0.0(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)(yaml@2.9.0)
@@ -353,8 +353,8 @@ importers:
         specifier: ^0.7.0
         version: 0.7.0
       '@vpn/testing':
-        specifier: ^0.6.0
-        version: 0.6.0(vitest@4.1.10)
+        specifier: ^0.7.0
+        version: 0.7.0(vitest@4.1.10)
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
@@ -3876,8 +3876,8 @@ packages:
   '@vpn/ports@0.7.0':
     resolution: {integrity: sha512-uwlztbZu/RCe0PlWSt7ILinoHkwbvFE+nq3GqWzl8sKHaxI+W4kRR/y1Wm2YPCRdtu1GDoNQc8iZIVn1ba31ag==}
 
-  '@vpn/testing@0.6.0':
-    resolution: {integrity: sha512-piSMh7oB7Zul+gj/ijDI+OUdTTB2+8UCv/K2AMBfMJtKyv8ANJJspoJxls8s2pf69tDB/S97H8xE8tegkYAZ/w==}
+  '@vpn/testing@0.7.0':
+    resolution: {integrity: sha512-UzA5NzhtI5cPbVW0rA+7agUFxE5BZGT7kJzHSSEfC01g3y0NYNywQe970RT1/XBd8rgWFKZjUE+7Yq/lHznD2g==}
     peerDependencies:
       vitest: '>=2'
     peerDependenciesMeta:
@@ -11227,7 +11227,7 @@ snapshots:
 
   '@vpn/ports@0.7.0': {}
 
-  '@vpn/testing@0.6.0(vitest@4.1.10)':
+  '@vpn/testing@0.7.0(vitest@4.1.10)':
     dependencies:
       '@vpn/ports': 0.7.0
     optionalDependencies:

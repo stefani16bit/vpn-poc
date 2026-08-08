@@ -80,6 +80,36 @@ check_exec() {
 	esac
 }
 
+# A key declared in .env.example and absent from the local env is a difference
+# between what the documentation describes and what runs, and it surfaces much
+# later as a handler throwing. Names are compared, never values.
+#
+# Both files are searched because loadEnv reads .env.local first and then .env,
+# so a key set in either one is set.
+check_env_drift() {
+	_label='the local env declares every key .env.example does'
+	_files=''
+	[ -f ../.env.local ] && _files="${_files} ../.env.local"
+	[ -f ../.env ] && _files="${_files} ../.env"
+
+	if [ -z "$_files" ]; then
+		fail "$_label" 'no .env or .env.local at the repository root; copy .env.example'
+		return
+	fi
+
+	_absent=''
+	for _key in $(grep -oE '^[A-Z_][A-Z0-9_]*=' ../.env.example | tr -d '=' | sort -u); do
+		# shellcheck disable=SC2086
+		grep -qhE "^${_key}=" $_files || _absent="${_absent}${_key} "
+	done
+
+	if [ -z "$_absent" ]; then
+		pass "$_label"
+	else
+		fail "$_label" "absent from${_files}: ${_absent}"
+	fi
+}
+
 printf '\ndevstack check\n\n'
 
 if ! docker compose ps >/dev/null 2>&1; then
@@ -139,6 +169,8 @@ check_status 'mailpit is ready to accept mail' 200 \
 check_body 'app.localhost terminates TLS and routes by Host' 'ok' \
 	-k --resolve "app.localhost:${CADDY_HTTPS_PORT}:127.0.0.1" \
 	"https://app.localhost:${CADDY_HTTPS_PORT}/__devstack/health"
+
+check_env_drift
 
 printf '\n%s passed, %s failed\n\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ] || exit 1

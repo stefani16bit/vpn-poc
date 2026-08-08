@@ -183,3 +183,9 @@ anterior. Reponha.
 
 No navegador, com `pnpm dev`: entrar, ver a página de cobrança listando o que o
 `pro` inclui — o mapa é `@vpn/contracts`, o mesmo que a API usa — e assinar.
+
+Assinar até o tier virar depende do modo de cobrança, e os dois estão em
+`docs/06-AMBIENTE-LOCAL.md` §7: offline, `pnpm billing:activate` entrega o webhook;
+com o Stripe em test mode e `stripe listen`, quem entrega é o provider, e
+`stripe trigger invoice.payment_failed` mostra a invalidação acontecendo contra um
+provider que não escrevemos. DEC-056.

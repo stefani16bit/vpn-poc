@@ -1843,3 +1843,54 @@ importar o módulo de entitlements, e portanto o cache e o banco. Isso não reco
 domínio no kernel — subscription é projeção de cobrança, não regra de auth — mas o
 argumento da DEC-025 de que o guard "nunca consulta uma conta" vale agora só para
 o `AccessTokenGuard`.
+
+---
+
+### DEC-056 — Cobrança local roda contra o Stripe em test mode; o fake é o modo offline
+
+**Data:** 2026-08-08 · **Status:** accepted
+
+**Contexto.** A DEC-009 escolheu `MemoryBillingProvider` como padrão local porque
+o localstripe não implementa `/v1/checkout/sessions`. O que ela não disse é como
+alguém vê uma assinatura ficar ativa no navegador: o `.env.example` continuou
+mandando `BILLING_DRIVER=stripe` — contradizendo a própria decisão —, o fake
+devolvia uma URL `memory://` que nenhum navegador abre, e nada entregava o webhook
+de ativação. O botão de assinar respondia 500 nos dois drivers, por motivos
+diferentes.
+
+**Decisão.** Dois modos, ambos honestos.
+
+Para exercitar cobrança de verdade: **Stripe em test mode com a CLI**. Chaves
+`sk_test_`, `STRIPE_API_BASE` fora, `stripe listen --forward-to`. O checkout é a
+página hospedada de verdade, o webhook é assinado de verdade, e o adapter que roda
+é o de produção. `pnpm billing:prices` cria produto e preços na conta de quem
+roda, porque id de preço é a única parte da configuração que não pode ter default.
+
+Offline continua sendo `memory`, e o fake passa a devolver a `successUrl` que
+recebeu. A ativação vem de `pnpm billing:activate`, um **script**, que assina o
+envelope e faz `POST /billing/webhook`.
+
+Fica **recusado no boot**: `BILLING_DRIVER=stripe` com `STRIPE_API_BASE` definido.
+Sobrescrever a base significa mock, e nenhum mock que subimos cria uma Checkout
+Session.
+
+**Rationale.** Rejeitado um endpoint de ativação protegido por `NODE_ENV`. Um
+endpoint existe no artefato entregue e depende de uma guarda para ser inofensivo;
+um script não pode ser chamado por ninguém em produção porque não está lá. E o
+script atravessa a rota real com assinatura real — verificação, deduplicação e
+invalidação de cache acontecem como no dia em que o provider chamar. Um atalho
+para dentro do serviço testaria menos que o caminho que ele imita.
+
+Rejeitado também o Stripe Elements com o `localstripe-v3.js` para ter checkout
+offline: ele coloca formulário de cartão na **nossa** origem, que é a única coisa
+que o `CONTEXT.md` diz que nunca acontece, e é trabalho de front-end por um PoC
+que ainda não tem data plane.
+
+**Consequências.** No modo offline o botão **Cancelar** falha, e de propósito: ele
+pede ao fake da API o cancelamento de uma assinatura que o fake nunca criou, e um
+provider deve recusar um id que não conhece — tolerar divergiria o fake do adapter
+do Stripe, que é o que a suíte de conformidade impede. O script tem
+`cancel` para isso.
+
+A validação do Stripe Checkout contra a API real sai de "só em staging" para
+"qualquer laptop com a CLI", e a linha do roadmap muda de bloqueio para tarefa.

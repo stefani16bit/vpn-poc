@@ -75,12 +75,25 @@ export function assertDriverConfiguration(env: {
 	SMTP_PORT?: number | undefined;
 	BILLING_DRIVER: string;
 	STRIPE_API_KEY?: string | undefined;
+	STRIPE_API_BASE?: string | undefined;
 	STRIPE_WEBHOOK_SECRET?: string | undefined;
+	STRIPE_PRICE_ID?: string | undefined;
+	STRIPE_PRICE_ID_YEARLY?: string | undefined;
 	STORAGE_DRIVER: string;
 	S3_BUCKET?: string | undefined;
 	QUEUE_DRIVER: string;
 	QUEUE_URL?: string | undefined;
 }): void {
+	if (env.BILLING_DRIVER === 'stripe' && env.STRIPE_API_BASE) {
+		throw new Error(
+			`STRIPE_API_BASE is set (${env.STRIPE_API_BASE}), which aims the Stripe SDK at a mock, ` +
+				'and no mock we run implements /v1/checkout/sessions — a checkout can only fail there. ' +
+				'Either unset it and use Stripe test-mode keys with `stripe listen` ' +
+				'(docs/06-AMBIENTE-LOCAL.md), or set BILLING_DRIVER=memory to work offline. ' +
+				'The adapters integration suite reaches localstripe without this variable.',
+		);
+	}
+
 	const missing: string[] = [];
 
 	if (env.CACHE_DRIVER === 'redis' && !env.REDIS_URL)
@@ -92,6 +105,8 @@ export function assertDriverConfiguration(env: {
 	if (env.BILLING_DRIVER === 'stripe') {
 		if (!env.STRIPE_API_KEY) missing.push('STRIPE_API_KEY (BILLING_DRIVER=stripe)');
 		if (!env.STRIPE_WEBHOOK_SECRET) missing.push('STRIPE_WEBHOOK_SECRET (BILLING_DRIVER=stripe)');
+		if (!env.STRIPE_PRICE_ID) missing.push('STRIPE_PRICE_ID (BILLING_DRIVER=stripe)');
+		if (!env.STRIPE_PRICE_ID_YEARLY) missing.push('STRIPE_PRICE_ID_YEARLY (BILLING_DRIVER=stripe)');
 	}
 	if (env.STORAGE_DRIVER === 's3' && !env.S3_BUCKET) missing.push('S3_BUCKET (STORAGE_DRIVER=s3)');
 	if (env.QUEUE_DRIVER === 'sqs' && !env.QUEUE_URL) missing.push('QUEUE_URL (QUEUE_DRIVER=sqs)');

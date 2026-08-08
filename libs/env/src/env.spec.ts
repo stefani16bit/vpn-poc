@@ -176,6 +176,46 @@ describe('assertDriverConfiguration', () => {
 		).toThrow(/STRIPE_WEBHOOK_SECRET/);
 	});
 
+	const stripe = {
+		...base,
+		BILLING_DRIVER: 'stripe',
+		STRIPE_API_KEY: 'sk_test',
+		STRIPE_WEBHOOK_SECRET: 'whsec_test',
+		STRIPE_PRICE_ID: 'price_monthly',
+		STRIPE_PRICE_ID_YEARLY: 'price_yearly',
+	};
+
+	it('demands a price for both cadences, since either button would 500 without one', () => {
+		let message = '';
+		try {
+			assertDriverConfiguration({
+				...stripe,
+				STRIPE_PRICE_ID: undefined,
+				STRIPE_PRICE_ID_YEARLY: undefined,
+			});
+		} catch (error) {
+			message = (error as Error).message;
+		}
+		expect(message).toContain('STRIPE_PRICE_ID ');
+		expect(message).toContain('STRIPE_PRICE_ID_YEARLY');
+	});
+
+	it('refuses the stripe driver aimed at a mock, which cannot create a checkout', () => {
+		expect(() =>
+			assertDriverConfiguration({ ...stripe, STRIPE_API_BASE: 'http://127.0.0.1:28420' }),
+		).toThrow(/checkout\/sessions/);
+	});
+
+	it('accepts the stripe driver against the real API', () => {
+		expect(() => assertDriverConfiguration(stripe)).not.toThrow();
+	});
+
+	it('leaves a mock base alone when the billing driver is not stripe', () => {
+		expect(() =>
+			assertDriverConfiguration({ ...base, STRIPE_API_BASE: 'http://127.0.0.1:28420' }),
+		).not.toThrow();
+	});
+
 	it('demands a bucket when the storage driver is s3', () => {
 		expect(() => assertDriverConfiguration({ ...base, STORAGE_DRIVER: 's3' })).toThrow(/S3_BUCKET/);
 	});

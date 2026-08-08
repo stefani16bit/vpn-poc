@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "billing:activate": "vite-node scripts/billing-activate.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -41,7 +42,7 @@
     "@types/express": "^5.0.0",
     "@types/supertest": "^6.0.2",
     "@vpn/config": "^0.1.0",
-    "@vpn/testing": "^0.6.0",
+    "@vpn/testing": "^0.7.0",
     "supertest": "^7.0.0",
     "vite-node": "^6.0.0"
   },
