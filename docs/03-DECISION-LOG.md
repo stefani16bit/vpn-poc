@@ -2210,3 +2210,97 @@ a pergunta que **regiões** vão fazer, e que este spike não responde.
 O que o spike aprendeu e não decidiu está em `docs/specs/data-plane.md`, com uma
 seção dizendo explicitamente o que não sobrevive à mudança para um nó de verdade.
 Conhecimento vai para a spec; só a escolha arquitetural vira DEC.
+
+---
+
+### DEC-063 — O nó de saída entra por uma porta, e o adapter fala HTTP com um agente
+
+**Data:** 2026-08-09 · **Status:** accepted
+
+**Contexto.** Provisionar um peer é falar com um sistema externo, então o
+inegociável nº 1 se aplica: interface em `@vpn/ports`, suíte de conformidade
+antes dos adapters, uma implementação in-memory e uma real. Faltava decidir duas
+coisas: o **nível** da interface e o **transporte** do adapter real.
+
+**Decisão.** `IExitNode` é de domínio — `provisionPeer`, `revokePeer`,
+`listPeers`, `describe` — e não de transporte (`wg set`). O adapter real fala
+**HTTP** com um agente de controle que roda no próprio nó; no devstack esse
+agente é `busybox httpd` mais três scripts CGI, publicado em `21821` (DEC-010).
+
+**Rationale.** O nível vem da DEC-046, que rejeitou o primeiro desenho de
+`IJobQueue` por ser transporte (`publish(body)`) em vez de trabalho
+(`enqueue({name, data})`). Uma porta no nível do `wg` obrigaria todo chamador a
+saber o que é uma allowed-ip; no nível do peer, quem chama sabe o que quer e não
+como se faz.
+
+`describe()` mora na porta e devolve a chave pública **que o nó reporta**, não
+uma que o ambiente declare. Uma chave copiada para o `.env` é uma chave que
+diverge do nó em silêncio, e o sintoma seria um túnel que nunca completa
+handshake sem nada em log nenhum apontando para a causa. Endpoint e faixa são o
+inverso: só o deployment sabe por onde o cliente alcança o nó, e por isso vêm de
+env — do mesmo jeito que `S3ObjectStorage` recebe o bucket.
+
+Rejeitado SSH. É o que se faz numa máquina sem agente, e um adapter sobre SSH
+sobreviveria quase intacto à produção — mas frota grande com SSH a partir da
+aplicação piora em tudo que importa: distribuição de chave, pool de conexões,
+auditoria. O que muda daqui para um nó real **não é o protocolo**, é
+autenticação e transporte seguro (mTLS ou token). E se esse julgamento estiver
+errado, a porta é o que faz disso uma classe e não uma auditoria.
+
+Rejeitado `docker exec` pelo socket: acopla o adapter ao Docker em vez de ao
+WireGuard, e o socket não está montado em lugar nenhum — nem deveria.
+
+**Consequências.** O agente do devstack é **sem autenticação**, e isso só é
+defensável porque a DEC-062 já registrou que aquele contêiner é fixture e não
+artefato. Autenticação é a primeira coisa que um nó real precisa, antes de
+qualquer outra, e está dita aqui para que ninguém a descubra depois.
+
+O formato do fio é texto linha a linha porque quem atende é shell; interpretar
+JSON ali seria a parte frágil. A entrada é recusada fora do alfabeto base64
+antes de chegar ao `wg`.
+
+A suíte de conformidade roda contra os dois adapters, e a asserção que carrega
+peso é a que a spec do plano de dados antecipou: aplicar o mesmo peer duas vezes
+converge. É ela que torna a reentrega da DEC-064 segura.
+
+---
+
+### DEC-064 — O peer é reconciliado pelo outbox, não escrito na requisição
+
+**Data:** 2026-08-09 · **Status:** accepted
+
+**Contexto.** Criar um device escreve uma linha e precisa que o nó passe a
+conhecer a chave. São duas escritas em sistemas diferentes na mesma operação —
+exatamente a forma do dual-write que a DEC-047 tirou do e-mail e que o
+`docs/04-ROADMAP.md` ainda registra como dívida no `createCheckout`.
+
+**Decisão.** A linha em `devices` e a intenção `device.provision` são escritas na
+**mesma transação**. Quem fala com o nó é o worker, pelo mesmo relay e a mesma
+fila das notificações. `device.revoke` segue o mesmo caminho.
+
+**Rationale.** As três alternativas falham de jeitos conhecidos. Chamar o nó
+**dentro** da transação prende uma conexão do pool por uma ida e volta de rede e
+repete a dívida que o roadmap já nomeia. Chamar **depois do commit** deixa, numa
+queda entre os dois, uma linha que nenhum processo jamais provisiona — e nada a
+repara, porque não há quem varra. Não chamar e deixar o nó ser a verdade inverte
+o dono do dado: o banco tem RLS, a account e o histórico; o nó tem uma lista de
+chaves.
+
+O que torna o outbox seguro aqui é a porta ser convergente (DEC-063): `wg set`
+aplicado duas vezes é o mesmo que aplicado uma. At-least-once só é aceitável
+quando repetir é inofensivo, e é.
+
+**Consequências.** O peer aparece um instante **depois** do download, e a
+interface diz isso em vez de fingir. `provisioned_at` é gravado pelo worker
+quando o nó aceita — nulo é "ainda não", não "falhou". Uma tela que mostrasse o
+device como pronto antes disso mentiria pelo tempo que a fila levar.
+
+O consumidor deixa de ser só de notificação. Ele drena uma tabela que agora tem
+duas famílias de trabalho, e passar um job de device por um dispatcher que
+resolve destinatário de e-mail exigiria um destinatário que não existe — por
+isso ele subiu para `shared/outbox/` e roteia por família.
+
+Revogar é `revoked_at`, não `DELETE`. A chave pública é o identificador do peer
+nas duas pontas, e o worker precisa dela **depois** de a linha deixar de valer
+para dizer ao nó o que esquecer. O índice único é parcial, então o endereço e a
+chave voltam a ficar livres.
