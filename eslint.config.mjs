@@ -181,6 +181,26 @@ export default [
 							from: './apps/web/src/features/auth/**',
 							message: 'Features do not import each other. Lift what is shared into components/.',
 						},
+						{
+							target: './apps/web/src/features/keys/**',
+							from: './apps/web/src/features/auth/**',
+							message: 'Features do not import each other. Lift what is shared into components/.',
+						},
+						{
+							target: './apps/web/src/features/keys/**',
+							from: './apps/web/src/features/billing/**',
+							message: 'Features do not import each other. Lift what is shared into components/.',
+						},
+						{
+							target: './apps/web/src/features/auth/**',
+							from: './apps/web/src/features/keys/**',
+							message: 'Features do not import each other. Lift what is shared into components/.',
+						},
+						{
+							target: './apps/web/src/features/billing/**',
+							from: './apps/web/src/features/keys/**',
+							message: 'Features do not import each other. Lift what is shared into components/.',
+						},
 					],
 				},
 			],

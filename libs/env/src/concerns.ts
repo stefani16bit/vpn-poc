@@ -68,6 +68,7 @@ export const exitNodeEnvSchema = z.object({
 	EXIT_NODE_API_URL: z.string().url().optional(),
 	EXIT_NODE_ENDPOINT: z.string().default('127.0.0.1:21820'),
 	EXIT_NODE_TUNNEL_CIDR: z.string().default('10.13.13.0/24'),
+	EXIT_NODE_CLIENT_ALLOWED_IPS: z.string().optional(),
 });
 
 export const observabilityEnvSchema = z.object({

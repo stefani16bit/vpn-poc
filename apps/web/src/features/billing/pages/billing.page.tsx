@@ -1,4 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
+import { Link } from 'react-router-dom';
 
 import { normalizeError } from '@/app/store/api-error.js';
 import { sessionCleared } from '@/app/store/auth-slice.js';
@@ -72,6 +73,11 @@ export function BillingPage() {
 							onResume={() => void resumeSubscription()}
 						/>
 						<PlanEntitlements tier="pro" />
+						<p className="mt-6 text-sm">
+							<Link to="/keys" className="text-primary underline-offset-4 hover:underline">
+								{t('keys.link')}
+							</Link>
+						</p>
 					</>
 				)}
 			</CardContent>

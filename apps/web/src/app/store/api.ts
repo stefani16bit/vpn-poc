@@ -5,6 +5,6 @@ import { baseQueryWithRefresh } from './base-query.js';
 export const api = createApi({
 	reducerPath: 'api',
 	baseQuery: baseQueryWithRefresh,
-	tagTypes: ['Session', 'Subscription'],
+	tagTypes: ['Session', 'Subscription', 'Devices'],
 	endpoints: () => ({}),
 });

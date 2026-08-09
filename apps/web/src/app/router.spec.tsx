@@ -70,6 +70,13 @@ describe('Router', () => {
 		expect(await screen.findByText('Your account')).toBeInTheDocument();
 	});
 
+	it('reaches the keys page, which nothing else links to from a fresh session', async () => {
+		stubApi().reply({ devices: [], node: { publicKey: 'k', endpoint: 'e', allowedIps: ['1/32'] } });
+		renderAt('/keys');
+
+		expect(await screen.findByText('Devices and keys')).toBeInTheDocument();
+	});
+
 	it('sends a signed-out visitor from the checkout return to the login screen', async () => {
 		const store = makeStore();
 		store.dispatch(sessionCleared());

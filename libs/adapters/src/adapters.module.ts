@@ -197,7 +197,10 @@ export const ADAPTERS = [
 				new HttpExitNode({
 					apiUrl: env.EXIT_NODE_API_URL ?? '',
 					endpoint: env.EXIT_NODE_ENDPOINT,
-					allowedIps: [env.EXIT_NODE_TUNNEL_CIDR],
+					allowedIps: (env.EXIT_NODE_CLIENT_ALLOWED_IPS ?? env.EXIT_NODE_TUNNEL_CIDR)
+						.split(',')
+						.map((entry) => entry.trim())
+						.filter(Boolean),
 				}),
 			memory: () => new MemoryExitNode(),
 		},
