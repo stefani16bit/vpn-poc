@@ -147,6 +147,7 @@ describe('assertDriverConfiguration', () => {
 		BILLING_DRIVER: 'memory',
 		STORAGE_DRIVER: 'memory',
 		QUEUE_DRIVER: 'memory',
+		EXIT_NODE_DRIVER: 'memory',
 	};
 
 	it('passes when every driver is in-memory', () => {
@@ -218,6 +219,22 @@ describe('assertDriverConfiguration', () => {
 
 	it('demands a bucket when the storage driver is s3', () => {
 		expect(() => assertDriverConfiguration({ ...base, STORAGE_DRIVER: 's3' })).toThrow(/S3_BUCKET/);
+	});
+
+	it('demands an exit node URL when the exit node driver is http', () => {
+		expect(() => assertDriverConfiguration({ ...base, EXIT_NODE_DRIVER: 'http' })).toThrow(
+			/EXIT_NODE_API_URL/,
+		);
+	});
+
+	it('lets the http exit node through once it has somewhere to call', () => {
+		expect(() =>
+			assertDriverConfiguration({
+				...base,
+				EXIT_NODE_DRIVER: 'http',
+				EXIT_NODE_API_URL: 'http://127.0.0.1:21821',
+			}),
+		).not.toThrow();
 	});
 
 	it('demands a queue URL when the queue driver is sqs', () => {

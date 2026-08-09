@@ -1,0 +1,24 @@
+#!/bin/sh
+
+respond() {
+	printf 'Status: %s\r\n' "$1"
+	printf 'Content-Type: text/plain\r\n\r\n'
+	[ -n "$2" ] && printf '%s\n' "$2"
+	exit 0
+}
+
+if [ "$REQUEST_METHOD" != 'POST' ]; then
+	respond 405 'use POST to revoke'
+fi
+
+read -r public_key
+
+case "$public_key" in
+'' | *[!A-Za-z0-9+/=]*) respond 400 'public key is not base64' ;;
+esac
+
+if ! output=$(wg set wg0 peer "$public_key" remove 2>&1); then
+	respond 500 "$output"
+fi
+
+respond 200

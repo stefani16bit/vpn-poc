@@ -10,6 +10,7 @@ import {
 	CLOCK,
 	EMAIL_SENDER,
 	ERROR_REPORTER,
+	EXIT_NODE,
 	OBJECT_STORAGE,
 	PASSWORD_HASHER,
 	JOB_QUEUE,
@@ -19,6 +20,7 @@ import {
 	type IClock,
 	type IEmailSender,
 	type IErrorReporter,
+	type IExitNode,
 	type IObjectStorage,
 	type IPasswordHasher,
 	type IJobQueue,
@@ -28,6 +30,7 @@ import {
 	MemoryBillingProvider,
 	MemoryCacheStore,
 	MemoryEmailSender,
+	MemoryExitNode,
 	MemoryObjectStorage,
 	MemoryJobQueue,
 	MemorySmsSender,
@@ -38,6 +41,7 @@ import { RedisCacheStore } from './cache/RedisCacheStore.js';
 import { ScryptPasswordHasher } from './crypto/ScryptPasswordHasher.js';
 import { SystemClock } from './crypto/SystemClock.js';
 import { SmtpEmailSender } from './email/SmtpEmailSender.js';
+import { HttpExitNode } from './network/HttpExitNode.js';
 import { NoopErrorReporter, SentryErrorReporter } from './observability/reporters.js';
 import { defineAdapter, toProviders, tokensOf } from './registry.js';
 import { ConsoleSmsSender } from './sms/ConsoleSmsSender.js';
@@ -182,6 +186,20 @@ export const ADAPTERS = [
 					endpoint: env.AWS_ENDPOINT_URL,
 				}),
 			memory: ({ resolve }) => new MemoryJobQueue(resolve<IClock>(CLOCK)),
+		},
+	}),
+
+	defineAdapter<IExitNode>({
+		token: EXIT_NODE,
+		driver: (env) => env.EXIT_NODE_DRIVER,
+		drivers: {
+			http: ({ env }) =>
+				new HttpExitNode({
+					apiUrl: env.EXIT_NODE_API_URL ?? '',
+					endpoint: env.EXIT_NODE_ENDPOINT,
+					allowedIps: [env.EXIT_NODE_TUNNEL_CIDR],
+				}),
+			memory: () => new MemoryExitNode(),
 		},
 	}),
 

@@ -155,12 +155,17 @@ services:
       net.ipv4.conf.all.src_valid_mark: '1'
     ports:
       - '${WIREGUARD_PORT:-21820}:51820/udp'
+      - '${EXIT_NODE_API_PORT:-21821}:51821'
     volumes:
       # Bind mount rather than COPY: `reload s=wireguard` then re-reads the
       # peer list, which is what makes the NAT probe in the spec runnable.
       - ./wireguard/wg0.conf:/etc/wireguard/wg0.conf:ro
     healthcheck:
-      test: ['CMD-SHELL', 'wg show wg0 >/dev/null 2>&1']
+      # Both halves: a tunnel with a dead control plane still answers `wg show`,
+      # and `up --wait` would call that healthy.
+      test:
+        - CMD-SHELL
+        - wg show wg0 >/dev/null 2>&1 && wget -qO- http://127.0.0.1:51821/cgi-bin/describe >/dev/null
       interval: 5s
       timeout: 3s
       retries: 10

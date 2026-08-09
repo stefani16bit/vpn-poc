@@ -1,0 +1,5 @@
+#!/bin/sh
+
+printf 'Status: 200\r\n'
+printf 'Content-Type: text/plain\r\n\r\n'
+printf 'publicKey=%s\n' "$(wg show wg0 public-key)"

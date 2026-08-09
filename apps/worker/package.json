@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@vpn/config": "^0.1.0",
-    "@vpn/testing": "^0.11.0",
+    "@vpn/testing": "^0.11.1",
     "vite-node": "^6.0.0"
   },
   "nx": {

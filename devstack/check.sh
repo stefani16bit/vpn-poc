@@ -27,6 +27,7 @@ LOCALSTACK_PORT=${LOCALSTACK_PORT:-24566}
 LOCALSTRIPE_PORT=${LOCALSTRIPE_PORT:-28420}
 MAILPIT_UI_PORT=${MAILPIT_UI_PORT:-28025}
 CADDY_HTTPS_PORT=${CADDY_HTTPS_PORT:-20443}
+EXIT_NODE_API_PORT=${EXIT_NODE_API_PORT:-21821}
 
 # The public half of the throwaway pair in wireguard/peers/. Asserting the value
 # rather than a peer count is what makes a silently empty wg0.conf fail here.
@@ -178,6 +179,12 @@ check_body 'app.localhost terminates TLS and routes by Host' 'ok' \
 # peer was added. A container that came up without NET_ADMIN has no wg0 at all.
 check_exec 'wireguard has the seeded peer on the tunnel' "$WIREGUARD_PEER_PUBLIC_KEY" \
 	wireguard wg show wg0 peers
+
+# From the host, not from inside: the worker reaches the node over the published
+# port, and a control plane bound to the wrong interface passes every in-container
+# probe there is.
+check_body 'the exit node control plane answers with its own public key' 'publicKey=' \
+	"http://127.0.0.1:${EXIT_NODE_API_PORT}/cgi-bin/describe"
 
 check_env_drift
 

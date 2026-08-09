@@ -11,6 +11,7 @@ import {
 	cacheEnvSchema,
 	databaseEnvSchema,
 	emailEnvSchema,
+	exitNodeEnvSchema,
 	observabilityEnvSchema,
 	queueEnvSchema,
 	runtimeEnvSchema,
@@ -29,6 +30,7 @@ const fullSchema = runtimeEnvSchema
 	.merge(billingEnvSchema)
 	.merge(storageEnvSchema)
 	.merge(queueEnvSchema)
+	.merge(exitNodeEnvSchema)
 	.merge(observabilityEnvSchema);
 
 export type Env = z.infer<typeof fullSchema>;

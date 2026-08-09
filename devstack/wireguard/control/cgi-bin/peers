@@ -1,0 +1,33 @@
+#!/bin/sh
+
+respond() {
+	printf 'Status: %s\r\n' "$1"
+	printf 'Content-Type: text/plain\r\n\r\n'
+	[ -n "$2" ] && printf '%s\n' "$2"
+	exit 0
+}
+
+if [ "$REQUEST_METHOD" = 'GET' ]; then
+	respond 200 "$(wg show wg0 peers)"
+fi
+
+if [ "$REQUEST_METHOD" != 'POST' ]; then
+	respond 405 'use GET to list or POST to provision'
+fi
+
+read -r public_key
+read -r tunnel_address
+
+case "$public_key" in
+'' | *[!A-Za-z0-9+/=]*) respond 400 'public key is not base64' ;;
+esac
+
+case "$tunnel_address" in
+'' | *[!0-9./]*) respond 400 'tunnel address is not a cidr' ;;
+esac
+
+if ! output=$(wg set wg0 peer "$public_key" allowed-ips "$tunnel_address" 2>&1); then
+	respond 500 "$output"
+fi
+
+respond 200
