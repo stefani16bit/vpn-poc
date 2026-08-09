@@ -182,6 +182,12 @@ então tirá-lo do `.env` não muda nada nos testes.
   comando. `dev.sh` e `check.sh` já fazem isso.
 - **`@vpn/...` não encontrado:** o Verdaccio está no ar mas os pacotes não foram
   publicados. `pnpm packages:publish:local`.
+- **`pnpm build` dentro de `packages/` compila o repo principal:** um shell que já
+  rodou nx na raiz exporta `NX_WORKSPACE_ROOT_PATH`, e o nx do submodule obedece a
+  variável em vez do `nx.json` ao lado dele. Ele tenta construir `@vpn-poc/api` e
+  erra em `rootDir`, deixando `.js` e `.d.ts` emitidos dentro de `libs/*/src` — que
+  o `format:check` depois reprova. `unset NX_WORKSPACE_ROOT_PATH` antes, e
+  `git clean -f libs/*/src` para limpar o que já saiu.
 - **Login funciona e refresh não:** `credentials: 'include'` no cliente e
   `WEB_ORIGIN` no CORS do servidor precisam bater — e o **host** também.
   O cookie de refresh é `SameSite=Lax`, então `WEB_ORIGIN`, `VITE_API_URL` e o

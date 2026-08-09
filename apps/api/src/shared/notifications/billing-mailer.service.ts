@@ -25,21 +25,66 @@ export class BillingMailer {
 		});
 	}
 
-	async sendSubscriptionCanceled(
+	async sendSubscriptionActivated(account: User, externalEventId: string): Promise<void> {
+		await this.email.send({
+			to: account.email,
+			template: 'subscription_activated',
+			locale: localeOf(account),
+			variables: { url: `${this.env.WEB_ORIGIN}/billing` },
+			idempotencyKey: `subscription-activated:${externalEventId}`,
+		});
+	}
+
+	async sendCancellationScheduled(
 		account: User,
 		endsAt: Date | null,
-		externalEventId: string,
+		requestedAt: Date,
 	): Promise<void> {
 		const locale = localeOf(account);
 
 		await this.email.send({
 			to: account.email,
-			template: 'subscription_canceled',
+			template: 'subscription_cancel_scheduled',
 			locale,
 			variables: {
 				endsAt: endsAt?.toISOString() ?? getTranslator(locale)('billing.periodEndUnknown'),
+				url: `${this.env.WEB_ORIGIN}/billing`,
 			},
+			idempotencyKey: `cancel-scheduled:${account.accountId}:${secondsOf(requestedAt)}`,
+		});
+	}
+
+	async sendSubscriptionResumed(account: User, requestedAt: Date): Promise<void> {
+		await this.email.send({
+			to: account.email,
+			template: 'subscription_resumed',
+			locale: localeOf(account),
+			variables: { url: `${this.env.WEB_ORIGIN}/billing` },
+			idempotencyKey: `subscription-resumed:${account.accountId}:${secondsOf(requestedAt)}`,
+		});
+	}
+
+	async sendSubscriptionCanceled(account: User, externalEventId: string): Promise<void> {
+		await this.email.send({
+			to: account.email,
+			template: 'subscription_canceled',
+			locale: localeOf(account),
+			variables: { url: `${this.env.WEB_ORIGIN}/billing` },
 			idempotencyKey: `subscription-canceled:${externalEventId}`,
 		});
 	}
+
+	async sendAccessRevoked(account: User, externalEventId: string): Promise<void> {
+		await this.email.send({
+			to: account.email,
+			template: 'access_revoked',
+			locale: localeOf(account),
+			variables: { url: `${this.env.WEB_ORIGIN}/billing` },
+			idempotencyKey: `access-revoked:${externalEventId}`,
+		});
+	}
+}
+
+function secondsOf(instant: Date): number {
+	return Math.floor(instant.getTime() / 1000);
 }

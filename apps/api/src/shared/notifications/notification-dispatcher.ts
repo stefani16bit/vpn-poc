@@ -34,12 +34,20 @@ export class NotificationDispatcher {
 				return this.authMailer.sendPasswordChanged(account, new Date(message.changedAt));
 			case 'billing.payment_failed':
 				return this.billingMailer.sendPaymentFailed(account, message.externalEventId);
+			case 'billing.subscription_activated':
+				return this.billingMailer.sendSubscriptionActivated(account, message.externalEventId);
 			case 'billing.subscription_canceled':
-				return this.billingMailer.sendSubscriptionCanceled(
+				return this.billingMailer.sendSubscriptionCanceled(account, message.externalEventId);
+			case 'billing.access_revoked':
+				return this.billingMailer.sendAccessRevoked(account, message.externalEventId);
+			case 'billing.cancellation_scheduled':
+				return this.billingMailer.sendCancellationScheduled(
 					account,
 					message.endsAt === null ? null : new Date(message.endsAt),
-					message.externalEventId,
+					new Date(message.requestedAt),
 				);
+			case 'billing.subscription_resumed':
+				return this.billingMailer.sendSubscriptionResumed(account, new Date(message.requestedAt));
 		}
 	}
 
@@ -51,7 +59,11 @@ export class NotificationDispatcher {
 			case 'auth.password_changed':
 				return this.users.findById(message.userId);
 			case 'billing.payment_failed':
+			case 'billing.subscription_activated':
 			case 'billing.subscription_canceled':
+			case 'billing.access_revoked':
+			case 'billing.cancellation_scheduled':
+			case 'billing.subscription_resumed':
 				return this.users.findOwner(message.accountId);
 		}
 	}

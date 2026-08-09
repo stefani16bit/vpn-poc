@@ -56,6 +56,11 @@ o código em vez de enviar; falhar no boot é melhor que o usuário nunca recebe
 - Não importe de `apps/` — o lint bloqueia (`type:adapter` só depende de
   `type:lib`).
 - Não adicione um método a uma porta sem estender a suíte de conformidade
-  primeiro. Os dois adapters têm que passar.
+  primeiro. Os dois adapters têm que passar — com **uma** exceção conhecida e
+  escrita: `describeBillingProviderContract` não roda contra o
+  `StripeBillingProvider`, porque ela começa por `createCheckout` e o localstripe
+  não implementa `/v1/checkout/sessions` (DEC-009). Enquanto a suíte não for
+  partida em checkout e ciclo de vida, o que o Stripe faz com uma subscription é
+  pinado à mão em `stripe.integration.spec.ts`. DEC-060.
 - Não faça um adapter revalidar o que a porta já promete; a suíte é o contrato.
 - Não use string como token de DI. `Symbol.for('vpn.*')`, em `@vpn/ports`.

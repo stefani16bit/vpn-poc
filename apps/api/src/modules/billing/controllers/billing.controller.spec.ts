@@ -26,6 +26,7 @@ interface BillingMock {
 	createCheckout: Mock;
 	currentSubscription: Mock;
 	cancel: Mock;
+	resume: Mock;
 	handleWebhook: Mock;
 }
 
@@ -38,6 +39,7 @@ describe('BillingController', () => {
 			createCheckout: vi.fn().mockResolvedValue('https://checkout.example/session'),
 			currentSubscription: vi.fn().mockResolvedValue(SUBSCRIPTION),
 			cancel: vi.fn().mockResolvedValue(undefined),
+			resume: vi.fn().mockResolvedValue(undefined),
 			handleWebhook: vi.fn().mockResolvedValue(true),
 		};
 		controller = new BillingController(billing as unknown as BillingService);
@@ -61,6 +63,12 @@ describe('BillingController', () => {
 	it('returns the refreshed subscription after cancelling', async () => {
 		expect(await controller.cancel(CLAIMS)).toEqual(SUBSCRIPTION);
 		expect(billing.cancel).toHaveBeenCalledWith('acc-1');
+		expect(billing.currentSubscription).toHaveBeenCalledWith('acc-1');
+	});
+
+	it('returns the refreshed subscription after resuming', async () => {
+		expect(await controller.resume(CLAIMS)).toEqual(SUBSCRIPTION);
+		expect(billing.resume).toHaveBeenCalledWith('acc-1');
 		expect(billing.currentSubscription).toHaveBeenCalledWith('acc-1');
 	});
 

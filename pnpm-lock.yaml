@@ -102,11 +102,11 @@ importers:
         specifier: ^0.6.0
         version: 0.6.0
       '@vpn/i18n':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.9.0
+        version: 0.9.0
       '@vpn/ports':
-        specifier: ^0.7.0
-        version: 0.7.0
+        specifier: ^0.10.0
+        version: 0.10.0
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -157,8 +157,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(vitest@4.1.10)
       '@vpn/testing':
-        specifier: ^0.7.0
-        version: 0.7.0(vitest@4.1.10)
+        specifier: ^0.10.0
+        version: 0.10.0(vitest@4.1.10)
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
@@ -194,8 +194,8 @@ importers:
         specifier: ^0.6.0
         version: 0.6.0
       '@vpn/i18n':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.9.0
+        version: 0.9.0
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -288,8 +288,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/env
       '@vpn/ports':
-        specifier: ^0.7.0
-        version: 0.7.0
+        specifier: ^0.10.0
+        version: 0.10.0
       nestjs-pino:
         specifier: ^4.3.0
         version: 4.6.1(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(pino-http@10.5.0)(pino@9.14.0)(rxjs@7.8.2)
@@ -301,8 +301,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(vitest@4.1.10)
       '@vpn/testing':
-        specifier: ^0.7.0
-        version: 0.7.0(vitest@4.1.10)
+        specifier: ^0.10.0
+        version: 0.10.0(vitest@4.1.10)
       vite-node:
         specifier: ^6.0.0
         version: 6.0.0(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)(yaml@2.9.0)
@@ -347,14 +347,14 @@ importers:
         specifier: ^0.6.0
         version: 0.6.0
       '@vpn/i18n':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.9.0
+        version: 0.9.0
       '@vpn/ports':
-        specifier: ^0.7.0
-        version: 0.7.0
+        specifier: ^0.10.0
+        version: 0.10.0
       '@vpn/testing':
-        specifier: ^0.7.0
-        version: 0.7.0(vitest@4.1.10)
+        specifier: ^0.10.0
+        version: 0.10.0(vitest@4.1.10)
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
@@ -3870,14 +3870,14 @@ packages:
   '@vpn/contracts@0.6.0':
     resolution: {integrity: sha512-DapDT589IwM2YMErdcwc4CGBRf6vAoAytfVE3bmX8DmRVa2A5oizKTLNBBJYutujxR/VHWCZazOeYUxeoFSNXw==}
 
-  '@vpn/i18n@0.5.0':
-    resolution: {integrity: sha512-b+Qjfg7ENuPz5Dc3ExtNbesmf4Amxwr3YYOtr5VM8qw8vQD3QmBYq76YGNN0OE1q8tT2DNo39dFmSHvTwdUG+g==}
+  '@vpn/i18n@0.9.0':
+    resolution: {integrity: sha512-rBCXgf61+JvsL2GBLrMnMlRwd1QYnQeGZyl1SXftihEm7neUPdAW2zpRNk0v4L3zVwsam1tbJWQKovQvaLCAWg==}
 
-  '@vpn/ports@0.7.0':
-    resolution: {integrity: sha512-uwlztbZu/RCe0PlWSt7ILinoHkwbvFE+nq3GqWzl8sKHaxI+W4kRR/y1Wm2YPCRdtu1GDoNQc8iZIVn1ba31ag==}
+  '@vpn/ports@0.10.0':
+    resolution: {integrity: sha512-fSzH7q+E6+55l16a91ole6IYMDif9xGK0gHdG+aLVzaFquU+SXUj1gPM1WatXVh56UKbwqn8DhtiaA/4ZLV1FA==}
 
-  '@vpn/testing@0.7.0':
-    resolution: {integrity: sha512-UzA5NzhtI5cPbVW0rA+7agUFxE5BZGT7kJzHSSEfC01g3y0NYNywQe970RT1/XBd8rgWFKZjUE+7Yq/lHznD2g==}
+  '@vpn/testing@0.10.0':
+    resolution: {integrity: sha512-z1UmV0ZlRxNB93Wzb5xeeQT6xLOq4EAtyK6UCAtWCq5PIzwP1dekuf6sOECT6l069DqNReDCCWkgT0TdnuSlag==}
     peerDependencies:
       vitest: '>=2'
     peerDependenciesMeta:
@@ -11221,15 +11221,15 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@vpn/i18n@0.5.0':
+  '@vpn/i18n@0.9.0':
     dependencies:
       '@vpn/contracts': 0.6.0
 
-  '@vpn/ports@0.7.0': {}
+  '@vpn/ports@0.10.0': {}
 
-  '@vpn/testing@0.7.0(vitest@4.1.10)':
+  '@vpn/testing@0.10.0(vitest@4.1.10)':
     dependencies:
-      '@vpn/ports': 0.7.0
+      '@vpn/ports': 0.10.0
     optionalDependencies:
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@8.2.0(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)(yaml@2.9.0))
 

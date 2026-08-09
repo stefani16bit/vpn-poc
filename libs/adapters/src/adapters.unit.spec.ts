@@ -38,11 +38,17 @@ describe('renderEmail', () => {
 			'password_changed',
 			'welcome',
 			'payment_failed',
+			'subscription_activated',
+			'subscription_cancel_scheduled',
+			'subscription_resumed',
 			'subscription_canceled',
+			'access_revoked',
 		] as const;
 
 		for (const template of templates) {
 			const rendered = renderEmail(template, 'pt-BR', {});
+			expect(rendered.subject).not.toContain(`email.${template}`);
+			expect(rendered.text).not.toContain(`email.${template}`);
 			expect(rendered.subject.length).toBeGreaterThan(0);
 			expect(rendered.text.length).toBeGreaterThan(0);
 		}

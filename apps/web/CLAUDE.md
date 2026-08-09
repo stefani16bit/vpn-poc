@@ -29,6 +29,32 @@ ao lado dele — um 401 só tenta reautenticar se `auth.status` for
 `authenticated`. Sem isso, cada 401 é um convite novo e o `sessionCleared` que
 derruba o cache produz o refetch que produz o 401 seguinte. Ver DEC-032.
 
+## Cancelar e retomar
+
+`PlanActions` ramifica em três, e a ordem importa: sem assinatura oferece os
+planos; **agendada para cancelar** oferece retomar; ativa oferece o diálogo de
+cancelamento. Não existe mais botão desabilitado — um controle que a pessoa vê e
+não pode usar não é um estado, é um beco.
+
+O diálogo é `AlertDialog` do Radix, e cancelar só acontece no `onClick` do
+`AlertDialogAction`. Ele já vem com `role="alertdialog"`, foco preso e Esc; por
+isso o teste consulta por papel (`findByRole('alertdialog')`) e não por texto.
+
+## Retorno do checkout
+
+`/billing/success` e `/billing/cancel` são rotas de verdade e vêm **antes** do
+catch-all `/billing/*`, que fica para subpath desconhecido — inclusive `/billing`,
+que é o link dos e-mails de cobrança.
+
+A de sucesso é o único polling do app: quem ativa a assinatura é o webhook, e o
+redirect ganha essa corrida. Ela consulta a projeção até o tier aparecer ou até o
+limite, e o limite é **estado neutro** — "sendo processada", com um botão de
+verificar de novo. Nunca "o pagamento falhou": não existe redirect de falha, um
+cartão recusado não sai da página do provider. Ver DEC-058.
+
+O que decide "ativada" é `resolveTier` de `@vpn/contracts`, a mesma função da API.
+Duplicar a regra aqui faria a tela e o servidor discordarem sobre `trialing`.
+
 ## i18n
 
 `LocaleProvider` + `useTranslator()`. As traduções vêm de `@vpn/i18n` como

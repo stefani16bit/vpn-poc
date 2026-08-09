@@ -47,7 +47,11 @@ describe('NotificationDispatcher', () => {
 		};
 		billingMailer = {
 			sendPaymentFailed: vi.fn().mockResolvedValue(undefined),
+			sendSubscriptionActivated: vi.fn().mockResolvedValue(undefined),
+			sendCancellationScheduled: vi.fn().mockResolvedValue(undefined),
+			sendSubscriptionResumed: vi.fn().mockResolvedValue(undefined),
 			sendSubscriptionCanceled: vi.fn().mockResolvedValue(undefined),
+			sendAccessRevoked: vi.fn().mockResolvedValue(undefined),
 		};
 		verificationTokens = {
 			issue: vi.fn().mockResolvedValue({ token: 'tok-1', expiresAt: new Date() }),
@@ -115,17 +119,56 @@ describe('NotificationDispatcher', () => {
 
 	it('revives a null period end as null rather than as an epoch date', async () => {
 		await dispatcher.send({
-			kind: 'billing.subscription_canceled',
+			kind: 'billing.cancellation_scheduled',
 			accountId: 'acc-1',
-			externalEventId: 'evt-1',
+			requestedAt: '2026-05-01T00:00:00.000Z',
 			endsAt: null,
 		});
 
-		expect(billingMailer['sendSubscriptionCanceled']).toHaveBeenCalledWith(
+		expect(billingMailer['sendCancellationScheduled']).toHaveBeenCalledWith(
 			expect.anything(),
 			null,
-			'evt-1',
+			new Date('2026-05-01T00:00:00.000Z'),
 		);
+	});
+
+	it('revives both instants a scheduled cancellation crossed the queue with', async () => {
+		await dispatcher.send({
+			kind: 'billing.cancellation_scheduled',
+			accountId: 'acc-1',
+			requestedAt: '2026-05-01T00:00:00.000Z',
+			endsAt: '2026-09-01T00:00:00.000Z',
+		});
+
+		expect(billingMailer['sendCancellationScheduled']).toHaveBeenCalledWith(
+			expect.anything(),
+			new Date('2026-09-01T00:00:00.000Z'),
+			new Date('2026-05-01T00:00:00.000Z'),
+		);
+	});
+
+	it('revives the instant a resume was asked for', async () => {
+		await dispatcher.send({
+			kind: 'billing.subscription_resumed',
+			accountId: 'acc-1',
+			requestedAt: '2026-05-01T00:00:00.000Z',
+		});
+
+		expect(billingMailer['sendSubscriptionResumed']).toHaveBeenCalledWith(
+			expect.anything(),
+			new Date('2026-05-01T00:00:00.000Z'),
+		);
+	});
+
+	it('mails the owner when the account loses its tier', async () => {
+		await dispatcher.send({
+			kind: 'billing.access_revoked',
+			accountId: 'acc-4',
+			externalEventId: 'evt-4',
+		});
+
+		expect(identity.findOwner).toHaveBeenCalledWith('acc-4');
+		expect(billingMailer['sendAccessRevoked']).toHaveBeenCalledWith(expect.anything(), 'evt-4');
 	});
 
 	it('carries the provider event id through, so the mailer stays idempotent', async () => {
@@ -136,6 +179,20 @@ describe('NotificationDispatcher', () => {
 		});
 
 		expect(billingMailer['sendPaymentFailed']).toHaveBeenCalledWith(expect.anything(), 'evt-2');
+	});
+
+	it('mails the activation to the owner, carrying the event id the mailer keys on', async () => {
+		await dispatcher.send({
+			kind: 'billing.subscription_activated',
+			accountId: 'acc-3',
+			externalEventId: 'evt-3',
+		});
+
+		expect(identity.findOwner).toHaveBeenCalledWith('acc-3');
+		expect(billingMailer['sendSubscriptionActivated']).toHaveBeenCalledWith(
+			expect.anything(),
+			'evt-3',
+		);
 	});
 
 	it('resolves an auth intent to the person it names', async () => {

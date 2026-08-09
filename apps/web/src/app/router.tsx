@@ -7,6 +7,8 @@ import { ResetPasswordPage } from '@/features/auth/pages/reset-password.page.tsx
 import { SignupPage } from '@/features/auth/pages/signup.page.tsx';
 import { VerifyEmailPage } from '@/features/auth/pages/verify-email.page.tsx';
 import { BillingPage } from '@/features/billing/pages/billing.page.tsx';
+import { CheckoutCancelPage } from '@/features/billing/pages/checkout-cancel.page.tsx';
+import { CheckoutSuccessPage } from '@/features/billing/pages/checkout-success.page.tsx';
 
 export function Router() {
 	return (
@@ -28,8 +30,23 @@ export function Router() {
 				}
 			/>
 
-			{/* Success and cancel land back here; the webhook is what actually
-			    changed the subscription, so the page just refetches. */}
+			<Route
+				path="/billing/success"
+				element={
+					<RequireAuth>
+						<CheckoutSuccessPage />
+					</RequireAuth>
+				}
+			/>
+			<Route
+				path="/billing/cancel"
+				element={
+					<RequireAuth>
+						<CheckoutCancelPage />
+					</RequireAuth>
+				}
+			/>
+
 			<Route path="/billing/*" element={<Navigate to="/" replace />} />
 			<Route path="*" element={<Navigate to="/" replace />} />
 		</Routes>

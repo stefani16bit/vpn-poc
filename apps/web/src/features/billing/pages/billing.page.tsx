@@ -1,7 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
 
-import type { Cadence } from '@vpn/contracts';
-
 import { normalizeError } from '@/app/store/api-error.js';
 import { sessionCleared } from '@/app/store/auth-slice.js';
 import type { AppDispatch, RootState } from '@/app/store/index.js';
@@ -12,12 +10,13 @@ import { Button } from '@/components/ui/button.tsx';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 import {
 	useCancelSubscriptionMutation,
-	useCreateCheckoutMutation,
+	useResumeSubscriptionMutation,
 	useSubscriptionQuery,
 } from '@/features/billing/api/billing.api.js';
 import { PlanActions } from '@/features/billing/components/plan-actions.tsx';
 import { PlanEntitlements } from '@/features/billing/components/plan-entitlements.tsx';
 import { SubscriptionStatus } from '@/features/billing/components/subscription-status.tsx';
+import { useStartCheckout } from '@/features/billing/hooks/use-start-checkout.js';
 import { LanguagePicker } from '@/i18n/language-picker.tsx';
 import { useTranslator } from '@/i18n/locale-context.tsx';
 
@@ -27,14 +26,10 @@ export function BillingPage() {
 	const user = useSelector((state: RootState) => state.auth.user);
 
 	const subscription = useSubscriptionQuery();
-	const [createCheckout, checkoutState] = useCreateCheckoutMutation();
+	const checkout = useStartCheckout();
 	const [cancelSubscription, cancelState] = useCancelSubscriptionMutation();
+	const [resumeSubscription, resumeState] = useResumeSubscriptionMutation();
 	const [logout] = useLogoutMutation();
-
-	async function subscribe(cadence: Cadence) {
-		const result = await createCheckout({ tier: 'pro', cadence });
-		if ('data' in result && result.data) window.location.assign(result.data.checkoutUrl);
-	}
 
 	return (
 		<Card className="w-full max-w-md">
@@ -60,7 +55,9 @@ export function BillingPage() {
 
 				<h2 className="mt-8 mb-3 text-lg font-medium">{t('billing.subscriptionTitle')}</h2>
 
-				<FormError error={normalizeError(checkoutState.error ?? cancelState.error)} />
+				<FormError
+					error={normalizeError(checkout.error ?? cancelState.error ?? resumeState.error)}
+				/>
 
 				{subscription.isLoading ? (
 					<Loading />
@@ -69,9 +66,10 @@ export function BillingPage() {
 						<SubscriptionStatus subscription={subscription.data} />
 						<PlanActions
 							subscription={subscription.data}
-							pending={checkoutState.isLoading || cancelState.isLoading}
-							onSubscribe={(cadence) => void subscribe(cadence)}
+							pending={checkout.pending || cancelState.isLoading || resumeState.isLoading}
+							onSubscribe={(cadence) => void checkout.start(cadence)}
 							onCancel={() => void cancelSubscription()}
+							onResume={() => void resumeSubscription()}
 						/>
 						<PlanEntitlements tier="pro" />
 					</>

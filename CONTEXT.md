@@ -178,6 +178,11 @@ importa porque um tier é comprável e isto não é.
 **Cancelar no fim do período** — o padrão. O usuário pagou pelo período; cortar
 na hora é para suporte e exclusão de conta.
 
+**Retomar** — desfazer um cancelamento agendado antes de o período fechar. É a
+mesma subscription voltando a renovar, então não passa por checkout e não cria
+cobrança. Só existe enquanto o cancelamento está **agendado**: depois que o
+período fecha e o status vira `canceled`, o caminho de volta é assinar de novo.
+
 ## Autorização
 
 **Entitlement** — o que a assinatura da account permite. Deriva do tier por um

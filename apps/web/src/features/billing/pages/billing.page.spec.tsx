@@ -77,7 +77,7 @@ describe('BillingPage', () => {
 		expect(screen.queryByRole('button', { name: /monthly/i })).not.toBeInTheDocument();
 	});
 
-	it('says when a cancellation is already scheduled, and stops offering it again', async () => {
+	it('offers a way back when a cancellation is already scheduled', async () => {
 		api.reply({
 			status: 'active',
 			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
@@ -90,7 +90,70 @@ describe('BillingPage', () => {
 				'Cancellation is scheduled. Access continues until the end of the paid period.',
 			),
 		).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled();
+		expect(screen.getByRole('button', { name: 'Resume subscription' })).toBeEnabled();
+		expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+	});
+
+	it('asks the API to resume, and stops saying the cancellation is scheduled', async () => {
+		api.reply({
+			status: 'active',
+			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+			cancelAtPeriodEnd: true,
+		});
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn() });
+
+		const resume = await screen.findByRole('button', { name: 'Resume subscription' });
+		api.reply({
+			status: 'active',
+			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+			cancelAtPeriodEnd: false,
+		});
+		await userEvent.click(resume);
+
+		await waitFor(() =>
+			expect(
+				screen.queryByText(
+					'Cancellation is scheduled. Access continues until the end of the paid period.',
+				),
+			).not.toBeInTheDocument(),
+		);
+		expect(
+			api.requests.some(
+				(request) =>
+					request.method === 'POST' && request.url.endsWith('billing/subscription/resume'),
+			),
+		).toBe(true);
+	});
+
+	it('does not cancel anything until the confirmation is accepted', async () => {
+		api.reply({
+			status: 'active',
+			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+			cancelAtPeriodEnd: false,
+		});
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn() });
+
+		await userEvent.click(await screen.findByRole('button', { name: 'Cancel subscription' }));
+		await screen.findByRole('alertdialog');
+		await userEvent.click(screen.getByRole('button', { name: 'Keep my subscription' }));
+
+		expect(api.requests.every((request) => request.method !== 'DELETE')).toBe(true);
+	});
+
+	it('cancels once the confirmation is accepted', async () => {
+		api.reply({
+			status: 'active',
+			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+			cancelAtPeriodEnd: false,
+		});
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn() });
+
+		await userEvent.click(await screen.findByRole('button', { name: 'Cancel subscription' }));
+		await userEvent.click(await screen.findByRole('button', { name: 'Yes, cancel' }));
+
+		await waitFor(() =>
+			expect(api.requests.some((request) => request.method === 'DELETE')).toBe(true),
+		);
 	});
 
 	it('sends the browser to the checkout url the API returned', async () => {

@@ -9,6 +9,7 @@ import { currentExecutor } from '../database/db-scope.js';
 import type { Executor } from '../database/transaction-runner.js';
 
 export interface StoredSubscription {
+	readonly externalId: string;
 	readonly status: typeof subscriptions.$inferSelect.status;
 	readonly currentPeriodEnd: Date | null;
 	readonly cancelAtPeriodEnd: boolean;
@@ -31,19 +32,6 @@ export class SubscriptionRepository {
 		return rows[0];
 	}
 
-	async findExternalId(
-		accountId: string,
-		executor: Executor = currentExecutor(),
-	): Promise<string | undefined> {
-		const rows = await executor
-			.select({ externalId: subscriptions.externalId })
-			.from(subscriptions)
-			.where(eq(subscriptions.accountId, accountId))
-			.limit(1);
-
-		return rows[0]?.externalId;
-	}
-
 	async setCancelAtPeriodEnd(
 		accountId: string,
 		cancelAtPeriodEnd: boolean,
@@ -60,8 +48,8 @@ export class SubscriptionRepository {
 		subscription: Subscription,
 		occurredAt: Date,
 		executor: Executor = currentExecutor(),
-	): Promise<void> {
-		await executor
+	): Promise<boolean> {
+		const applied = await executor
 			.insert(subscriptions)
 			.values({
 				accountId,
@@ -84,6 +72,9 @@ export class SubscriptionRepository {
 					updatedAt: new Date(),
 				},
 				setWhere: sql`${subscriptions.lastEventAt} is null or ${subscriptions.lastEventAt} < ${occurredAt.toISOString()}::timestamptz`,
-			});
+			})
+			.returning({ accountId: subscriptions.accountId });
+
+		return applied.length > 0;
 	}
 }

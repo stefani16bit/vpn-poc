@@ -4,27 +4,31 @@ Este arquivo faz as vezes de issue tracker. Não abra issues; edite aqui.
 
 ---
 
-## Estado — 2026-08-07
+## Estado — 2026-08-08
 
 **Fase 1 + i18n entregues. Fase 2: outbox, webhook, Account/User + RLS e
 entitlements entregues.** Cadastro, verificação, login, rotação de sessão, reset
 de senha e assinatura funcionando de ponta a ponta contra o devstack, em pt-BR e
 en, com toda tabela de domínio sob RLS. Assinar agora muda o que a account tem:
 o tier sai da subscription a cada requisição, com cache, e o webhook invalida.
+O retorno do checkout tem tela própria: ela espera o webhook em vez de supor que
+ele já chegou, e a ativação avisa por e-mail. Cancelar pergunta antes, e um
+cancelamento agendado pode ser desfeito. As cinco transições de cobrança avisam
+por e-mail — inclusive a que tira o acesso, que até aqui era silenciosa.
 
-| Suíte                                                       | Testes  | Precisa do devstack |
-| ----------------------------------------------------------- | ------- | ------------------- |
-| `packages/` — portas, contratos, i18n, fakes                | 209     | não                 |
-| `libs/env`                                                  | 19      | não                 |
-| `libs/adapters` — render de e-mail/SMS, redação, webhook    | 20      | não                 |
-| `apps/api` — kernel, serviços, controllers                  | 375     | não                 |
-| `apps/web` — store, telas, normalização de erro, locale     | 148     | não                 |
-| `infra` — validação de config CDK                           | 11      | não                 |
-| **Subtotal `pnpm verify`**                                  | **782** | **não**             |
-| `libs/adapters` — as mesmas suítes contra os serviços reais | 73      | sim                 |
-| `apps/api` — RLS, transações e as formas de SQL dos repos   | 54      | sim                 |
-| `apps/api` — fluxo completo mais a matriz de locale         | 73      | sim                 |
-| **Total**                                                   | **982** |                     |
+| Suíte                                                       | Testes   | Precisa do devstack |
+| ----------------------------------------------------------- | -------- | ------------------- |
+| `packages/` — portas, contratos, i18n, fakes                | 216      | não                 |
+| `libs/env`                                                  | 19       | não                 |
+| `libs/adapters` — render de e-mail/SMS, redação, webhook    | 20       | não                 |
+| `apps/api` — kernel, serviços, controllers                  | 406      | não                 |
+| `apps/web` — store, telas, normalização de erro, locale     | 177      | não                 |
+| `infra` — validação de config CDK                           | 11       | não                 |
+| **Subtotal `pnpm verify`**                                  | **849**  | **não**             |
+| `libs/adapters` — as mesmas suítes contra os serviços reais | 74       | sim                 |
+| `apps/api` — RLS, transações e as formas de SQL dos repos   | 54       | sim                 |
+| `apps/api` — fluxo completo mais a matriz de locale         | 84       | sim                 |
+| **Total**                                                   | **1061** |                     |
 
 `make check` 14/14 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
@@ -52,6 +56,12 @@ sem Docker ensina a ignorar suíte vermelha.
       atrás, então campo novo não existe para nós e os tipos descrevem um passado.
       Subir são cinco majors de mudança de tipos, e o alvo natural é a versão
       default da conta.
+- [ ] **A suíte de conformidade de billing não roda contra o Stripe.** Ela começa
+      por `createCheckout`, e o localstripe não implementa `/v1/checkout/sessions`
+      (DEC-009), então registrar o adapter real faria o bloco de checkout falhar
+      por limitação do mock. O conserto é partir a suíte em dois — checkout e ciclo
+      de vida — para que o Stripe passe pelo segundo; hoje cancelar e retomar são
+      pinados à mão em `stripe.integration.spec.ts`. DEC-060.
 - [ ] Preencher as stacks CDK. Ordem: `network` → `data` → `events` → `api`.
 - [ ] Secrets Manager em vez de variáveis de ambiente para `AUTH_JWT_SECRET` e
       `STRIPE_WEBHOOK_SECRET`.
@@ -238,10 +248,10 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 13/13
-pnpm --filter @vpn-poc/api test:e2e                  # 73, o fluxo inteiro
+make up && make check                                # devstack: 14/14
+pnpm --filter @vpn-poc/api test:e2e                  # 84, o fluxo inteiro
 pnpm --filter @vpn-poc/api test:integration          # 54, RLS e formas de SQL
-pnpm --filter @vpn-poc/adapters test:integration     # 73, adapters reais
+pnpm --filter @vpn-poc/adapters test:integration     # 74, adapters reais
 pnpm dev                                             # api :3000, web :5173
 ```
 

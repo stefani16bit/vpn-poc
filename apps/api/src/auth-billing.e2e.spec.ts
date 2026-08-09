@@ -843,6 +843,47 @@ describe('billing', () => {
 		);
 	});
 
+	it('mails the account when the subscription is activated', async () => {
+		const session = await subscribedSession();
+		await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
+
+		const billing = provider();
+		const hook = billing.emit('subscription_activated', session.accountId, {
+			subscription: billing.seedSubscription(`sub_${session.accountId}`, session.accountId),
+		});
+
+		await request(app.getHttpServer())
+			.post('/billing/webhook')
+			.set('stripe-signature', hook.signature)
+			.set('Content-Type', 'application/json')
+			.send(hook.rawBody)
+			.expect(200, { applied: true });
+
+		expect((await latestMessageFor(session.email)).subject).toBe('Sua assinatura está ativa');
+	});
+
+	it('does not mail a second time when the activation is redelivered', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		const hook = billing.emit('subscription_activated', session.accountId, {
+			subscription: billing.seedSubscription(`sub_${session.accountId}`, session.accountId),
+		});
+
+		for (const expected of [true, false]) {
+			await request(app.getHttpServer())
+				.post('/billing/webhook')
+				.set('stripe-signature', hook.signature)
+				.set('Content-Type', 'application/json')
+				.send(hook.rawBody)
+				.expect(200, { applied: expected });
+		}
+
+		const queued = await db`
+			SELECT id FROM outbox WHERE kind = 'billing.subscription_activated'
+		`;
+		expect(queued).toHaveLength(1);
+	});
+
 	it('cancels at period end and keeps the subscription active', async () => {
 		const session = await subscribedSession();
 		const billing = provider();
@@ -861,6 +902,178 @@ describe('billing', () => {
 			.expect(200);
 
 		expect(response.body).toMatchObject({ status: 'active', cancelAtPeriodEnd: true });
+	});
+
+	it('undoes a scheduled cancellation', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		const hook = billing.emit('subscription_activated', session.accountId, {
+			subscription: billing.seedSubscription(`sub_${session.accountId}`, session.accountId),
+		});
+		await deliver(hook);
+
+		await request(app.getHttpServer())
+			.delete('/billing/subscription')
+			.set('Authorization', `Bearer ${session.accessToken}`)
+			.expect(200);
+
+		const response = await request(app.getHttpServer())
+			.post('/billing/subscription/resume')
+			.set('Authorization', `Bearer ${session.accessToken}`)
+			.expect(200);
+
+		expect(response.body).toMatchObject({ status: 'active', cancelAtPeriodEnd: false });
+	});
+
+	it('mails the activation even when the subscription is created before it is paid', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		const seeded = billing.seedSubscription(`sub_${session.accountId}`, session.accountId);
+		await db`DELETE FROM outbox`;
+
+		await deliver(
+			billing.emit('subscription_activated', session.accountId, {
+				subscription: { ...seeded, status: 'incomplete' },
+				occurredAt: new Date('2026-12-01T00:00:00.000Z'),
+			}),
+		).expect(200, { applied: true });
+		expect(await db`SELECT id FROM outbox`).toHaveLength(0);
+
+		await deliver(
+			billing.emit('subscription_updated', session.accountId, {
+				subscription: { ...seeded, status: 'active' },
+				occurredAt: new Date('2026-12-02T00:00:00.000Z'),
+			}),
+		).expect(200, { applied: true });
+
+		const queued = await db`SELECT kind FROM outbox`;
+		expect(queued.map((row) => row['kind'])).toEqual(['billing.subscription_activated']);
+	});
+
+	it('tells the account its cancellation was scheduled, once', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		await deliver(
+			billing.emit('subscription_activated', session.accountId, {
+				subscription: billing.seedSubscription(`sub_${session.accountId}`, session.accountId),
+			}),
+		);
+		await db`DELETE FROM outbox`;
+
+		for (const _attempt of [1, 2]) {
+			await request(app.getHttpServer())
+				.delete('/billing/subscription')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(200);
+		}
+
+		const queued = await db`
+			SELECT id FROM outbox WHERE kind = 'billing.cancellation_scheduled'
+		`;
+		expect(queued).toHaveLength(1);
+	});
+
+	it('mails the scheduled cancellation through the same relay as everything else', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		await deliver(
+			billing.emit('subscription_activated', session.accountId, {
+				subscription: billing.seedSubscription(`sub_${session.accountId}`, session.accountId),
+			}),
+		);
+
+		await request(app.getHttpServer())
+			.delete('/billing/subscription')
+			.set('Authorization', `Bearer ${session.accessToken}`)
+			.expect(200);
+
+		await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
+		await drainNotifications();
+
+		expect((await latestMessageFor(session.email)).subject).toBe('Seu cancelamento foi agendado');
+	});
+
+	it('tells the account its subscription was resumed', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		await deliver(
+			billing.emit('subscription_activated', session.accountId, {
+				subscription: billing.seedSubscription(`sub_${session.accountId}`, session.accountId),
+			}),
+		);
+		await request(app.getHttpServer())
+			.delete('/billing/subscription')
+			.set('Authorization', `Bearer ${session.accessToken}`)
+			.expect(200);
+		await db`DELETE FROM outbox`;
+
+		await request(app.getHttpServer())
+			.post('/billing/subscription/resume')
+			.set('Authorization', `Bearer ${session.accessToken}`)
+			.expect(200);
+
+		const queued = await db`SELECT kind FROM outbox`;
+		expect(queued.map((row) => row['kind'])).toEqual(['billing.subscription_resumed']);
+	});
+
+	it('does not mail twice when the provider echoes the cancellation back as a webhook', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		const seeded = billing.seedSubscription(`sub_${session.accountId}`, session.accountId);
+		await deliver(
+			billing.emit('subscription_activated', session.accountId, { subscription: seeded }),
+		);
+		await request(app.getHttpServer())
+			.delete('/billing/subscription')
+			.set('Authorization', `Bearer ${session.accessToken}`)
+			.expect(200);
+
+		await deliver(
+			billing.emit('subscription_updated', session.accountId, {
+				subscription: { ...seeded, cancelAtPeriodEnd: true },
+				occurredAt: new Date('2026-12-01T00:00:00.000Z'),
+			}),
+		).expect(200, { applied: true });
+
+		const queued = await db`
+			SELECT id FROM outbox WHERE kind = 'billing.cancellation_scheduled'
+		`;
+		expect(queued).toHaveLength(1);
+	});
+
+	it('tells the account when a failed payment takes its access away', async () => {
+		const session = await subscribedSession();
+		const billing = provider();
+		const seeded = billing.seedSubscription(`sub_${session.accountId}`, session.accountId);
+		await deliver(
+			billing.emit('subscription_activated', session.accountId, { subscription: seeded }),
+		);
+		await db`DELETE FROM outbox`;
+
+		await deliver(
+			billing.emit('subscription_updated', session.accountId, {
+				subscription: { ...seeded, status: 'past_due' },
+				occurredAt: new Date('2026-12-01T00:00:00.000Z'),
+			}),
+		).expect(200, { applied: true });
+
+		const queued = await db`SELECT kind FROM outbox`;
+		expect(queued.map((row) => row['kind'])).toEqual(['billing.access_revoked']);
+	});
+
+	it('refuses to resume an account that never subscribed', async () => {
+		const session = await subscribedSession();
+
+		const response = await request(app.getHttpServer())
+			.post('/billing/subscription/resume')
+			.set('Authorization', `Bearer ${session.accessToken}`)
+			.expect(404);
+
+		expect(response.body.code).toBe('NOT_FOUND');
+	});
+
+	it('refuses to resume without a token', async () => {
+		await request(app.getHttpServer()).post('/billing/subscription/resume').expect(401);
 	});
 
 	describe('entitlements', () => {

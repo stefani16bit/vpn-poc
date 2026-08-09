@@ -74,6 +74,14 @@ export class StripeBillingProvider implements IBillingProvider {
 		return toSubscription(updated);
 	}
 
+	async resumeSubscription(externalId: string): Promise<Subscription> {
+		const updated = await this.#stripe.subscriptions.update(externalId, {
+			cancel_at_period_end: false,
+		});
+
+		return toSubscription(updated);
+	}
+
 	verifyWebhookSignature(rawBody: string, signatureHeader: string): boolean {
 		try {
 			this.#stripe.webhooks.constructEvent(rawBody, signatureHeader, this.#webhookSecret);

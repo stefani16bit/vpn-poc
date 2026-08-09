@@ -13,10 +13,30 @@ export type OutboxMessage =
 			readonly externalEventId: string;
 	  }
 	| {
+			readonly kind: 'billing.subscription_activated';
+			readonly accountId: string;
+			readonly externalEventId: string;
+	  }
+	| {
 			readonly kind: 'billing.subscription_canceled';
 			readonly accountId: string;
 			readonly externalEventId: string;
+	  }
+	| {
+			readonly kind: 'billing.access_revoked';
+			readonly accountId: string;
+			readonly externalEventId: string;
+	  }
+	| {
+			readonly kind: 'billing.cancellation_scheduled';
+			readonly accountId: string;
+			readonly requestedAt: string;
 			readonly endsAt: string | null;
+	  }
+	| {
+			readonly kind: 'billing.subscription_resumed';
+			readonly accountId: string;
+			readonly requestedAt: string;
 	  };
 
 export type OutboxKind = OutboxMessage['kind'];
@@ -30,7 +50,11 @@ const AUTH_KINDS: readonly OutboxKind[] = [
 
 const BILLING_KINDS: readonly OutboxKind[] = [
 	'billing.payment_failed',
+	'billing.subscription_activated',
 	'billing.subscription_canceled',
+	'billing.access_revoked',
+	'billing.cancellation_scheduled',
+	'billing.subscription_resumed',
 ];
 
 export type OutboxJob = {

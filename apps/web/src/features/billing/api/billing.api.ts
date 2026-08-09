@@ -22,8 +22,17 @@ export const billingApi = api.injectEndpoints({
 			query: () => ({ url: 'billing/subscription', method: 'DELETE' }),
 			invalidatesTags: ['Subscription'],
 		}),
+
+		resumeSubscription: builder.mutation<SubscriptionResponse, void>({
+			query: () => ({ url: 'billing/subscription/resume', method: 'POST' }),
+			invalidatesTags: ['Subscription'],
+		}),
 	}),
 });
 
-export const { useSubscriptionQuery, useCreateCheckoutMutation, useCancelSubscriptionMutation } =
-	billingApi;
+export const {
+	useSubscriptionQuery,
+	useCreateCheckoutMutation,
+	useCancelSubscriptionMutation,
+	useResumeSubscriptionMutation,
+} = billingApi;

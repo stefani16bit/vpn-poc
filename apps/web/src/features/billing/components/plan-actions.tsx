@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import type { Cadence, SubscriptionResponse } from '@vpn/contracts';
 
 import { Button } from '@/components/ui/button.tsx';
+import { CancelSubscriptionDialog } from '@/features/billing/components/cancel-subscription-dialog.tsx';
+import { SubscribeButtons } from '@/features/billing/components/subscribe-buttons.tsx';
 import { useTranslator } from '@/i18n/locale-context.tsx';
 
 export function PlanActions({
@@ -10,42 +12,30 @@ export function PlanActions({
 	pending,
 	onSubscribe,
 	onCancel,
+	onResume,
 }: {
 	subscription: SubscriptionResponse | undefined;
 	pending: boolean;
 	onSubscribe: (cadence: Cadence) => void;
 	onCancel: () => void;
+	onResume: () => void;
 }): ReactNode {
 	const t = useTranslator();
 	const status = subscription?.status ?? 'none';
 
 	if (status === 'none' || status === 'canceled') {
+		return <SubscribeButtons pending={pending} onSubscribe={onSubscribe} />;
+	}
+
+	if (subscription?.cancelAtPeriodEnd) {
 		return (
-			<div className="mt-4 flex flex-wrap gap-3">
-				<Button type="button" disabled={pending} onClick={() => onSubscribe('monthly')}>
-					{t('billing.subscribeMonthly')}
-				</Button>
-				<Button
-					type="button"
-					variant="outline"
-					disabled={pending}
-					onClick={() => onSubscribe('yearly')}
-				>
-					{t('billing.subscribeYearly')}
-				</Button>
-			</div>
+			<Button type="button" className="mt-4" disabled={pending} onClick={onResume}>
+				{t('billing.resume')}
+			</Button>
 		);
 	}
 
 	return (
-		<Button
-			type="button"
-			variant="outline"
-			className="mt-4"
-			disabled={pending || subscription?.cancelAtPeriodEnd}
-			onClick={onCancel}
-		>
-			{t('billing.cancel')}
-		</Button>
+		<CancelSubscriptionDialog subscription={subscription} pending={pending} onConfirm={onCancel} />
 	);
 }

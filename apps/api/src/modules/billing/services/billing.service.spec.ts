@@ -3,12 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '@vpn-poc/env';
 import type { IBillingProvider, NormalizedBillingEvent, Subscription } from '@vpn/ports';
+import { FixedClock } from '@vpn/testing/fakes';
 
 import { AppError } from '../../../shared/errors/app-error.js';
 import type { ModuleLogger } from '../../../shared/http/module-logger.js';
 import type { TransactionRunner } from '../../../shared/database/transaction-runner.js';
 import type { BillingEventRepository } from '../repositories/billing-event.repository.js';
-import type { SubscriptionRepository } from '../../../shared/subscriptions/subscription.repository.js';
+import type {
+	StoredSubscription,
+	SubscriptionRepository,
+} from '../../../shared/subscriptions/subscription.repository.js';
 import type { EntitlementsService } from '../../../shared/entitlements/entitlements.service.js';
 import type { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 import type {
@@ -40,6 +44,8 @@ const ACCOUNT = { id: 'acc-1', email: 'ada@example.com', locale: 'pt-BR' } as St
 
 const OCCURRED_AT = new Date('2026-08-01T00:00:00.000Z');
 
+const NOW = new Date('2026-08-05T12:00:00.000Z');
+
 const EXECUTOR = Symbol('executor');
 
 function subscription(overrides: Partial<Subscription> = {}): Subscription {
@@ -57,13 +63,13 @@ describe('BillingService', () => {
 	let billing: {
 		createCheckout: ReturnType<typeof vi.fn>;
 		cancelSubscription: ReturnType<typeof vi.fn>;
+		resumeSubscription: ReturnType<typeof vi.fn>;
 		verifyWebhookSignature: ReturnType<typeof vi.fn>;
 		parseWebhookEvent: ReturnType<typeof vi.fn>;
 	};
 	let identity: { findOwner: ReturnType<typeof vi.fn> };
 	let subscriptions: {
 		findByAccount: ReturnType<typeof vi.fn>;
-		findExternalId: ReturnType<typeof vi.fn>;
 		setCancelAtPeriodEnd: ReturnType<typeof vi.fn>;
 		upsert: ReturnType<typeof vi.fn>;
 	};
@@ -80,15 +86,15 @@ describe('BillingService', () => {
 		billing = {
 			createCheckout: vi.fn().mockResolvedValue({ url: 'https://checkout.example/session' }),
 			cancelSubscription: vi.fn().mockResolvedValue({ cancelAtPeriodEnd: true }),
+			resumeSubscription: vi.fn().mockResolvedValue({ cancelAtPeriodEnd: false }),
 			verifyWebhookSignature: vi.fn().mockReturnValue(true),
 			parseWebhookEvent: vi.fn(),
 		};
 		identity = { findOwner: vi.fn().mockResolvedValue(ACCOUNT) };
 		subscriptions = {
 			findByAccount: vi.fn().mockResolvedValue(undefined),
-			findExternalId: vi.fn().mockResolvedValue(undefined),
 			setCancelAtPeriodEnd: vi.fn().mockResolvedValue(undefined),
-			upsert: vi.fn().mockResolvedValue(undefined),
+			upsert: vi.fn().mockResolvedValue(true),
 		};
 		events = { claim: vi.fn().mockResolvedValue(true) };
 		outbox = { enqueue: vi.fn().mockResolvedValue(undefined) };
@@ -113,6 +119,7 @@ describe('BillingService', () => {
 			outbox as unknown as OutboxRepository,
 			transactions as unknown as TransactionRunner,
 			entitlements as unknown as EntitlementsService,
+			new FixedClock(NOW),
 		);
 	});
 
@@ -156,6 +163,7 @@ describe('BillingService', () => {
 				outbox as unknown as OutboxRepository,
 				transactions as unknown as TransactionRunner,
 				entitlements as unknown as EntitlementsService,
+				new FixedClock(NOW),
 			);
 
 			await expect(withoutYearly.createCheckout('acc-1', 'pro', 'yearly')).rejects.toBeInstanceOf(
@@ -200,6 +208,16 @@ describe('BillingService', () => {
 		});
 	});
 
+	function stored(overrides: Partial<StoredSubscription> = {}): StoredSubscription {
+		return {
+			externalId: 'sub_1',
+			status: 'active',
+			currentPeriodEnd: new Date('2026-09-01T00:00:00.000Z'),
+			cancelAtPeriodEnd: false,
+			...overrides,
+		} as StoredSubscription;
+	}
+
 	describe('cancel', () => {
 		it('rejects when there is no subscription to cancel', async () => {
 			await expect(service.cancel('acc-1')).rejects.toBeInstanceOf(AppError);
@@ -207,12 +225,91 @@ describe('BillingService', () => {
 		});
 
 		it('cancels at period end and stores what the provider reported', async () => {
-			subscriptions.findExternalId.mockResolvedValue('sub_1');
+			subscriptions.findByAccount.mockResolvedValue(stored());
 
 			await service.cancel('acc-1');
 
 			expect(billing.cancelSubscription).toHaveBeenCalledWith('sub_1', 'period_end');
 			expect(subscriptions.setCancelAtPeriodEnd).toHaveBeenCalledWith('acc-1', true);
+		});
+
+		it('tells the account when the cancellation is scheduled, and by when access lasts', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored());
+			billing.cancelSubscription.mockResolvedValue({
+				cancelAtPeriodEnd: true,
+				currentPeriodEnd: new Date('2026-09-01T00:00:00.000Z'),
+			});
+
+			await service.cancel('acc-1');
+
+			expect(outbox.enqueue).toHaveBeenCalledWith('acc-1', {
+				kind: 'billing.cancellation_scheduled',
+				accountId: 'acc-1',
+				requestedAt: NOW.toISOString(),
+				endsAt: '2026-09-01T00:00:00.000Z',
+			});
+		});
+
+		it('says nothing when the cancellation was already scheduled', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored({ cancelAtPeriodEnd: true }));
+
+			await service.cancel('acc-1');
+
+			expect(outbox.enqueue).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('resume', () => {
+		it('rejects when there is no subscription to resume', async () => {
+			await expect(service.resume('acc-1')).rejects.toBeInstanceOf(AppError);
+			expect(billing.resumeSubscription).not.toHaveBeenCalled();
+		});
+
+		it('clears the schedule and stores what the provider reported', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored({ cancelAtPeriodEnd: true }));
+
+			await service.resume('acc-1');
+
+			expect(billing.resumeSubscription).toHaveBeenCalledWith('sub_1');
+			expect(subscriptions.setCancelAtPeriodEnd).toHaveBeenCalledWith('acc-1', false);
+		});
+
+		it('tells the account the cancellation was undone', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored({ cancelAtPeriodEnd: true }));
+
+			await service.resume('acc-1');
+
+			expect(outbox.enqueue).toHaveBeenCalledWith('acc-1', {
+				kind: 'billing.subscription_resumed',
+				accountId: 'acc-1',
+				requestedAt: NOW.toISOString(),
+			});
+		});
+
+		it('says nothing when there was no cancellation to undo', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored());
+
+			await service.resume('acc-1');
+
+			expect(outbox.enqueue).not.toHaveBeenCalled();
+		});
+
+		it('trusts the provider over the request, so a refused resume is not written as done', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored({ cancelAtPeriodEnd: true }));
+			billing.resumeSubscription.mockResolvedValue({ cancelAtPeriodEnd: true });
+
+			await service.resume('acc-1');
+
+			expect(subscriptions.setCancelAtPeriodEnd).toHaveBeenCalledWith('acc-1', true);
+			expect(outbox.enqueue).not.toHaveBeenCalled();
+		});
+
+		it('leaves the projection untouched when the provider refuses', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored({ cancelAtPeriodEnd: true }));
+			billing.resumeSubscription.mockRejectedValue(new Error('subscription is canceled'));
+
+			await expect(service.resume('acc-1')).rejects.toThrow('subscription is canceled');
+			expect(subscriptions.setCancelAtPeriodEnd).not.toHaveBeenCalled();
 		});
 	});
 
@@ -287,6 +384,61 @@ describe('BillingService', () => {
 			expect(subscriptions.upsert).toHaveBeenCalledWith('acc-1', sub, OCCURRED_AT, EXECUTOR);
 		});
 
+		it('queues an activation notification alongside the subscription it stored', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_activated',
+				accountId: 'acc-1',
+				externalEventId: 'evt-a',
+				subscription: subscription(),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'acc-1',
+				{
+					kind: 'billing.subscription_activated',
+					accountId: 'acc-1',
+					externalEventId: 'evt-a',
+				},
+				EXECUTOR,
+			);
+		});
+
+		it('queues no activation for a subscription that is not yet paying for anything', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_activated',
+				accountId: 'acc-1',
+				externalEventId: 'evt-b',
+				subscription: subscription({ status: 'incomplete' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(subscriptions.upsert).toHaveBeenCalled();
+			expect(outbox.enqueue).not.toHaveBeenCalled();
+		});
+
+		it('queues an activation for a trial, which grants the tier just the same', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_activated',
+				accountId: 'acc-1',
+				externalEventId: 'evt-c',
+				subscription: subscription({ status: 'trialing' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'acc-1',
+				expect.objectContaining({ kind: 'billing.subscription_activated' }),
+				EXECUTOR,
+			);
+		});
+
 		it('queues a payment failure notification and touches no subscription row', async () => {
 			billing.parseWebhookEvent.mockReturnValue({
 				occurredAt: OCCURRED_AT,
@@ -325,13 +477,137 @@ describe('BillingService', () => {
 					kind: 'billing.subscription_canceled',
 					accountId: 'acc-1',
 					externalEventId: 'evt-3',
-					endsAt: sub.currentPeriodEnd?.toISOString(),
 				},
 				EXECUTOR,
 			);
 		});
 
+		it('calls a cancellation a cancellation, even though it also takes the tier away', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored());
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_canceled',
+				accountId: 'acc-1',
+				externalEventId: 'evt-x',
+				subscription: subscription({ status: 'canceled' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue).toHaveBeenCalledTimes(1);
+			expect(outbox.enqueue.mock.calls[0]?.[1]).toMatchObject({
+				kind: 'billing.subscription_canceled',
+			});
+		});
+
+		it('tells the account when a subscription that started incomplete becomes active', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored({ status: 'incomplete' }));
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_updated',
+				accountId: 'acc-1',
+				externalEventId: 'evt-p',
+				subscription: subscription({ status: 'active' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'acc-1',
+				{
+					kind: 'billing.subscription_activated',
+					accountId: 'acc-1',
+					externalEventId: 'evt-p',
+				},
+				EXECUTOR,
+			);
+		});
+
+		it('tells the account when dunning recovers and the tier comes back', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored({ status: 'past_due' }));
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_updated',
+				accountId: 'acc-1',
+				externalEventId: 'evt-q',
+				subscription: subscription({ status: 'active' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue.mock.calls[0]?.[1]).toMatchObject({
+				kind: 'billing.subscription_activated',
+			});
+		});
+
+		it('does not announce an activation the late-event guard refused to apply', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored({ status: 'incomplete' }));
+			subscriptions.upsert.mockResolvedValue(false);
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_updated',
+				accountId: 'acc-1',
+				externalEventId: 'evt-o',
+				subscription: subscription({ status: 'active' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue).not.toHaveBeenCalled();
+		});
+
+		it('tells the account when a status change takes its tier away', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored());
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_updated',
+				accountId: 'acc-1',
+				externalEventId: 'evt-r',
+				subscription: subscription({ status: 'past_due' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'acc-1',
+				{ kind: 'billing.access_revoked', accountId: 'acc-1', externalEventId: 'evt-r' },
+				EXECUTOR,
+			);
+		});
+
+		it('says nothing when the account had no tier to lose', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored({ status: 'past_due' }));
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_updated',
+				accountId: 'acc-1',
+				externalEventId: 'evt-s',
+				subscription: subscription({ status: 'past_due' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue).not.toHaveBeenCalled();
+		});
+
+		it('does not announce a revocation the late-event guard refused to apply', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored());
+			subscriptions.upsert.mockResolvedValue(false);
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'subscription_updated',
+				accountId: 'acc-1',
+				externalEventId: 'evt-t',
+				subscription: subscription({ status: 'past_due' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue).not.toHaveBeenCalled();
+		});
+
 		it('queues nothing for a renewal, which is not news the user needs', async () => {
+			subscriptions.findByAccount.mockResolvedValue(stored());
 			billing.parseWebhookEvent.mockReturnValue({
 				occurredAt: OCCURRED_AT,
 				kind: 'subscription_updated',

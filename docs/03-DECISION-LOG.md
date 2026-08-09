@@ -1938,3 +1938,221 @@ troca um bug silencioso por outro.
 tipa cada campo só onde a versão dele o coloca. Subir o `stripe` para o 22 segue
 desejável e agora é separado: o parser aguenta as duas pontas, então a atualização
 deixou de ser urgente. Está no roadmap.
+
+---
+
+### DEC-058 — A página de retorno espera o webhook; tempo esgotado é estado neutro
+
+**Data:** 2026-08-08 · **Status:** accepted
+
+**Contexto.** `success_url` e `cancel_url` apontam para `/billing/success` e
+`/billing/cancel`, e o router web mandava `/billing/*` para `/`. Pagar, desistir
+e abandonar a aba terminavam idênticos: a app reaparecia sem dizer nada. Pior que
+o silêncio — quem ativa a assinatura é o **webhook**, que é assíncrono, e medido
+localmente o redirect ganha essa corrida. O usuário que acabou de pagar caía numa
+tela dizendo **Sem assinatura**.
+
+**Decisão.** Duas rotas de verdade, declaradas antes do catch-all, e a de sucesso
+consulta a projeção a cada 2 s por até 15 s. Três desfechos: **ativada** (o tier
+resolvido pela `resolveTier` que a API usa), **ainda ativando** enquanto espera, e
+**sendo processada** quando a espera acaba — com um "verificar de novo", nunca com
+uma mensagem de erro. A tela reconhece o pagamento nos três, e em nenhum momento
+afirma que ele falhou.
+
+**Rationale.** Assumir a ativação mentiria: a tela seguinte negaria o acesso.
+Chamar o tempo esgotado de falha mentiria pior, porque o dinheiro já está com o
+provider e a única coisa que falta é um evento que **está** a caminho — o pior
+caso do timeout é uma espera, não um problema.
+
+Não existe redirect de falha para modelar: um cartão recusado não sai da página
+hospedada, o Stripe renderiza o erro lá. Falha posterior é dunning, que
+`invoice.payment_failed` já cobre. Duas rotas, três estados.
+
+**Recusado:** acrescentar `?session_id={CHECKOUT_SESSION_ID}` à `success_url`. O
+redirect já **é** a afirmação do provider de que o checkout concluiu, então o
+parâmetro não carrega fato novo; usá-lo para afirmar mais forte exigiria
+`checkout.sessions.retrieve`, e um segundo caminho para o mesmo fato contraria a
+DEC-037, que põe a verdade no webhook. E `checkout.sessions.create` não tem
+caminho de teste aqui — o localstripe não implementa a rota —, então a linha
+nasceria sem cobertura. A página ignora a query string, inclusive o
+`?checkout=…&price=…` que o driver `memory` acrescenta.
+
+**Consequências.** É o primeiro polling do `apps/web`; o intervalo e o limite são
+constantes nomeadas na página. No modo offline a tela **sempre** chega ao estado
+de espera, porque não há provider mandando o webhook — quem manda é
+`pnpm billing:activate` (DEC-056). Isso é um segundo caso de teste, não um
+defeito. `/billing/*` continua existindo para subpath desconhecido, inclusive o
+`/billing` que os e-mails de cobrança linkam.
+
+---
+
+### DEC-059 — A ativação também manda e-mail, e ele segue o tier
+
+**Data:** 2026-08-08 · **Status:** accepted
+
+**Contexto.** Até aqui só falha de pagamento e cancelamento viravam intenção de
+outbox. A omissão era deliberada: o Stripe manda o próprio recibo.
+
+**Decisão.** `subscription_activated` passa a enfileirar
+`billing.subscription_activated`, **condicionado a `resolveTier(status) !== null`**.
+
+**Rationale.** O recibo do provider fala de dinheiro; o que a pessoa comprou é
+acesso, e ninguém além de nós pode dizer que ele está liberado. Com a página de
+retorno podendo terminar em "sendo processada" (DEC-058), o e-mail é o que fecha
+o ciclo para quem fechou a aba antes de o webhook chegar.
+
+O gate por tier não é defesa por hábito. `StripeBillingProvider` normaliza **todo**
+`customer.subscription.created` como ativação, e um `created` pode chegar
+`incomplete` — 3DS/SCA. Anunciar como ativa uma assinatura que ainda não paga nada
+é exatamente a mentira que a DEC-058 recusa na tela; recusá-la na tela e cometê-la
+no e-mail seria pior, porque o e-mail não se corrige sozinho.
+
+**Consequências.** Uma assinatura que nasce `incomplete` e só depois vira `active`
+não gerava e-mail: a transição chega como `subscription_updated`, e mandar em todo
+`updated` mandaria um e-mail por renovação. Ficou registrado como limite conhecido —
+e **a DEC-061 o removeu**, ao trocar o gatilho de "evento de criação com tier" por
+"transição de tier", que distingue virar ativo de continuar ativo.
+
+`EmailTemplate` mora em `@vpn/ports`, então acrescentar um template sobe `ports`, e
+`@vpn/testing` sobe por arrasto — ele declara `@vpn/ports` como `workspace:*`, que
+vira versão exata no `pack`, e deixá-lo para trás instalaria duas cópias da porta.
+`renderEmail` resolve `email.${template}` com cast, então uma chave faltando
+renderizaria o **nome da chave** como assunto; o teste unitário dos adapters passou
+a recusar isso explicitamente.
+
+---
+
+### DEC-060 — Retomar é método próprio da porta; confirmar é do cliente
+
+**Data:** 2026-08-08 · **Status:** accepted
+
+**Contexto.** Cancelar era um clique só, sem pergunta e sem volta: o `onClick`
+disparava `DELETE /billing/subscription` direto, e depois disso a tela virava um
+beco sem saída — o mesmo botão continuava lá, desabilitado, e não havia caminho de
+volta em lugar nenhum do sistema. `IBillingProvider` só sabia escrever
+`cancel_at_period_end: true`.
+
+**Decisão.** A porta ganha `resumeSubscription(externalId)`, com rota
+`POST /billing/subscription/resume`. A confirmação é do **cliente**: um
+`AlertDialog` antes de agendar o cancelamento.
+
+**Rationale.** Alargar a união existente para
+`cancelSubscription(id, 'now' | 'period_end' | 'never')` foi rejeitado: "cancelar
+com quando = nunca" mente no nome, e obrigaria todo call-site a re-narrowar uma
+união que cresceu sem que o domínio crescesse junto.
+
+A confirmação não sobe para o servidor porque um passo de confirmação
+server-side seria estado de UI no banco — um "cancelamento pendente" que precisa
+expirar, e que a pessoa pode abandonar fechando a aba. A guarda que o servidor
+precisa ter ele já tem: a assinatura tem que existir, e quem manda no resto é o
+provider.
+
+Retomar **não** invalida o cache de entitlement, e isso é simétrico com cancelar:
+agendar o fim do período nunca tirou o tier (`active` continua `active`), então
+desfazer o agendamento não o devolve. Não há nada a invalidar, e chamar
+`invalidate` aqui sugeriria que há.
+
+**Consequências.**
+
+`setCancelAtPeriodEnd` não participa da guarda monotônica do `upsert` — é um
+`UPDATE` direto que não toca `lastEventAt`. Logo um webhook atrasado pode reverter
+um retomar. Isso é **correto**, não uma corrida a consertar: a subscription local é
+projeção, o provider é a autoridade (`CONTEXT.md`), e o evento seguinte — mais novo
+— reconverge. O mesmo já valia para o cancelar; retomar só torna o efeito visível.
+
+A suíte de conformidade de billing **continua sem rodar contra o
+`StripeBillingProvider`**, e agora está escrito por quê: ela começa por
+`createCheckout`, e o localstripe não implementa `/v1/checkout/sessions` (DEC-009).
+Registrar o Stripe faria o bloco de checkout falhar por limitação do mock, não do
+adapter. Enquanto isso, retomar é pinado à mão em `stripe.integration.spec.ts`,
+onde o cancelamento já era. Partir a suíte em dois blocos — checkout e ciclo de
+vida — para que o Stripe passe pelo segundo está no roadmap.
+
+Estendendo a suíte, apareceu que ela **não afirmava nada sobre
+`cancelSubscription`**: cobria checkout, verificação e parsing, e nada do ciclo de
+vida. O bloco novo cobre os dois lados, e o `BillingProviderHarness` ganhou
+`activeSubscription(accountId)` porque não havia como obter o `externalId` de uma
+subscription viva de dentro da suíte.
+
+No modo offline retomar falha como cancelar já falha, pelo mesmo motivo da
+DEC-056: o fake que a API montou nunca criou aquela subscription.
+
+---
+
+### DEC-061 — Ação do usuário também escreve intenção, e o aviso segue o estado
+
+**Data:** 2026-08-08 · **Status:** accepted
+
+**Contexto.** Todo e-mail do sistema nascia de um webhook ou de um fluxo de auth.
+Três momentos ficavam mudos, e um falava errado:
+
+- **agendar um cancelamento** não avisava nada. O `cancel_at_period_end` chega como
+  `customer.subscription.updated` com status ainda `active`, normaliza para
+  `subscription_updated`, e esse kind não enfileirava nada;
+- **retomar** não avisava nada, por não existir até a DEC-060;
+- **perder o acesso** não avisava nada. `past_due` aparecia num único lugar do
+  código — o mapa de status do adapter — e nada reagia a ele. O e-mail de dunning
+  fala do cartão; nada falava da consequência;
+- e o e-mail de **término** dizia _"o acesso continua até {{endsAt}}"_ disparando em
+  `customer.subscription.deleted`, quando o acesso já tinha acabado. Texto de
+  agendamento no gatilho do término.
+
+**Decisão.** Cancelar e retomar enfileiram intenção no outbox **dentro da transação
+da requisição**, e a idempotência chaveia no **instante pedido** em vez de num id de
+evento do provider. E o aviso de ganhar e o de perder o tier passam a ser
+disparados pela **transição** `resolveTier`, nas duas direções — não pelo nome do
+evento. `endsAt` migra do e-mail de término para o de agendamento, que é onde a
+data é futura.
+
+**Rationale.** `OutboxRepository.enqueue` já assume
+`executor = currentExecutor()`, e as rotas de billing rodam dentro da transação que
+o `TenantTransactionInterceptor` abre — guard roda antes de interceptor, e o guard é
+quem põe `request.auth`. Então a atomicidade da DEC-047 vale sem plumbing novo.
+Imitar o webhook não era opção: `runAsSystem` recusa aninhar dentro de um escopo
+aberto, porque `set local role` sobrevive ao savepoint. O caminho de auth abre a
+própria transação justamente por ser pré-autenticação e não ter escopo; billing tem.
+
+Chavear no instante é o que faz cancelar → retomar → cancelar render três avisos
+enquanto um retry do relay reenvia um só. Não é invenção: `sendPasswordChanged` já
+chaveia `password-changed:${userId}:${segundos}` pela mesma razão.
+
+O aviso de suspensão segue o **tier** porque é a outra metade da regra que a DEC-059
+fixou para a ativação. Enumerar `past_due` e `unpaid` no handler seria repetir, num
+segundo lugar, a decisão que a `resolveTier` já toma — e o dia em que um status novo
+revogar acesso, o e-mail sai sozinho. Também é o que faz o aviso sair **uma vez por
+perda** em vez de uma vez por cobrança recusada, que é o que o dunning já cobre.
+
+Escrita a metade que faltava, ficou evidente que a outra estava incompleta: a
+ativação disparava em "evento de criação **e** status já dá tier", e o Stripe
+frequentemente cria a subscription `incomplete` e só a promove a `active` no evento
+seguinte — que chega como `subscription_updated` e não enfileirava nada. **Compra
+concluída, tier concedido, ninguém avisado.** Era o limite que a DEC-059 registrou
+como conhecido, e ele deixou de ser aceitável no momento em que a maquinaria de
+transição passou a existir para a revogação. O gatilho da ativação passa a ser
+`nulo → não-nulo`, que é o que distingue _virar_ ativo de _continuar_ ativo — a
+renovação segue muda. De brinde, recuperar de um `past_due` volta a avisar, porque
+é genuinamente um tier reconquistado.
+
+**Consequências.**
+
+A transição só é confiável com duas informações que o handler não tinha: o tier
+**anterior** e se o upsert **de fato aplicou**. `SubscriptionRepository.upsert`
+passa a devolver `boolean` via `.returning()` — o `onConflictDoUpdate` com `setWhere`
+falso não devolve linha, então o sinal cai de graça. Sem ele, um evento atrasado
+carregando `past_due` mandaria "você perdeu o acesso" para quem não perdeu, e a
+guarda monotônica que existe desde a DEC-047 ficaria correta no banco e mentirosa na
+caixa de entrada.
+
+**O cancelamento ganha do genérico.** Uma assinatura que termina também perde o
+tier, e sem ordem explícita ela receberia "seu acesso foi suspenso" em vez de
+"assinatura cancelada". Os eventos com e-mail próprio são resolvidos primeiro; a
+revogação é o que sobra. Isso é teste, não comentário.
+
+`findExternalId` fica sem chamador e sai: cancelar e retomar precisam do estado
+anterior de qualquer forma, então leem a linha inteira uma vez. `StoredSubscription`
+ganha `externalId`, que a query já trazia e só o tipo omitia.
+
+Acrescentar kind ao outbox exige acrescentá-lo **também** a `BILLING_KINDS`, e
+esquecer não dá erro de compilação: `parseOutboxJob` devolve `null`, o consumer joga
+o job em `unknown` e nunca dá acknowledge — a mensagem volta para sempre e nenhum
+e-mail sai.

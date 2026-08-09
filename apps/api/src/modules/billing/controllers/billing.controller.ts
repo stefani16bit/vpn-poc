@@ -59,6 +59,14 @@ export class BillingController {
 		return this.billing.currentSubscription(claims.accountId);
 	}
 
+	@Post('subscription/resume')
+	@UseGuards(AccessTokenGuard)
+	@HttpCode(200)
+	async resume(@Auth() claims: AccessTokenClaims): Promise<SubscriptionResponse> {
+		await this.billing.resume(claims.accountId);
+		return this.billing.currentSubscription(claims.accountId);
+	}
+
 	@Post('webhook')
 	@HttpCode(200)
 	async webhook(

@@ -1,7 +1,8 @@
 # Entitlements e planos
 
 **Status:** entregue
-**Decisões relacionadas:** DEC-036, DEC-037, DEC-043, DEC-054, DEC-055
+**Decisões relacionadas:** DEC-036, DEC-037, DEC-043, DEC-054, DEC-055, DEC-058,
+DEC-059
 
 ## Problema
 
@@ -20,8 +21,9 @@ vive 15 minutos e não é revogável (DEC-037).
 **Entra:** o mapa de entitlements em `@vpn/contracts` com **um** tier pago
 (`pro`); o par tier × cadence virando os tipos que já deveriam existir; a leitura
 por requisição a partir da subscription, com cache via `ICacheStore`; a
-invalidação dessa entrada pelo webhook; um guard de capability no kernel; e
-`GET /entitlements`, para o cliente saber o que pedir e o que esconder.
+invalidação dessa entrada pelo webhook; um guard de capability no kernel;
+`GET /entitlements`, para o cliente saber o que pedir e o que esconder; as duas
+telas de retorno do checkout; e o e-mail de ativação.
 
 **Não entra:**
 
@@ -114,9 +116,153 @@ Quando  ela é chamada
 Então   o erro é INTERNAL, porque não há account de quem ler entitlement
 ```
 
+O mesmo fluxo, visto do navegador. O provider devolve a pessoa por `success_url`
+ou por `cancel_url`, e **não existe redirect de falha**: um cartão recusado não
+sai da página hospedada.
+
+```
+Dado    quem volta do checkout com o webhook de ativação já aplicado
+Quando  a página de retorno lê a assinatura
+Então   ela mostra a assinatura ativa, o tier e o que ele inclui
+```
+
+```
+Dado    quem volta do checkout antes de o webhook chegar
+Quando  a página lê a assinatura repetidamente por alguns segundos
+Então   ela reconhece o pagamento o tempo todo
+E       ao esgotar a espera diz que a ativação está sendo processada
+E       nunca diz que o pagamento falhou
+```
+
+Este é o item inteiro do lado do cliente: o redirect ganha do webhook, medido
+localmente. Uma página que assumisse a ativação mentiria, e uma que tratasse a
+espera como erro mentiria pior — o dinheiro já está com o provider. DEC-058.
+
+```
+Dado    a espera esgotada e o webhook aplicado desde então
+Quando  a pessoa pede para verificar de novo
+Então   a leitura seguinte mostra a assinatura ativa
+```
+
+```
+Dado    que a leitura da assinatura falha na página de retorno
+Quando  a tela é renderizada
+Então   ela mostra o correlationId da falha de leitura
+E       continua reconhecendo o pagamento, sem afirmar que ele falhou
+```
+
+```
+Dado    quem desistiu na página do provider
+Quando  volta por cancel_url
+Então   a página diz que nada foi cobrado e oferece os planos de novo
+```
+
+```
+Dado    um webhook de ativação cuja subscription dá tier
+Quando  ele é aplicado
+Então   uma intenção billing.subscription_activated é enfileirada
+E       uma reentrega do mesmo evento não enfileira uma segunda
+```
+
+```
+Dado    um customer.subscription.created que chega com status incomplete
+Quando  ele é aplicado
+Então   a projeção é gravada e nenhuma intenção é enfileirada
+```
+
+Porque o e-mail segue o **tier**, não o nome do evento: o adapter normaliza todo
+`created` como ativação, e anunciar como ativa uma assinatura que ainda não paga
+nada é a mesma mentira que a página de retorno existe para evitar. DEC-059.
+
+```
+Dado    uma assinatura ativa
+Quando  a pessoa pede para cancelar e não confirma
+Então   nada é enviado ao provider e a assinatura continua como estava
+```
+
+```
+Dado    uma assinatura com o cancelamento agendado
+Quando  a pessoa retoma
+Então   o provider limpa o agendamento e a projeção guarda o que ele reportou
+E       a tela para de dizer que o cancelamento foi agendado
+```
+
+```
+Dado    uma account sem assinatura
+Quando  ela pede para retomar
+Então   a resposta é 404 com código NOT_FOUND
+```
+
+```
+Dado    um provider que recusa o retomar
+Quando  a chamada falha
+Então   a projeção não é escrita, e continua dizendo o que era verdade antes
+```
+
+Retomar não invalida o cache de entitlement de propósito: cancelar no fim do
+período nunca tirou o tier, então desfazer esse agendamento também não o devolve —
+não há nada a invalidar. DEC-060.
+
+```
+Dado    uma assinatura ativa
+Quando  a pessoa agenda o cancelamento
+Então   ela recebe um e-mail dizendo até quando o acesso vale
+E       agendar de novo não manda um segundo
+```
+
+```
+Dado    um cancelamento agendado
+Quando  a pessoa retoma
+Então   ela recebe um e-mail dizendo que a assinatura volta a renovar
+E       retomar o que não estava agendado não manda nada
+```
+
+```
+Dado    uma subscription criada incomplete, que ainda não deu tier
+Quando  chega o subscription_updated que a torna active
+Então   a account recebe o e-mail de ativação
+```
+
+```
+Dado    uma account já ativa
+Quando  chega o subscription_updated de uma renovação
+Então   nenhum e-mail é enfileirado, porque nada mudou para ela
+```
+
+```
+Dado    uma account com tier
+Quando  chega um subscription_updated que a leva a past_due
+Então   ela recebe o e-mail de acesso suspenso, uma vez por perda
+```
+
+```
+Dado    uma account que já estava sem tier
+Quando  chega outro evento que também não dá tier
+Então   nenhum e-mail de suspensão é enfileirado
+```
+
+```
+Dado    um subscription_updated atrasado carregando past_due
+Quando  a guarda monotônica recusa aplicá-lo
+Então   nenhum e-mail de suspensão sai, porque nada foi perdido
+```
+
+O aviso de suspensão segue o **tier**, não o nome do evento — a outra metade da
+regra que a DEC-059 estabeleceu para a ativação. Por isso ele cobre `past_due` e
+`unpaid` sem enumerar nenhum, e dispara uma vez por perda em vez de uma vez por
+tentativa de cobrança. O cancelamento tem e-mail próprio e ganha do genérico:
+perder o tier porque a assinatura acabou é um cancelamento, não uma suspensão.
+DEC-061.
+
 ## Portas afetadas
 
-Nenhuma porta nova. `ICacheStore` já tem `get`, `set` e `delete`, já tem suíte de
+`IBillingProvider` ganha `resumeSubscription`, com a suíte de conformidade
+estendida antes dos adapters — e a suíte passou a cobrir também o cancelamento,
+que até aqui ela não afirmava nada sobre. O harness ganhou
+`activeSubscription(accountId)`, porque não havia como obter o `externalId` de uma
+subscription viva de dentro dela. DEC-060.
+
+Quanto ao cache, `ICacheStore` já tem `get`, `set` e `delete`, já tem suíte de
 conformidade, e é a porta que a DEC-037 nomeia. Duas observações sobre ela:
 
 - `delete` de chave única é o **único** primitivo de remoção — não há varredura

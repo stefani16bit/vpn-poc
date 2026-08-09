@@ -131,7 +131,11 @@ function subjectToTemplate(subject: string): string {
 		'Sua senha foi alterada': 'password_changed',
 		'Sua conta está ativa': 'welcome',
 		'Não conseguimos processar seu pagamento': 'payment_failed',
+		'Sua assinatura está ativa': 'subscription_activated',
+		'Seu cancelamento foi agendado': 'subscription_cancel_scheduled',
+		'Sua assinatura continua ativa': 'subscription_resumed',
 		'Assinatura cancelada': 'subscription_canceled',
+		'Seu acesso foi suspenso': 'access_revoked',
 	};
 	return bySubject[subject] ?? subject;
 }

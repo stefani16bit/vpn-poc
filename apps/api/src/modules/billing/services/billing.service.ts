@@ -2,8 +2,20 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
-import type { Cadence, SubscriptionResponse, TierId } from '@vpn/contracts';
-import { BILLING_PROVIDER, type IBillingProvider, type NormalizedBillingEvent } from '@vpn/ports';
+import {
+	resolveTier,
+	type Cadence,
+	type SubscriptionResponse,
+	type SubscriptionStatusView,
+	type TierId,
+} from '@vpn/contracts';
+import {
+	BILLING_PROVIDER,
+	CLOCK,
+	type IBillingProvider,
+	type IClock,
+	type NormalizedBillingEvent,
+} from '@vpn/ports';
 
 import { TransactionRunner, type Executor } from '../../../shared/database/transaction-runner.js';
 import { EntitlementsService } from '../../../shared/entitlements/entitlements.service.js';
@@ -23,6 +35,16 @@ const SOURCE = 'stripe';
 const PRICE_ENV_BY_PLAN: Record<TierId, Record<Cadence, keyof Env>> = {
 	pro: { monthly: 'STRIPE_PRICE_ID', yearly: 'STRIPE_PRICE_ID_YEARLY' },
 };
+
+type TierChange = 'gained' | 'lost' | 'none';
+
+function tierChange(before: SubscriptionStatusView, after: SubscriptionStatusView): TierChange {
+	const had = resolveTier(before) !== null;
+	const has = resolveTier(after) !== null;
+
+	if (had === has) return 'none';
+	return has ? 'gained' : 'lost';
+}
 
 const NO_SUBSCRIPTION: SubscriptionResponse = {
 	status: 'none',
@@ -44,6 +66,7 @@ export class BillingService {
 		private readonly outbox: OutboxRepository,
 		private readonly transactions: TransactionRunner,
 		private readonly entitlements: EntitlementsService,
+		@Inject(CLOCK) private readonly clock: IClock,
 	) {
 		this.#logger = contextLogger(logger, BillingService.name);
 	}
@@ -76,12 +99,38 @@ export class BillingService {
 	}
 
 	async cancel(accountId: string): Promise<void> {
-		const externalId = await this.subscriptions.findExternalId(accountId);
-		if (!externalId) throw new AppError('NOT_FOUND', 'no subscription to cancel');
+		const before = await this.subscriptions.findByAccount(accountId);
+		if (!before) throw new AppError('NOT_FOUND', 'no subscription to cancel');
 
-		const updated = await this.billing.cancelSubscription(externalId, 'period_end');
+		const updated = await this.billing.cancelSubscription(before.externalId, 'period_end');
 
 		await this.subscriptions.setCancelAtPeriodEnd(accountId, updated.cancelAtPeriodEnd);
+
+		if (before.cancelAtPeriodEnd || !updated.cancelAtPeriodEnd) return;
+
+		await this.outbox.enqueue(accountId, {
+			kind: 'billing.cancellation_scheduled',
+			accountId,
+			requestedAt: this.clock.now().toISOString(),
+			endsAt: updated.currentPeriodEnd?.toISOString() ?? null,
+		});
+	}
+
+	async resume(accountId: string): Promise<void> {
+		const before = await this.subscriptions.findByAccount(accountId);
+		if (!before) throw new AppError('NOT_FOUND', 'no subscription to resume');
+
+		const updated = await this.billing.resumeSubscription(before.externalId);
+
+		await this.subscriptions.setCancelAtPeriodEnd(accountId, updated.cancelAtPeriodEnd);
+
+		if (!before.cancelAtPeriodEnd || updated.cancelAtPeriodEnd) return;
+
+		await this.outbox.enqueue(accountId, {
+			kind: 'billing.subscription_resumed',
+			accountId,
+			requestedAt: this.clock.now().toISOString(),
+		});
 	}
 
 	async handleWebhook(rawBody: string, signature: string): Promise<boolean> {
@@ -96,16 +145,22 @@ export class BillingService {
 			const claimed = await this.events.claim(SOURCE, event.externalEventId, event.kind, executor);
 			if (!claimed) return false;
 
+			let change: TierChange = 'none';
+
 			if (event.kind !== 'payment_failed') {
-				await this.subscriptions.upsert(
+				const before = await this.subscriptions.findByAccount(event.accountId, executor);
+
+				const stored = await this.subscriptions.upsert(
 					event.accountId,
 					event.subscription,
 					event.occurredAt,
 					executor,
 				);
+
+				change = stored ? tierChange(before?.status ?? 'none', event.subscription.status) : 'none';
 			}
 
-			await this.#enqueueNotification(event, executor);
+			await this.#enqueueNotification(event, change, executor);
 			return true;
 		});
 
@@ -122,7 +177,11 @@ export class BillingService {
 		return true;
 	}
 
-	async #enqueueNotification(event: NormalizedBillingEvent, executor: Executor): Promise<void> {
+	async #enqueueNotification(
+		event: NormalizedBillingEvent,
+		change: TierChange,
+		executor: Executor,
+	): Promise<void> {
 		if (event.kind === 'payment_failed') {
 			await this.outbox.enqueue(
 				event.accountId,
@@ -136,15 +195,27 @@ export class BillingService {
 			return;
 		}
 
-		if (event.kind !== 'subscription_canceled') return;
+		if (event.kind === 'subscription_canceled') {
+			await this.outbox.enqueue(
+				event.accountId,
+				{
+					kind: 'billing.subscription_canceled',
+					accountId: event.accountId,
+					externalEventId: event.externalEventId,
+				},
+				executor,
+			);
+			return;
+		}
+
+		if (change === 'none') return;
 
 		await this.outbox.enqueue(
 			event.accountId,
 			{
-				kind: 'billing.subscription_canceled',
+				kind: change === 'gained' ? 'billing.subscription_activated' : 'billing.access_revoked',
 				accountId: event.accountId,
 				externalEventId: event.externalEventId,
-				endsAt: event.subscription.currentPeriodEnd?.toISOString() ?? null,
 			},
 			executor,
 		);

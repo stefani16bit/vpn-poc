@@ -212,6 +212,18 @@ describe('StripeBillingProvider against localstripe', () => {
 		expect(updated.status).not.toBe('canceled');
 	});
 
+	it('undoes a scheduled cancellation without touching the period', async () => {
+		const subscriptionId = await createLiveSubscription('acct-resume');
+		const scheduled = await provider.cancelSubscription(subscriptionId, 'period_end');
+
+		const resumed = await provider.resumeSubscription(subscriptionId);
+
+		expect(scheduled.cancelAtPeriodEnd).toBe(true);
+		expect(resumed.cancelAtPeriodEnd).toBe(false);
+		expect(resumed.status).toBe('active');
+		expect(resumed.currentPeriodEnd).toEqual(scheduled.currentPeriodEnd);
+	});
+
 	it('cancels immediately when asked to', async () => {
 		const subscriptionId = await createLiveSubscription('acct-hard-cancel');
 

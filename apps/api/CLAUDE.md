@@ -77,6 +77,29 @@ Antes do commit, uma requisição concorrente reescreve a entrada com a linha
 pré-commit e a invalidação se perde. Os dois cenários de cache quente no e2e
 ficam vermelhos se a chamada sair — foi assim que eles foram conferidos.
 
+**O e-mail de ativação é condicionado ao tier, não ao nome do evento.**
+`StripeBillingProvider` normaliza **todo** `customer.subscription.created` como
+`subscription_activated`, e um `created` pode chegar `incomplete` — 3DS/SCA. Por
+isso `#enqueueNotification` só enfileira quando `resolveTier(status)` devolve um
+tier. Sem a checagem, quem ainda não pagou nada recebe "sua assinatura está ativa",
+e e-mail não se corrige sozinho. Ver DEC-059.
+
+**Cancelar e retomar enfileiram no outbox sem abrir transação.** São as únicas
+ações de billing iniciadas pelo usuário, e o `TenantTransactionInterceptor` já
+abriu a transação delas — então `outbox.enqueue(accountId, msg)` sem executor cai
+no `currentExecutor()` e commita junto com a projeção. Imitar o webhook e chamar
+`runAsSystem` **lança**: ele recusa aninhar dentro de um escopo aberto. A
+idempotência dessas duas chaveia no instante pedido, não num id de evento do
+provider, porque não existe um. Ver DEC-061.
+
+**O aviso de acesso suspenso segue o tier, e o cancelamento ganha dele.** Perder o
+tier dispara `billing.access_revoked`, mas uma assinatura que termina também perde
+o tier — e receberia a mensagem errada se a ordem fosse outra. Em
+`#enqueueNotification` os eventos com e-mail próprio são resolvidos primeiro e a
+revogação é o que sobra. O `boolean` que `upsert` devolve existe para isso: sem
+ele, um evento atrasado que a guarda monotônica recusou mandaria "você perdeu o
+acesso" para quem não perdeu.
+
 **Sem `ValidationPipe`.** É um front-end de class-validator. A validação aqui é
 zod contra `@vpn/contracts`, os mesmos schemas que o formulário do front usa.
 Ver DEC-008.
