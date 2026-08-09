@@ -8,7 +8,7 @@ cd poc-vpn
 cp .env.example .env.local
 
 make up                      # sobe os 8 contêineres e espera ficarem saudáveis
-make check                   # 15 asserções; tem que dar 15/15
+make check                   # 16 asserções; tem que dar 16/16
 
 pnpm install
 pnpm packages:publish:local  # publica @vpn/* no Verdaccio local
@@ -33,7 +33,8 @@ mesmo erro — `relation "accounts" does not exist`.
 | localstripe  | 28420         | API do Stripe (sem Checkout, DEC-009)                     |
 | mailpit      | 21025 / 28025 | SMTP + caixa de entrada — <http://localhost:28025>        |
 | caddy        | 20080 / 20443 | TLS e roteamento por Host — `https://app.localhost:20443` |
-| wireguard    | 21820/udp     | nó de saída do spike — `docs/specs/data-plane.md`         |
+| wireguard    | 21820/udp     | nó de saída — o túnel, `docs/specs/data-plane.md`         |
+| wireguard    | 21821         | agente de controle do nó — o worker provisiona por aqui   |
 
 Portas no intervalo 2xxxx de propósito (DEC-010): três projetos irmãos dividem
 esta máquina e todos queriam a 5432.
@@ -103,7 +104,9 @@ quebram para quem consome.
 2. <http://localhost:28025> → abra a mensagem, clique no link
 3. Entre com a senha
 4. Assine — ver a seção 7, que tem dois modos
-5. "Esqueci minha senha" → mailpit → redefinir → entrar com a senha nova
+5. **Dispositivos e chaves** → gere um device; o `.conf` baixa na hora e o peer
+   aparece no nó em segundos (`curl http://127.0.0.1:21821/cgi-bin/peers`)
+6. "Esqueci minha senha" → mailpit → redefinir → entrar com a senha nova
 
 ## 7. Cobrança: os dois modos
 

@@ -236,8 +236,25 @@ nunca só na UI, porque o cliente que pede o peer é código do usuário.
 geográfico de exit nodes que o produto vende (`us`, `eu`), e o que um tier
 entitula. Um cliente escolhe região; qual nó atende é nosso.
 
-Estes quatro termos descrevem um sistema **ainda não construído**. Estão aqui
-porque o vocabulário precede o schema, não porque o data plane exista.
+**Device** e **Peer** existem: `devices` é tabela, sob RLS como qualquer outra, e
+a chave pública é o identificador nas duas pontas — a linha e o peer no nó. O que
+liga uma à outra é o **outbox**, não uma chamada: a linha é o registro e o nó é
+uma projeção dela, reconciliada pelo worker. DEC-064.
+
+**Exit node** e **Region** continuam **não construídos**. Existe um nó, ele vem
+de variável de ambiente e é um contêiner do devstack — um nó não é uma frota, e
+`regions` segue anunciado no tier e aplicado em lugar nenhum. Quando houver o
+segundo nó, é a região que obriga a tabela.
+
+**Endereço no túnel** — o IP que um device ocupa dentro da faixa do nó. É
+reivindicado por restrição única na escrita, nunca contado antes: dois devices
+criados no mesmo instante atravessariam um `count()` juntos e pediriam o mesmo
+endereço. Um device revogado o devolve, porque o índice único é parcial.
+
+**Revogado** — o device deixou de valer. É um _timestamp_, não uma remoção: a
+chave pública continua sendo o identificador do que já existiu, e é ela que o
+worker manda o nó esquecer. Um `.conf` perdido não se rebaixa — gera-se outro, e
+o anterior é revogado (DEC-045).
 
 ## Trabalho assíncrono
 
@@ -293,7 +310,7 @@ compartilhada por todos os adapters (`@vpn/testing/contracts`).
 que roda de verdade em desenvolvimento, e por isso nada em `fakes/` pode
 importar vitest.
 
-**Devstack** — os sete contêineres em `devstack/`. **Verdaccio** — o registry
+**Devstack** — os oito contêineres em `devstack/`. **Verdaccio** — o registry
 npm local por onde `@vpn/*` transita.
 
 **Correlation id** — o identificador que segue uma requisição pelos logs, volta

@@ -30,7 +30,7 @@ em <http://localhost:28025>, registry em <http://localhost:24873>.
 | `apps/`                    | `api` (Nest), `api-lambda`, `web` (Vite + React)     |
 | `libs/`                    | `env`, `database` (Drizzle), `adapters`              |
 | `infra/`                   | CDK — 6 stacks, esqueleto                            |
-| `devstack/`                | 7 contêineres                                        |
+| `devstack/`                | 8 contêineres                                        |
 
 ## Stack
 

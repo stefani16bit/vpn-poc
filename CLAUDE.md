@@ -63,8 +63,8 @@ funcionam perfeitamente. Só quebram para o consumidor.
   uma constante não se deduz do nome. Se você sente vontade de explicar um
   arquivo, o texto pertence ao `CLAUDE.md` daquele diretório; se é um caso de
   borda, ele vira teste. Ver DEC-013.
-- **Token de DI é uma `const` string ao lado da interface** — interfaces somem
-  em runtime.
+- **Token de DI é um `Symbol.for('vpn.*')` ao lado da interface** — interfaces
+  somem em runtime, e `ports.guard.spec.ts` exige exatamente essa forma.
 - **`import type` só para tipos.** Uma classe injetada por construtor precisa de
   import de valor, senão o `emitDecoratorMetadata` do Nest resolve `Object` e o
   container falha com um erro que não aponta para a causa.
@@ -116,7 +116,7 @@ Add the shared port, contract and testing packages
 
 ```bash
 make up                    # devstack (docker)
-make check                 # 15 asserções sobre o devstack
+make check                 # 16 asserções sobre o devstack
 pnpm db:migrate            # `up` e `reset` já rodam; aqui é para rodar sozinho
 pnpm dev                   # infra + api + web + worker (pm2)
 pnpm logs:trace <id>       # rastro completo de uma requisição, por correlationId

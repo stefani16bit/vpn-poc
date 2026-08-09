@@ -30,7 +30,7 @@ por e-mail — inclusive a que tira o acesso, que até aqui era silenciosa.
 | `apps/api` — fluxo completo mais a matriz de locale         | 84       | sim                 |
 | **Total**                                                   | **1061** |                     |
 
-`make check` 15/15 · `cdk synth` 6 stacks · `consumer-check` verde ·
+`make check` 16/16 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
 
 `pnpm verify` roda com o Docker parado, de propósito: `*.integration.spec.ts` e
@@ -167,10 +167,9 @@ sem Docker ensina a ignorar suíte vermelha.
       de 60s do cache encurta a janela de uma invalidação perdida, não a de um
       evento que nunca chegou. O conserto é um job que pergunta ao provider, e é o
       mesmo `WorkersStack` do expurgo. DEC-054.
-- [ ] **`@RequiresCapability` não tem chamador em produção.** O guard, a leitura e
-      a invalidação estão de pé e cobertos, mas a primeira rota de produto a
-      guardar é a de chaves e conexão. Até lá o gate é provado por unitário e o
-      caminho de leitura pelo e2e.
+- [x] **`@RequiresCapability` ganhou chamador em produção.** `/devices` é a
+      primeira rota guardada, e o 402 é provado no e2e apagando o decorator e
+      vendo os dois casos virarem 201 e 200.
 - [ ] **`seats`, `devicesPerUser`, `monthlyTrafficGb` e `regions` são anunciados e
       não aplicados.** Estão no tipo para os tiers se descreverem; o contador
       depende da DEC-043 e os dois últimos do data plane. Com um tier só não há o
@@ -228,9 +227,11 @@ plane que ainda não existe.
       através da VM do WSL2 era a incógnita e funciona. DEC-062, e
       `docs/specs/data-plane.md`, que registra o que **não** sobrevive a um nó
       real.
-- [ ] **Página de chaves e a conexão.** Par gerado no navegador, `.conf` montado
-      no cliente, peer provisionado no nó, entitlement aplicado no servidor.
-      DEC-045.
+- [x] **Página de chaves e a conexão.** Par gerado no navegador com fallback
+      medido, `.conf` montado no cliente, `devices` sob RLS, peer reconciliado
+      pelo outbox e `@RequiresCapability('vpn_access')` com o primeiro chamador
+      de produção — provado apagando o decorator e vendo o 402 virar 201.
+      DEC-045, DEC-063, DEC-064, e `docs/specs/keys-and-connection.md`.
 
 ### Fase 3 — quando o produto exigir
 
@@ -250,7 +251,7 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 15/15
+make up && make check                                # devstack: 16/16
 pnpm --filter @vpn-poc/api test:e2e                  # 84, o fluxo inteiro
 pnpm --filter @vpn-poc/api test:integration          # 54, RLS e formas de SQL
 pnpm --filter @vpn-poc/adapters test:integration     # 74, adapters reais

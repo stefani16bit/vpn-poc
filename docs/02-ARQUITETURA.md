@@ -43,22 +43,23 @@ poc-vpn/
 │  ├─ database/       Drizzle: schema, cliente, migrações
 │  └─ adapters/       os adapters reais + o módulo de wiring
 ├─ infra/             CDK: 6 stacks vazias, grafo validado
-└─ devstack/          7 contêineres
+└─ devstack/          8 contêineres
 ```
 
 ## 3. As portas
 
-| Porta               | In-memory                | Real                      |
-| ------------------- | ------------------------ | ------------------------- |
-| `IClock`            | `FixedClock`             | `SystemClock`             |
-| `ICacheStore`       | `MemoryCacheStore`       | `RedisCacheStore`         |
-| `IIdentityProvider` | `MemoryIdentityProvider` | `DrizzleIdentityProvider` |
-| `IPasswordHasher`   | `FakePasswordHasher`     | `ScryptPasswordHasher`    |
-| `IEmailSender`      | `MemoryEmailSender`      | `SmtpEmailSender`         |
-| `ISmsSender`        | `MemorySmsSender`        | `ConsoleSmsSender`        |
-| `IBillingProvider`  | `MemoryBillingProvider`  | `StripeBillingProvider`   |
-| `IObjectStorage`    | `MemoryObjectStorage`    | `S3ObjectStorage`         |
-| `IErrorReporter`    | `NoopErrorReporter`      | `SentryErrorReporter`     |
+| Porta              | In-memory               | Real                    |
+| ------------------ | ----------------------- | ----------------------- |
+| `IClock`           | `FixedClock`            | `SystemClock`           |
+| `ICacheStore`      | `MemoryCacheStore`      | `RedisCacheStore`       |
+| `IPasswordHasher`  | `FakePasswordHasher`    | `ScryptPasswordHasher`  |
+| `IEmailSender`     | `MemoryEmailSender`     | `SmtpEmailSender`       |
+| `ISmsSender`       | `MemorySmsSender`       | `ConsoleSmsSender`      |
+| `IBillingProvider` | `MemoryBillingProvider` | `StripeBillingProvider` |
+| `IObjectStorage`   | `MemoryObjectStorage`   | `S3ObjectStorage`       |
+| `IErrorReporter`   | `NoopErrorReporter`     | `SentryErrorReporter`   |
+| `IJobQueue`        | `MemoryJobQueue`        | `SqsJobQueue`           |
+| `IExitNode`        | `MemoryExitNode`        | `HttpExitNode`          |
 
 `ISmsSender` existe sem provider real de propósito: o formato da chamada é a
 parte cara de mudar depois, e adicionar SNS ou Twilio vira uma classe e uma

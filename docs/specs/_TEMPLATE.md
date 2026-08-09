@@ -40,7 +40,7 @@ E       nenhuma sessão é criada
 
 Alguma dependência externa nova? Então:
 
-- [ ] Interface em `@vpn/ports`, com bloco `Contract:`
+- [ ] Interface em `@vpn/ports` — sem bloco de comentário (DEC-013)
 - [ ] Suíte de conformidade em `@vpn/testing/contracts`, escrita **antes** do adapter
 - [ ] Adapter in-memory (que é também o driver `memory`)
 - [ ] Adapter real

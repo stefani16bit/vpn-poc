@@ -10,7 +10,7 @@ Um arquivo por porta: a interface e o token de DI, nada mais.
 
 ```ts
 export interface IThing { … }
-export const THING = 'THING';
+export const THING: unique symbol = Symbol.for('vpn.thing');
 ```
 
 O token mora ao lado da interface porque interfaces somem em runtime.
