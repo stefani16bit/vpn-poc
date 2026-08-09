@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FixedClock, MemoryJobQueue } from '@vpn/testing/fakes';
 
 import type { TransactionRunner } from '../database/transaction-runner.js';
-import { NotificationConsumer } from './notification-consumer.js';
-import type { NotificationDispatcher } from './notification-dispatcher.js';
+import { OutboxConsumer } from './outbox-consumer.js';
+import type { DeviceProvisioner } from '../devices/device-provisioner.service.js';
+import type { NotificationDispatcher } from '../notifications/notification-dispatcher.js';
 
 type Mock = ReturnType<typeof vi.fn>;
 
@@ -12,22 +13,28 @@ function envelope(accountId: string, message: Record<string, unknown>) {
 	return { accountId, message };
 }
 
-describe('NotificationConsumer', () => {
+describe('OutboxConsumer', () => {
 	let queue: MemoryJobQueue;
 	let dispatcher: { send: Mock };
+	let provisioner: { provision: Mock; revoke: Mock };
 	let transactions: { runAsSystem: Mock; runInAccount: Mock };
-	let consumer: NotificationConsumer;
+	let consumer: OutboxConsumer;
 
 	beforeEach(() => {
 		queue = new MemoryJobQueue(new FixedClock());
 		dispatcher = { send: vi.fn().mockResolvedValue(undefined) };
+		provisioner = {
+			provision: vi.fn().mockResolvedValue(undefined),
+			revoke: vi.fn().mockResolvedValue(undefined),
+		};
 		transactions = {
 			runAsSystem: vi.fn((work: () => Promise<unknown>) => work()),
 			runInAccount: vi.fn((_accountId: string, work: () => Promise<unknown>) => work()),
 		};
-		consumer = new NotificationConsumer(
+		consumer = new OutboxConsumer(
 			queue,
 			dispatcher as unknown as NotificationDispatcher,
+			provisioner as unknown as DeviceProvisioner,
 			transactions as unknown as TransactionRunner,
 		);
 	});
@@ -111,5 +118,78 @@ describe('NotificationConsumer', () => {
 		expect(report.received).toBe(2);
 		expect(report.failed).toHaveLength(1);
 		expect(dispatcher.send).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe('OutboxConsumer routing', () => {
+	let queue: MemoryJobQueue;
+	let dispatcher: { send: Mock };
+	let provisioner: { provision: Mock; revoke: Mock };
+	let consumer: OutboxConsumer;
+
+	beforeEach(() => {
+		queue = new MemoryJobQueue(new FixedClock());
+		dispatcher = { send: vi.fn().mockResolvedValue(undefined) };
+		provisioner = {
+			provision: vi.fn().mockResolvedValue(undefined),
+			revoke: vi.fn().mockResolvedValue(undefined),
+		};
+		consumer = new OutboxConsumer(
+			queue,
+			dispatcher as unknown as NotificationDispatcher,
+			provisioner as unknown as DeviceProvisioner,
+			{
+				runInAccount: vi.fn((_accountId: string, work: () => Promise<unknown>) => work()),
+			} as unknown as TransactionRunner,
+		);
+	});
+
+	it('provisions a device without sending anyone an e-mail', async () => {
+		await queue.enqueue({
+			name: 'device.provision',
+			data: { accountId: 'acc-1', message: { kind: 'device.provision', deviceId: 'dev-1' } },
+		});
+
+		await consumer.runOnce();
+
+		expect(provisioner.provision).toHaveBeenCalledWith('dev-1');
+		expect(dispatcher.send).not.toHaveBeenCalled();
+	});
+
+	it('revokes a peer by its public key, which is the only name the node knows', async () => {
+		await queue.enqueue({
+			name: 'device.revoke',
+			data: { accountId: 'acc-1', message: { kind: 'device.revoke', publicKey: 'pk-1' } },
+		});
+
+		await consumer.runOnce();
+
+		expect(provisioner.revoke).toHaveBeenCalledWith('pk-1');
+		expect(dispatcher.send).not.toHaveBeenCalled();
+	});
+
+	it('still sends a notification, so the device branch did not swallow the rest', async () => {
+		await queue.enqueue({
+			name: 'auth.welcome',
+			data: { accountId: 'acc-1', message: { kind: 'auth.welcome', userId: 'user-1' } },
+		});
+
+		await consumer.runOnce();
+
+		expect(dispatcher.send).toHaveBeenCalledWith({ kind: 'auth.welcome', userId: 'user-1' });
+		expect(provisioner.provision).not.toHaveBeenCalled();
+	});
+
+	it('leaves a device job unacknowledged when the node refuses, so it is retried', async () => {
+		provisioner.provision.mockRejectedValueOnce(new Error('node down'));
+		await queue.enqueue({
+			name: 'device.provision',
+			data: { accountId: 'acc-1', message: { kind: 'device.provision', deviceId: 'dev-1' } },
+		});
+
+		expect((await consumer.runOnce()).failed).toHaveLength(1);
+
+		queue.makeEverythingVisible();
+		expect(await queue.receive()).toHaveLength(1);
 	});
 });

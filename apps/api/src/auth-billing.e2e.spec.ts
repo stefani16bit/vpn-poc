@@ -12,7 +12,7 @@ import type { MemoryBillingProvider } from '@vpn/testing/fakes';
 import type { createDatabase } from '@vpn-poc/database';
 
 import { createApp } from './bootstrap.js';
-import { NotificationConsumer } from './shared/notifications/notification-consumer.js';
+import { OutboxConsumer } from './shared/outbox/outbox-consumer.js';
 import { OutboxRelay } from './shared/outbox/outbox-relay.js';
 import { OutboxRepository } from './shared/outbox/outbox.repository.js';
 
@@ -41,7 +41,7 @@ afterAll(async () => {
 
 async function drainNotifications(): Promise<void> {
 	await app.get(OutboxRelay).runOnce();
-	await app.get(NotificationConsumer).runOnce();
+	await app.get(OutboxConsumer).runOnce();
 }
 
 beforeEach(async () => {
@@ -1164,6 +1164,127 @@ describe('billing', () => {
 			expect((await entitlementsOf(unpaid.accessToken)).tier).toBeNull();
 		});
 	});
+
+	describe('devices', () => {
+		const PUBLIC_KEY = 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=';
+
+		function activation(accountId: string) {
+			const billing = provider();
+			return billing.emit('subscription_activated', accountId, {
+				subscription: billing.seedSubscription(`sub_${accountId}`, accountId),
+			});
+		}
+
+		async function subscribed() {
+			const session = await subscribedSession();
+			await deliver(activation(session.accountId)).expect(200, { applied: true });
+			return session;
+		}
+
+		function createDevice(accessToken: string, publicKey = PUBLIC_KEY) {
+			return request(app.getHttpServer())
+				.post('/devices')
+				.set('Authorization', `Bearer ${accessToken}`)
+				.send({ name: 'laptop', publicKey });
+		}
+
+		it('answers 402 when the account never subscribed, which is the gate doing its job', async () => {
+			const session = await subscribedSession();
+
+			const response = await createDevice(session.accessToken).expect(402);
+			expect(response.body.code).toBe('PAYMENT_REQUIRED');
+		});
+
+		it('refuses to list devices without the capability either', async () => {
+			const session = await subscribedSession();
+
+			await request(app.getHttpServer())
+				.get('/devices')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(402);
+		});
+
+		it('creates a device once the subscription grants vpn_access', async () => {
+			const session = await subscribed();
+
+			const response = await createDevice(session.accessToken).expect(201);
+
+			expect(response.body.device.publicKey).toBe(PUBLIC_KEY);
+			expect(response.body.device.tunnelAddress).toMatch(/^10\.13\.13\.\d+\/32$/);
+			expect(response.body.device.provisionedAt).toBeNull();
+			expect(response.body.node.publicKey).toBeTruthy();
+		});
+
+		it('never accepts anything shaped like a private key', async () => {
+			const session = await subscribed();
+
+			const response = await createDevice(session.accessToken, 'not-a-key').expect(400);
+			expect(response.body.fields.publicKey).toBe('validation.publicKey.invalid');
+		});
+
+		it('writes the provisioning intention in the same transaction as the row', async () => {
+			const session = await subscribed();
+			await createDevice(session.accessToken).expect(201);
+
+			const rows = await db`SELECT kind FROM outbox WHERE kind = 'device.provision'`;
+			expect(rows).toHaveLength(1);
+		});
+
+		it('gives two devices of one user different addresses', async () => {
+			const session = await subscribed();
+			const other = 'sVFHTBiVR0ndYPKZQBFsvHOJmxtfDppNwCPYSPTHZ0Y=';
+
+			const first = await createDevice(session.accessToken).expect(201);
+			const second = await createDevice(session.accessToken, other).expect(201);
+
+			expect(second.body.device.tunnelAddress).not.toBe(first.body.device.tunnelAddress);
+		});
+
+		it('lists only the live devices, so a revoked one stops being offered', async () => {
+			const session = await subscribed();
+			const created = await createDevice(session.accessToken).expect(201);
+
+			await request(app.getHttpServer())
+				.delete(`/devices/${created.body.device.id}`)
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(204);
+
+			const listed = await request(app.getHttpServer())
+				.get('/devices')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(200);
+
+			expect(listed.body.devices).toHaveLength(0);
+		});
+
+		it('lets the same key come back after it was revoked', async () => {
+			const session = await subscribed();
+			const created = await createDevice(session.accessToken).expect(201);
+
+			await request(app.getHttpServer())
+				.delete(`/devices/${created.body.device.id}`)
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(204);
+
+			await createDevice(session.accessToken).expect(201);
+		});
+
+		it('answers 404 for revoking a device that is already gone', async () => {
+			const session = await subscribed();
+			const created = await createDevice(session.accessToken).expect(201);
+			const url = `/devices/${created.body.device.id}`;
+
+			await request(app.getHttpServer())
+				.delete(url)
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(204);
+
+			await request(app.getHttpServer())
+				.delete(url)
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(404);
+		});
+	});
 });
 
 describe('locale', () => {
@@ -1356,8 +1477,8 @@ describe('queued notifications', () => {
 		await request(app.getHttpServer()).post('/auth/register').send({ email, password: PASSWORD });
 
 		await app.get(OutboxRelay).runOnce();
-		await app.get(NotificationConsumer).runOnce();
-		await app.get(NotificationConsumer).runOnce();
+		await app.get(OutboxConsumer).runOnce();
+		await app.get(OutboxConsumer).runOnce();
 
 		expect(await mailpitCount()).toBe(1);
 	});

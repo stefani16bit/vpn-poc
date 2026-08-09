@@ -69,6 +69,10 @@ beforeAll(async () => {
 				insert into outbox (account_id, kind, payload)
 				values (${id}, 'auth.welcome', ${JSON.stringify({ kind: 'auth.welcome', userId: userIdFor(id) })}::jsonb)
 			`;
+			await tx`
+				insert into devices (account_id, user_id, name, public_key, tunnel_address)
+				values (${id}, ${userIdFor(id)}, 'laptop', ${`pk-${slug}`}, ${`10.13.13.${id === A ? 101 : 102}/32`})
+			`;
 		}
 	});
 });
@@ -140,6 +144,11 @@ const TABLES = [
 		name: 'outbox',
 		read: (tx: SystemSql, id: string) => tx`select id from outbox where account_id = ${id}`,
 	},
+	{
+		name: 'devices',
+		read: (tx: SystemSql, id: string) =>
+			tx`select id from devices where public_key = ${`pk-rls-${id === A ? 'a' : 'b'}`}`,
+	},
 ] as const;
 
 describe.each(TABLES)('$name is isolated by account', ({ read }) => {
@@ -189,7 +198,7 @@ describe('write side', () => {
 });
 
 describe('the policy set itself', () => {
-	it('is exactly the sixteen policies the schema declares', async () => {
+	it('is exactly the eighteen policies the schema declares', async () => {
 		const rows = await sql`
 			select tablename, policyname from pg_policies
 			where schemaname = 'public' order by tablename, policyname
@@ -200,6 +209,8 @@ describe('the policy set itself', () => {
 			'accounts.accounts_tenant',
 			'billing_events.billing_events_system',
 			'billing_events.billing_events_tenant',
+			'devices.devices_system',
+			'devices.devices_tenant',
 			'outbox.outbox_system',
 			'outbox.outbox_tenant',
 			'refresh_tokens.refresh_tokens_system',

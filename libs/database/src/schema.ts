@@ -232,3 +232,35 @@ export const outbox = pgTable(
 		...scopedPolicies('outbox'),
 	],
 );
+
+export const devices = pgTable(
+	'devices',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		accountId: uuid('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		userId: uuid('user_id').notNull(),
+		name: text('name').notNull(),
+		publicKey: text('public_key').notNull(),
+		tunnelAddress: text('tunnel_address').notNull(),
+		provisionedAt: timestamp('provisioned_at', { withTimezone: true }),
+		revokedAt: timestamp('revoked_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		foreignKey({
+			columns: [table.userId, table.accountId],
+			foreignColumns: [users.id, users.accountId],
+			name: 'devices_user_account_fk',
+		}).onDelete('cascade'),
+		index('devices_user_idx').on(table.userId),
+		uniqueIndex('devices_live_public_key_key')
+			.on(table.publicKey)
+			.where(sql`${table.revokedAt} is null`),
+		uniqueIndex('devices_live_address_key')
+			.on(table.tunnelAddress)
+			.where(sql`${table.revokedAt} is null`),
+		...scopedPolicies('devices'),
+	],
+);

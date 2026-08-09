@@ -3,8 +3,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import { JOB_QUEUE, type IJobQueue } from '@vpn/ports';
 
 import { TransactionRunner } from '../database/transaction-runner.js';
-import { parseOutboxJob } from '../outbox/outbox-message.js';
-import { NotificationDispatcher } from './notification-dispatcher.js';
+import { DeviceProvisioner } from '../devices/device-provisioner.service.js';
+import { NotificationDispatcher } from '../notifications/notification-dispatcher.js';
+import { parseOutboxJob, type OutboxMessage } from './outbox-message.js';
 
 export interface ConsumerReport {
 	readonly received: number;
@@ -13,10 +14,11 @@ export interface ConsumerReport {
 }
 
 @Injectable()
-export class NotificationConsumer {
+export class OutboxConsumer {
 	constructor(
 		@Inject(JOB_QUEUE) private readonly queue: IJobQueue,
 		private readonly dispatcher: NotificationDispatcher,
+		private readonly provisioner: DeviceProvisioner,
 		private readonly transactions: TransactionRunner,
 	) {}
 
@@ -34,9 +36,7 @@ export class NotificationConsumer {
 			}
 
 			try {
-				await this.transactions.runInAccount(parsed.accountId, () =>
-					this.dispatcher.send(parsed.message),
-				);
+				await this.transactions.runInAccount(parsed.accountId, () => this.#apply(parsed.message));
 			} catch (error) {
 				failed.push({ name: job.name, error });
 				continue;
@@ -46,5 +46,16 @@ export class NotificationConsumer {
 		}
 
 		return { received: received.length, unknown, failed };
+	}
+
+	async #apply(message: OutboxMessage): Promise<void> {
+		switch (message.kind) {
+			case 'device.provision':
+				return this.provisioner.provision(message.deviceId);
+			case 'device.revoke':
+				return this.provisioner.revoke(message.publicKey);
+			default:
+				return this.dispatcher.send(message);
+		}
 	}
 }

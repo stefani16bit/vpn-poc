@@ -8,6 +8,6 @@ export { TransactionRunner } from './shared/database/transaction-runner.js';
 export type { Executor } from './shared/database/transaction-runner.js';
 
 export { NotificationDispatcher } from './shared/notifications/notification-dispatcher.js';
-export { NotificationConsumer } from './shared/notifications/notification-consumer.js';
-export type { ConsumerReport } from './shared/notifications/notification-consumer.js';
+export { OutboxConsumer } from './shared/outbox/outbox-consumer.js';
+export type { ConsumerReport } from './shared/outbox/outbox-consumer.js';
 export { OutboxRelay } from './shared/outbox/outbox-relay.js';

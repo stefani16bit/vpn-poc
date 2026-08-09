@@ -19,6 +19,7 @@ import {
 import { NotificationsModule } from './shared/notifications/notifications.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { BillingModule } from './modules/billing/billing.module.js';
+import { DevicesApiModule } from './modules/devices/devices.module.js';
 import { EntitlementsApiModule } from './modules/entitlements/entitlements.module.js';
 
 @Module({
@@ -51,6 +52,7 @@ import { EntitlementsApiModule } from './modules/entitlements/entitlements.modul
 		NotificationsModule,
 		AuthModule,
 		BillingModule,
+		DevicesApiModule,
 		EntitlementsApiModule,
 	],
 	providers: [

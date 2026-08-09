@@ -3,7 +3,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 
-import { AppModule, NotificationConsumer, OutboxRelay } from '@vpn-poc/api/worker';
+import { AppModule, OutboxConsumer, OutboxRelay } from '@vpn-poc/api/worker';
 
 const IDLE_PAUSE_MS = 500;
 const RECEIVE_WAIT_SECONDS = 5;
@@ -15,7 +15,7 @@ async function main(): Promise<void> {
 
 	const logger = context.get(Logger);
 	const relay = context.get(OutboxRelay);
-	const consumer = context.get(NotificationConsumer);
+	const consumer = context.get(OutboxConsumer);
 
 	let running = true;
 	const stop = async (): Promise<void> => {

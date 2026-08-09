@@ -37,7 +37,9 @@ export type OutboxMessage =
 			readonly kind: 'billing.subscription_resumed';
 			readonly accountId: string;
 			readonly requestedAt: string;
-	  };
+	  }
+	| { readonly kind: 'device.provision'; readonly deviceId: string }
+	| { readonly kind: 'device.revoke'; readonly publicKey: string };
 
 export type OutboxKind = OutboxMessage['kind'];
 
@@ -56,6 +58,12 @@ const BILLING_KINDS: readonly OutboxKind[] = [
 	'billing.cancellation_scheduled',
 	'billing.subscription_resumed',
 ];
+
+export const DEVICE_KINDS: readonly OutboxKind[] = ['device.provision', 'device.revoke'];
+
+export function isDeviceKind(kind: OutboxKind): boolean {
+	return DEVICE_KINDS.includes(kind);
+}
 
 export type OutboxJob = {
 	readonly accountId: string;
@@ -86,6 +94,16 @@ function parseOutboxMessage(name: string, data: unknown): OutboxMessage | null {
 
 	if (BILLING_KINDS.includes(name as OutboxKind)) {
 		if (!isNonEmptyString(candidate.accountId)) return null;
+		return { ...candidate, kind: name } as OutboxMessage;
+	}
+
+	if (name === 'device.provision') {
+		if (!isNonEmptyString((candidate as { deviceId?: unknown }).deviceId)) return null;
+		return { ...candidate, kind: name } as OutboxMessage;
+	}
+
+	if (name === 'device.revoke') {
+		if (!isNonEmptyString((candidate as { publicKey?: unknown }).publicKey)) return null;
 		return { ...candidate, kind: name } as OutboxMessage;
 	}
 
