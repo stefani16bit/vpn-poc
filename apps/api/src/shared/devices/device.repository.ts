@@ -55,6 +55,19 @@ export class DeviceRepository {
 			.orderBy(desc(devices.createdAt));
 	}
 
+	async findLiveByPublicKey(
+		publicKey: string,
+		executor: Executor = currentExecutor(),
+	): Promise<StoredDevice | undefined> {
+		const rows = await executor
+			.select()
+			.from(devices)
+			.where(and(eq(devices.publicKey, publicKey), isNull(devices.revokedAt)))
+			.limit(1);
+
+		return rows[0];
+	}
+
 	async findLiveById(
 		id: string,
 		executor: Executor = currentExecutor(),

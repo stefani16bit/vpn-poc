@@ -48,11 +48,17 @@ export class DevicesService {
 				tunnelAddress,
 			});
 
-			if (!created) continue;
+			if (created) {
+				await this.outbox.enqueue(accountId, { kind: 'device.provision', deviceId: created.id });
 
-			await this.outbox.enqueue(accountId, { kind: 'device.provision', deviceId: created.id });
+				return { device: toView(created), node };
+			}
 
-			return { device: toView(created), node };
+			// An untargeted `do nothing` also absorbs the public key index, so an
+			// empty insert has two meanings and only one of them is worth retrying.
+			if (await this.devices.findLiveByPublicKey(request.publicKey)) {
+				throw new AppError('CONFLICT', 'this public key already belongs to a live device');
+			}
 		}
 
 		throw new AppError('CONFLICT', 'the exit node tunnel range has no free address left');

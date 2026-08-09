@@ -1269,6 +1269,15 @@ describe('billing', () => {
 			await createDevice(session.accessToken).expect(201);
 		});
 
+		it('names the duplicate key rather than blaming the address range', async () => {
+			const session = await subscribed();
+			await createDevice(session.accessToken).expect(201);
+
+			const second = await createDevice(session.accessToken).expect(409);
+
+			expect(second.body.message).toContain('public key');
+		});
+
 		it('answers 404 for revoking a device that is already gone', async () => {
 			const session = await subscribed();
 			const created = await createDevice(session.accessToken).expect(201);
