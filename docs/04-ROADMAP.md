@@ -30,7 +30,7 @@ por e-mail — inclusive a que tira o acesso, que até aqui era silenciosa.
 | `apps/api` — fluxo completo mais a matriz de locale         | 84       | sim                 |
 | **Total**                                                   | **1061** |                     |
 
-`make check` 14/14 · `cdk synth` 6 stacks · `consumer-check` verde ·
+`make check` 15/15 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
 
 `pnpm verify` roda com o Docker parado, de propósito: `*.integration.spec.ts` e
@@ -222,10 +222,12 @@ plane que ainda não existe.
 - [ ] **Página de usuários.** Admin cria user direto com senha, dentro da
       account. Sem convite por e-mail no PoC. Seats não são aplicados com um
       tier só; DEC-043 registra o mecanismo para quando forem.
-- [ ] **Spike do WireGuard, depois a spec.** `devstack/` não tem WireGuard, nem
-      `NET_ADMIN`, nem `/dev/net/tun`. Subir o contêiner, adicionar um peer à
-      mão, conectar do host Windows — que usa o cliente WireGuard for Windows,
-      **não** `wg-quick` — e só então escrever `docs/specs/data-plane.md`.
+- [x] **Spike do WireGuard, depois a spec.** Contêiner com `NET_ADMIN`,
+      `/dev/net/tun` e `21820/udp`, um peer semeado à mão, handshake provado da
+      GUI do WireGuard for Windows e egress provado por NAT — o publish de UDP
+      através da VM do WSL2 era a incógnita e funciona. DEC-062, e
+      `docs/specs/data-plane.md`, que registra o que **não** sobrevive a um nó
+      real.
 - [ ] **Página de chaves e a conexão.** Par gerado no navegador, `.conf` montado
       no cliente, peer provisionado no nó, entitlement aplicado no servidor.
       DEC-045.
@@ -248,7 +250,7 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 14/14
+make up && make check                                # devstack: 15/15
 pnpm --filter @vpn-poc/api test:e2e                  # 84, o fluxo inteiro
 pnpm --filter @vpn-poc/api test:integration          # 54, RLS e formas de SQL
 pnpm --filter @vpn-poc/adapters test:integration     # 74, adapters reais

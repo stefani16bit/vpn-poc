@@ -28,6 +28,10 @@ LOCALSTRIPE_PORT=${LOCALSTRIPE_PORT:-28420}
 MAILPIT_UI_PORT=${MAILPIT_UI_PORT:-28025}
 CADDY_HTTPS_PORT=${CADDY_HTTPS_PORT:-20443}
 
+# The public half of the throwaway pair in wireguard/peers/. Asserting the value
+# rather than a peer count is what makes a silently empty wg0.conf fail here.
+WIREGUARD_PEER_PUBLIC_KEY='StZtsGF+hrd7nHOYtH0GhM/759qnBuUbKdVMEeFyLVU='
+
 PASSED=0
 FAILED=0
 
@@ -169,6 +173,11 @@ check_status 'mailpit is ready to accept mail' 200 \
 check_body 'app.localhost terminates TLS and routes by Host' 'ok' \
 	-k --resolve "app.localhost:${CADDY_HTTPS_PORT}:127.0.0.1" \
 	"https://app.localhost:${CADDY_HTTPS_PORT}/__devstack/health"
+
+# Proves three things at once: the interface exists, wg0.conf was read, and the
+# peer was added. A container that came up without NET_ADMIN has no wg0 at all.
+check_exec 'wireguard has the seeded peer on the tunnel' "$WIREGUARD_PEER_PUBLIC_KEY" \
+	wireguard wg show wg0 peers
 
 check_env_drift
 

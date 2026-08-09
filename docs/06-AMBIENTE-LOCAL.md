@@ -7,8 +7,8 @@ git clone --recurse-submodules <url> poc-vpn
 cd poc-vpn
 cp .env.example .env.local
 
-make up                      # sobe os 7 contêineres e espera ficarem saudáveis
-make check                   # 14 asserções; tem que dar 14/14
+make up                      # sobe os 8 contêineres e espera ficarem saudáveis
+make check                   # 15 asserções; tem que dar 15/15
 
 pnpm install
 pnpm packages:publish:local  # publica @vpn/* no Verdaccio local
@@ -33,9 +33,14 @@ mesmo erro — `relation "accounts" does not exist`.
 | localstripe  | 28420         | API do Stripe (sem Checkout, DEC-009)                     |
 | mailpit      | 21025 / 28025 | SMTP + caixa de entrada — <http://localhost:28025>        |
 | caddy        | 20080 / 20443 | TLS e roteamento por Host — `https://app.localhost:20443` |
+| wireguard    | 21820/udp     | nó de saída do spike — `docs/specs/data-plane.md`         |
 
 Portas no intervalo 2xxxx de propósito (DEC-010): três projetos irmãos dividem
 esta máquina e todos queriam a 5432.
+
+A do wireguard é a única **UDP** da lista, e é a única cujo publish atravessa a
+VM do WSL2 por um caminho diferente do de TCP. Se o contêiner sobe e o handshake
+não acontece, é aí que se olha primeiro — ver §8.
 
 ## 3. Comandos do devstack
 
@@ -182,6 +187,15 @@ então tirá-lo do `.env` não muda nada nos testes.
   comando. `dev.sh` e `check.sh` já fazem isso.
 - **`@vpn/...` não encontrado:** o Verdaccio está no ar mas os pacotes não foram
   publicados. `pnpm packages:publish:local`.
+- **O contêiner do wireguard está saudável e o handshake não acontece:** o
+  healthcheck só afirma que `wg0` existe dentro do contêiner, então ele fica
+  verde mesmo sem nenhum pacote atravessando. Confirme o mapeamento com
+  `docker compose port --protocol udp wireguard 51820` e olhe o nó com
+  `docker compose exec wireguard wg show wg0` — sucesso é `latest handshake` mais
+  `transfer` diferente de zero **nos dois sentidos**. Se o mapeamento existe e
+  nada atravessa, tente o `Endpoint` pelo IP da VM do WSL2
+  (`wsl -d docker-desktop -e ip -4 -o addr show eth0`), que muda a cada reboot.
+  `docs/specs/data-plane.md`.
 - **`pnpm build` dentro de `packages/` compila o repo principal:** um shell que já
   rodou nx na raiz exporta `NX_WORKSPACE_ROOT_PATH`, e o nx do submodule obedece a
   variável em vez do `nx.json` ao lado dele. Ele tenta construir `@vpn-poc/api` e

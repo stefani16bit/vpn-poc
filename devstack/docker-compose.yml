@@ -140,6 +140,32 @@ services:
       retries: 10
       start_period: 10s
 
+  wireguard:
+    build: ./wireguard
+    container_name: poc-vpn-wireguard
+    restart: unless-stopped
+    # NET_ADMIN plus the tun device, never --privileged: this is the file
+    # someone copies toward a real exit node. DEC-062.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: '1'
+      net.ipv4.conf.all.src_valid_mark: '1'
+    ports:
+      - '${WIREGUARD_PORT:-21820}:51820/udp'
+    volumes:
+      # Bind mount rather than COPY: `reload s=wireguard` then re-reads the
+      # peer list, which is what makes the NAT probe in the spec runnable.
+      - ./wireguard/wg0.conf:/etc/wireguard/wg0.conf:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wg show wg0 >/dev/null 2>&1']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
 volumes:
   postgres-data:
   redis-data:

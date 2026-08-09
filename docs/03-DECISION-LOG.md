@@ -2156,3 +2156,57 @@ Acrescentar kind ao outbox exige acrescentá-lo **também** a `BILLING_KINDS`, e
 esquecer não dá erro de compilação: `parseOutboxJob` devolve `null`, o consumer joga
 o job em `unknown` e nunca dá acknowledge — a mensagem volta para sempre e nenhum
 e-mail sai.
+
+---
+
+### DEC-062 — NAT no próprio nó de saída, e o nó do devstack não é artefato de produto
+
+**Data:** 2026-08-09 · **Status:** accepted
+
+**Contexto.** O spike do WireGuard subiu um contêiner, semeou um peer à mão e
+provou um handshake vindo do cliente do Windows. Provar o túnel obrigou a decidir
+onde o tráfego é traduzido: o pacote entra em `wg0` com origem `10.13.13.2`, e
+sem tradução a resposta do destino volta para o gateway da bridge, que não tem
+rota nenhuma de volta para dentro do túnel. Medido: o egress responde `200` com a
+regra, `000` sem ela.
+
+**Decisão.** O NAT mora **no nó de saída**, como `POSTROUTING MASQUERADE` na
+saída física do nó, aplicado pelo `PostUp` do próprio `wg0.conf` e desfeito pelo
+`PostDown`. E o contêiner `wireguard` do `devstack/` é um **fixture de
+desenvolvimento**, não um artefato que o produto publica: um nó de saída real é
+recurso da stack `network` (DEC-011), com ciclo de vida, imagem e observabilidade
+próprios.
+
+**Rationale.** O nó é a única coisa no caminho que conhece a faixa do túnel. Pôr
+o NAT num gateway à frente dele significaria ensinar esse gateway a rota de cada
+faixa de cada nó, e passar a ter dois lugares que precisam concordar sobre uma
+coisa que muda toda vez que um nó nasce. Manter no nó faz a configuração do túnel
+e a tradução do tráfego nascerem e morrerem juntas — que é o que `PostUp` e
+`PostDown` já expressam sem nenhum código nosso.
+
+Rejeitado `--privileged` no compose. `cap_add: [NET_ADMIN]` mais
+`/dev/net/tun` é exatamente o que o WireGuard precisa, e é a diferença entre um
+arquivo que alguém copia em direção a produção e um que ensina o hábito errado.
+O kernel do WSL2 do Docker Desktop traz `CONFIG_WIREGUARD=y` e `CONFIG_TUN=y`, e
+por isso nem `SYS_MODULE` nem fallback em espaço de usuário são necessários.
+
+A segunda metade da decisão é a que evita um erro caro por omissão. O contêiner
+tem a **forma** de um nó de saída, e é por isso que ele engana: quem o encontrar
+funcionando pode concluir que basta implantá-lo. Não basta — as chaves são
+fixtures commitados, o endpoint de todo peer é o gateway da bridge, a faixa
+`172.16.0.0/12` do peer é larga demais para qualquer coisa real, e não há
+provisionamento, revogação nem medição. Registrar que ele **não** é entregável é
+o que impede alguém de tratar `devstack/wireguard/` como ponto de partida de
+infraestrutura.
+
+**Consequências.** O compose do devstack ganha o primeiro `build:` e o primeiro
+`cap_add`, `devices` e `sysctls` — e a primeira porta UDP, `21820` (DEC-010).
+
+Um nó real herda a forma do `wg0.conf` e nada mais. Quando a stack `network`
+existir, `MASQUERADE` na interface do nó compõe com o roteamento da VPC em vez de
+substituí-lo, e é lá que se decide se o endereço de saída é um EIP por nó — que é
+a pergunta que **regiões** vão fazer, e que este spike não responde.
+
+O que o spike aprendeu e não decidiu está em `docs/specs/data-plane.md`, com uma
+seção dizendo explicitamente o que não sobrevive à mudança para um nó de verdade.
+Conhecimento vai para a spec; só a escolha arquitetural vira DEC.
