@@ -3006,3 +3006,66 @@ Em produção nada disso é configuração: `EXIT_NODE_CLIENT_ALLOWED_IPS=0.0.0.
 qualquer recurso privado é alcançável sem faixa nenhuma listada. A faixa estreita
 local é contorno da rota default desta máquina, não desenho que cresce para uma
 tela.
+
+---
+
+### DEC-076 — Um user criado por admin nasce verificado, e a senha é gerada e mostrada uma vez
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** Não existe convite por e-mail no PoC, e o roadmap diz isso desde a
+Fase 2: _"Admin cria user direto com senha. Sem convite por e-mail"_. Sobram duas
+perguntas que ninguém tinha respondido, e as duas são de produto e não de schema:
+o endereço já está verificado, e de onde sai a primeira senha.
+
+A primeira não é opcional. `email_verified_at` nulo faz o login responder
+`EMAIL_NOT_VERIFIED` **para sempre**, porque o caminho que emitiria o token é o de
+auto-cadastro e ninguém o percorreu.
+
+**Decisão.** O user nasce com `email_verified_at = now()`. A senha é **gerada pelo
+servidor** — 32 bytes de `randomBytes` em base64url —, devolvida uma única vez no
+corpo do 201, e guardada só como hash scrypt, na mesma coluna e pelo mesmo caminho
+de todas as outras.
+
+**Rationale.** Nascer verificado é a decisão, não um atalho: **o admin avalizou**.
+Ele digitou o endereço de alguém que conhece, dentro da própria account,
+autenticado. Verificação de e-mail existe para provar que quem se cadastrou
+controla o endereço que informou; aqui não houve auto-cadastro. O `colleagueOf` do
+e2e já carimbava `now()` desde que existe — o harness acertou por necessidade, e a
+feature precisa dizer o mesmo em voz alta em vez de herdá-lo por acidente.
+
+Gerada em vez de digitada pelo admin, e essa foi a escolha menos óbvia. Uma senha
+que um humano inventa num formulário, com pressa, para outra pessoa, é a mesma
+senha que ele vai usar nos próximos cinco users — e é a única do sistema que nasce
+fraca por construção, num fluxo em que ninguém a escolheu de propósito. Uma senha
+gerada é uniforme, não vem reaproveitada de outro sistema e não passa pela cabeça
+de ninguém. O custo é **um** estado de tela: um valor mostrado uma vez, com botão
+de copiar, que some no reload.
+
+Rejeitado **forçar troca no primeiro login**. Custa uma coluna, uma tela e um ramo
+em toda rota autenticada, e num PoC em que o admin entrega a senha na mão a troca
+é convenção que ninguém verifica. Fica registrado como o que falta para isto virar
+produto.
+
+Rejeitado **mandar a senha por e-mail**. É a mesma objeção da DEC-048: um e-mail
+renderizado carrega o segredo **em claro**, e todo o desenho de token existe
+justamente para que o banco só guarde hash. Mandar a senha por e-mail desfaria
+aquilo pela porta dos fundos.
+
+Rejeitado **devolver a senha em qualquer leitura posterior**. Ela existe no corpo
+de uma resposta e em lugar nenhum mais; quem a perdeu usa "esqueci minha senha",
+que é o caminho de todo mundo e já está construído.
+
+**Consequências.** `passwordSchema` pede no mínimo 12 caracteres e no máximo 200;
+43 caracteres de base64url passam com folga, então a senha gerada é válida pelas
+mesmas regras que uma digitada — ela não é uma espécie à parte.
+
+Nenhuma coluna nova, nenhum caminho de login novo.
+
+Aparece uma segunda via de criação de user, e com ela um problema que estava
+adormecido: `UserRepository.insert` faz `onConflictDoNothing()` **sem alvo**, o que
+absorve os quatro índices únicos de `users` de uma vez. Hoje é benigno só porque os
+dois índices de owner são parciais e o caminho de cadastro nunca os alcança de
+outro jeito. É o mesmo defeito que o trabalho de devices já consertou uma vez
+(DEC-069): o alvo passa a ser nomeado, e qualquer outra violação levanta `23505`
+para o `isUniqueViolation` tratar, em vez de virar um "não fiz nada" silencioso.

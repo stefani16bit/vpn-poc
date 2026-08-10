@@ -48,6 +48,13 @@ não pode é **fundar** duas.
 (`email_verified_at`), não um booleano: "quando" responde perguntas de suporte
 que "se" não responde. Verificar de novo não move o timestamp.
 
+**Senha temporária** — a senha que o **servidor** gera quando um admin cria um
+user, mostrada **uma vez** e nunca mais. Não é uma espécie diferente de senha:
+mesmo scrypt, mesma coluna, mesmo login. O que muda é a custódia — ninguém a
+escolheu, então ela não é a senha que a pessoa já usa em outro lugar, e ela não
+existe em lugar nenhum além da tela que a exibiu. Quem a perdeu não a recupera:
+o caminho de volta é "esqueci minha senha", o mesmo de todo mundo. DEC-076.
+
 ## Tenancy
 
 **Account scope** — toda linha de domínio pende de uma account. O mecanismo é

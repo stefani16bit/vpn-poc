@@ -290,9 +290,12 @@ plane que ainda não existe.
       provada removendo a chamada e vendo os dois cenários de cache quente ficarem
       vermelhos. DEC-036, DEC-037, DEC-054, DEC-055, e
       `docs/specs/entitlements-and-plans.md`.
-- [ ] **Página de usuários.** Admin cria user direto com senha, dentro da
-      account. Sem convite por e-mail no PoC. Seats não são aplicados com um
-      tier só; DEC-043 registra o mecanismo para quando forem.
+- [ ] **Página de usuários.** Admin cria user dentro da account, e a senha é
+      **gerada e mostrada uma vez** — não digitada pelo admin, que é a única
+      senha do sistema que nasceria fraca por construção. Sem convite por e-mail
+      no PoC; o user nasce verificado porque o admin avalizou. Traz
+      `@RequiresRole`, e só esta rota. Seats não são aplicados com um tier só.
+      DEC-076, e `docs/specs/user-management.md`.
 - [x] **Spike do WireGuard, depois a spec.** Contêiner com `NET_ADMIN`,
       `/dev/net/tun` e `21820/udp`, um peer semeado à mão, handshake provado da
       GUI do WireGuard for Windows e egress provado por NAT — o publish de UDP
