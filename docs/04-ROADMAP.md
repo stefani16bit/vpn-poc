@@ -180,6 +180,11 @@ sem Docker ensina a ignorar suíte vermelha.
       porque `@vpn-poc/api` exporta `./src/bootstrap.ts`. Os três `build`, os
       dois `start` e os três `tsconfig.build.json` foram apagados: o artefato é
       um bundle. DEC-066.
+- [ ] **Regenerar `0000_init` perde o `GRANT` da view.** `live_tunnel_addresses`
+      é declarada com `pgView` e volta sozinha, mas
+      `GRANT SELECT ... TO vpn_app` é escrito à mão em `0002_tunnel_allocation`,
+      porque o drizzle-kit não modela privilégio. Uma regeneração deixaria a
+      view existindo e ilegível para a aplicação. DEC-069.
 - [ ] **A Lambda não tem bundle.** `infra/` precisa de `NodejsFunction` (esbuild)
       apontando para `apps/api-lambda/src/handler.ts`. É o que substitui o `tsc`
       que a DEC-066 aposentou, e sem ele não há artefato de deployment nenhum.

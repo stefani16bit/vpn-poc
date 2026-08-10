@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 
 import { DATABASE } from '@vpn-poc/adapters';
-import { devices, type Database } from '@vpn-poc/database';
+import { devices, liveTunnelAddresses, type Database } from '@vpn-poc/database';
 
 import { currentExecutor } from '../database/db-scope.js';
 import type { Executor } from '../database/transaction-runner.js';
@@ -42,6 +42,12 @@ export class DeviceRepository {
 			.returning();
 
 		return inserted[0];
+	}
+
+	async takenAddresses(executor: Executor = currentExecutor()): Promise<ReadonlySet<string>> {
+		const rows = await executor.select().from(liveTunnelAddresses);
+
+		return new Set(rows.map((row) => row.tunnelAddress));
 	}
 
 	async listLive(

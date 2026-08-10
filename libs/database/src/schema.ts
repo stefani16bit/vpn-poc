@@ -1,9 +1,10 @@
-import { sql } from 'drizzle-orm';
+import { isNull, sql } from 'drizzle-orm';
 import {
 	boolean,
 	foreignKey,
 	pgPolicy,
 	pgRole,
+	pgView,
 	index,
 	integer,
 	jsonb,
@@ -263,4 +264,11 @@ export const devices = pgTable(
 			.where(sql`${table.revokedAt} is null`),
 		...scopedPolicies('devices'),
 	],
+);
+
+export const liveTunnelAddresses = pgView('live_tunnel_addresses').as((qb) =>
+	qb
+		.select({ tunnelAddress: devices.tunnelAddress })
+		.from(devices)
+		.where(isNull(devices.revokedAt)),
 );

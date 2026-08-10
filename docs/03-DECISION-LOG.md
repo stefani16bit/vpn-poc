@@ -2532,3 +2532,70 @@ e se manifestaria em cheio no primeiro teste que varra os peers do nó.
 O logger é `new Logger(...)` do `@nestjs/common`, como no `GlobalExceptionFilter`
 e no `HealthCheckFilter`: `MODULE_LOGGER` é registrado por módulo de rota, e o
 directory mora no kernel, que não tem um.
+
+---
+
+### DEC-069 — Uma consulta escolhe onde a varredura começa; o índice continua decidindo
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** `DevicesService.create` percorria `assignableAddresses` a partir
+de `.4` e disparava um `INSERT ... ON CONFLICT DO NOTHING` por candidato. Com
+197 endereços ocupados, o 201º device custava ~197 idas ao banco **dentro da
+transação da requisição**, segurando uma conexão do pool o tempo todo.
+
+O jeito óbvio de consertar — perguntar ao banco quais endereços estão livres —
+esbarra na tenancy. O índice `devices_live_address_key` é único **global**: o nó
+é um só e a faixa é uma só. Mas toda leitura de `devices` passa pela policy
+`devices_tenant`, que a prende a uma account. E `runAsSystem` **lança** dentro
+da transação já aberta pelo `TenantTransactionInterceptor` (DEC-050), de
+propósito. Então dentro de `POST /devices` não existe leitura que enxergue a
+faixa inteira.
+
+**Decisão.** Uma view, `live_tunnel_addresses`, com **uma** coluna:
+
+```sql
+CREATE VIEW live_tunnel_addresses AS
+  SELECT tunnel_address FROM devices WHERE revoked_at IS NULL;
+GRANT SELECT ON live_tunnel_addresses TO vpn_app, app_system;
+```
+
+O dono é `vpn_migrator`, e o `security_invoker` do Postgres é `false` por
+padrão: a view executa como o dono, que é dono de `devices` e — porque a RLS é
+`ENABLE` e não `FORCE` — é isento das próprias policies. O serviço lê o conjunto
+uma vez, calcula o primeiro host livre e começa o laço ali. O laço continua
+existindo e o índice parcial continua sendo a **única** autoridade.
+
+**Rationale.** Rejeitada uma função `SECURITY DEFINER` devolvendo o primeiro
+host livre. Vazaria menos — um inteiro em vez de uma coluna — mas seria SQL
+escrito à mão que o drizzle-kit não modela, enquanto `pgView` é declarado no
+`schema.ts` e sobrevive a uma regeneração de `0000_init`. A diferença de
+exposição é nominal: a view devolve endereços de túnel, que são inventário do
+nó, e não identificam account nenhuma. A prova disso é asserção do teste — o
+segundo caso afirma que a view tem exatamente uma coluna.
+
+Rejeitado começar num host aleatório. Não custa schema nenhum e melhora o caso
+médio, mas é probabilístico, piora conforme a faixa enche, e não responde a
+pergunta que interessa: _qual_ endereço está livre.
+
+Rejeitado tornar a faixa por account. Um nó, uma `/24`: dividir a faixa por
+tenant desperdiça endereço e inventa uma fronteira que a rede não tem.
+
+**Consequências.** A dica pode estar velha quando o `INSERT` chega — outra
+requisição pode ter tomado o endereço no intervalo. É por isso que o laço não
+foi removido: ele tenta o próximo, e o gerador **dá a volta** até `.4` em vez de
+parar no fim da faixa, para que "sem endereço livre" continue querendo dizer
+exatamente isso. O teste que fixa esse contrato é o que conta 251 candidatos
+partindo de `200`.
+
+Esta é a primeira view do schema e a primeira brecha deliberada na RLS. Ela é
+estreita por construção — uma coluna, sem `account_id` — mas é uma brecha, e o
+teste de integração existe para que ela não vire duas. Ele afirma, como
+`vpn_app` escopado na account B, que a view devolve um endereço que um `SELECT`
+direto de B **não** devolve. Fica vermelho no dia em que alguém puser
+`FORCE ROW LEVEL SECURITY` na tabela, que é exatamente quando se quer saber.
+
+`GRANT` não é modelado pelo drizzle-kit, então ele foi escrito à mão em
+`0002_tunnel_allocation.sql`, depois do `--> statement-breakpoint`. Quem
+regenerar `0000_init` recupera a view pelo `pgView` e **perde o `GRANT`** — está
+dito aqui e no roadmap.

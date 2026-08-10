@@ -15,6 +15,13 @@
       "when": 1786253370509,
       "tag": "0001_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786370302872,
+      "tag": "0002_tunnel_allocation",
+      "breakpoints": true
     }
   ]
 }

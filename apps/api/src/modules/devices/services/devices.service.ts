@@ -12,7 +12,7 @@ import {
 	type StoredDevice,
 } from '../../../shared/devices/device.repository.js';
 import { ExitNodeDirectory } from '../../../shared/devices/exit-node-directory.service.js';
-import { assignableAddresses } from '../../../shared/devices/tunnel-address.js';
+import { assignableAddresses, firstFreeHost } from '../../../shared/devices/tunnel-address.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 
@@ -44,9 +44,10 @@ export class DevicesService {
 		userId: string,
 		request: CreateDeviceRequest,
 	): Promise<DeviceView> {
-		const node = await this.#node();
+		const cidr = this.env.EXIT_NODE_TUNNEL_CIDR;
+		const [node, taken] = await Promise.all([this.#node(), this.devices.takenAddresses()]);
 
-		for (const tunnelAddress of assignableAddresses(this.env.EXIT_NODE_TUNNEL_CIDR)) {
+		for (const tunnelAddress of assignableAddresses(cidr, firstFreeHost(cidr, taken))) {
 			const created = await this.#claim({
 				accountId,
 				userId,
