@@ -50,6 +50,9 @@ async function drainNotifications(): Promise<void> {
 beforeEach(async () => {
 	await db`DELETE FROM billing_events`;
 	await db`DELETE FROM outbox`;
+	// A live device refuses to be deleted, cascade included, so the reset has to
+	// do what a real deletion path has to do: revoke first.
+	await db`UPDATE devices SET revoked_at = now() WHERE revoked_at IS NULL`;
 	await db`DELETE FROM accounts`;
 	await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
 });

@@ -2657,3 +2657,67 @@ account inteira, e cada linha carrega de quem é. Isso muda o `deviceSchema` de
 `@vpn/contracts`, que ganha `userId` e `userEmail`. Não é vazamento novo: um
 `member` só recebe as próprias linhas, então o único e-mail que ele vê continua
 sendo o dele.
+
+---
+
+### DEC-071 — Um cascade não publica em sistema externo: o banco recusa, e o worker reconcilia
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** `devices.account_id`, a FK composta `(user_id, account_id)` e
+**também** `outbox.account_id` são todas `ON DELETE cascade`. Então
+`DELETE FROM accounts` apaga as linhas de device **e** qualquer intenção
+`device.revoke` ainda não publicada, no mesmo comando. Não existe ordem de
+escrita que salve: se a intenção é escrita antes, o cascade a leva junto; se
+depois, a FK recusa porque a account já não existe.
+
+Resultado: apagar uma account deixa peers no nó para sempre. Não há endpoint de
+exclusão ainda, e é exatamente por isso que o mecanismo precisa existir antes de
+alguém escrever um.
+
+**Decisão.** Duas metades, porque elas cobrem buracos diferentes.
+
+**O banco recusa o caminho silencioso.** Um trigger `BEFORE DELETE` em `devices`
+levanta `restrict_violation` quando `revoked_at IS NULL`. Trigger de linha
+dispara em delete cascateado, então isso pega o caminho da account, o do user e
+cirurgia manual, sem depender de disciplina. Quem quiser apagar tem que revogar
+antes — que é a ordem que o outbox consegue carregar.
+
+**O worker repara o que o trigger não alcança.** Um `PeerReconciler` compara
+`listPeers()` do nó com os devices vivos lidos como `app_system` e converge nos
+dois sentidos.
+
+**Rationale.** Rejeitada uma tabela de lápide com `account_id ON DELETE set null`,
+no precedente de `billing_events`. Ela sobreviveria ao `DELETE FROM accounts` —
+e é justamente isso que a torna errada aqui: o `beforeEach` do e2e apaga accounts
+para zerar o mundo, e uma tabela que sobrevive a isso acumula entre testes e
+vaza de um para o outro. Fazer `outbox.account_id` virar `set null` falha antes
+disso: a coluna é `NOT NULL` e é o que `runInAccount` e a policy leem.
+
+Só o trigger não basta. Ele não ajuda quando o device **já foi revogado** e a
+intenção ainda não foi publicada: aí o delete é legítimo, e a linha do outbox vai
+junto no cascade. Também não ajuda com nó reconstruído, job que terminou na DLQ,
+nem restauração de backup. O nó é uma projeção (DEC-064), e projeção se conserta
+reconciliando.
+
+Só o reconciler também não basta, e por um motivo diferente: ele conserta depois,
+e "depois" tem duração. Entre o `DELETE` e a varredura, o peer continua roteando
+tráfego de alguém que a empresa acha que desligou. O trigger fecha essa janela
+para o caminho que se sabe percorrer; o reconciler cobre o resto.
+
+**Consequências.** `listPeers()` passa a devolver `PeerSpec[]` em vez de chaves.
+Sem o endereço, a varredura não distingue um peer nosso do fixture semeado à mão
+em `10.13.13.2` no devstack, e removeria o fixture. Com ele, o reconciler se
+limita à faixa que o alocador entrega (`.4`–`.254`): o que ele não distribuiu não
+é dele para revogar. É mudança quebrando em `@vpn/ports`, e a suíte de
+conformidade muda **antes** dos dois adapters.
+
+O trigger quebra `DELETE FROM accounts` sem qualificação. Os três lugares que
+faziam isso — o `beforeEach` do e2e e o `beforeAll`/`afterAll` da suíte de RLS —
+passam a revogar antes. Isso é a propriedade certa, não um custo: o harness
+deixa de conseguir fazer o que produção não pode.
+
+O reconciler lê `listPeers()` **fora** de transação, abre `runAsSystem` só para
+ler as linhas vivas, fecha, e só então fala com o nó. Chamada externa com
+transação aberta é a dívida que o roadmap já nomeia em `createCheckout`, e
+repeti-la aqui seria escrevê-la de novo de propósito.

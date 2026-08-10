@@ -22,6 +22,13 @@
       "when": 1786370302872,
       "tag": "0002_tunnel_allocation",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786371719615,
+      "tag": "0003_device_delete_guard",
+      "breakpoints": true
     }
   ]
 }

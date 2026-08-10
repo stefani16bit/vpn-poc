@@ -34,6 +34,7 @@ beforeAll(async () => {
 	await asSystem(async (tx) => {
 		await tx`delete from billing_events`;
 		await tx`delete from outbox`;
+		await tx`update devices set revoked_at = now() where revoked_at is null`;
 		await tx`delete from accounts where id in (${A}, ${B})`;
 
 		for (const { id, slug } of [
@@ -81,6 +82,7 @@ afterAll(async () => {
 	await asSystem(async (tx) => {
 		await tx`delete from billing_events`;
 		await tx`delete from outbox`;
+		await tx`update devices set revoked_at = now() where revoked_at is null`;
 		await tx`delete from accounts where id in (${A}, ${B})`;
 	});
 	await sql.end({ timeout: 5 });
@@ -235,5 +237,29 @@ describe('the policy set itself', () => {
 		`;
 
 		expect(rows.map((row) => row['relname'])).toEqual([]);
+	});
+});
+
+describe('a live device cannot vanish', () => {
+	it('refuses to delete a row the node is still serving', async () => {
+		await expect(
+			asSystem((tx) => tx`delete from devices where account_id = ${A}`),
+		).rejects.toMatchObject({ code: '23001' });
+	});
+
+	it('refuses just as hard when the delete arrives as a cascade from accounts', async () => {
+		await expect(asSystem((tx) => tx`delete from accounts where id = ${A}`)).rejects.toMatchObject({
+			code: '23001',
+		});
+	});
+
+	it('lets a revoked device go, which is the order the outbox can carry', async () => {
+		await asSystem(async (tx) => {
+			await tx`update devices set revoked_at = now() where account_id = ${B}`;
+			await tx`delete from devices where account_id = ${B}`;
+		});
+
+		const rows = await asSystem((tx) => tx`select id from devices where account_id = ${B}`);
+		expect(rows).toEqual([]);
 	});
 });
