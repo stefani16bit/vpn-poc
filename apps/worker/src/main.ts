@@ -3,7 +3,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 
-import { AppModule, OutboxConsumer, OutboxRelay } from '@vpn-poc/api/worker';
+import { AppModule, OutboxConsumer, OutboxRelay, PeerReconciler } from '@vpn-poc/api/worker';
 
 const IDLE_PAUSE_MS = 500;
 const RECEIVE_WAIT_SECONDS = 5;
@@ -16,6 +16,7 @@ async function main(): Promise<void> {
 	const logger = context.get(Logger);
 	const relay = context.get(OutboxRelay);
 	const consumer = context.get(OutboxConsumer);
+	const reconciler = context.get(PeerReconciler);
 
 	let running = true;
 	const stop = async (): Promise<void> => {
@@ -44,6 +45,10 @@ async function main(): Promise<void> {
 		}
 
 		if (published === 0 && report.received === 0) {
+			await reconciler.runOnce().catch((error: unknown) => {
+				logger.error({ event: 'worker.reconcile_failed', error });
+			});
+
 			await new Promise((resolve) => setTimeout(resolve, IDLE_PAUSE_MS));
 		}
 	}

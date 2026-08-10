@@ -79,6 +79,12 @@ export class DeviceRepository {
 			.orderBy(desc(devices.createdAt));
 	}
 
+	async listLiveAcrossAccounts(
+		executor: Executor = currentExecutor(),
+	): Promise<readonly StoredDevice[]> {
+		return executor.select().from(devices).where(isNull(devices.revokedAt));
+	}
+
 	async findLiveById(
 		id: string,
 		executor: Executor = currentExecutor(),

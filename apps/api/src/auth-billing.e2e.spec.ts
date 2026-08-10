@@ -8,13 +8,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { DATABASE_CONNECTION } from '@vpn-poc/adapters';
 import { ENTITLEMENTS, UNSUBSCRIBED_ENTITLEMENTS } from '@vpn/contracts';
-import { BILLING_PROVIDER, type SubscriptionStatus } from '@vpn/ports';
+import { BILLING_PROVIDER, EXIT_NODE, type IExitNode, type SubscriptionStatus } from '@vpn/ports';
 import type { MemoryBillingProvider } from '@vpn/testing/fakes';
 
 import type { createDatabase } from '@vpn-poc/database';
 
 import { createApp } from './bootstrap.js';
 import { AccessTokenService } from './shared/access-control/access-token.service.js';
+import { PeerReconciler } from './shared/devices/peer-reconciler.service.js';
 import { OutboxConsumer } from './shared/outbox/outbox-consumer.js';
 import { OutboxRelay } from './shared/outbox/outbox-relay.js';
 import { OutboxRepository } from './shared/outbox/outbox.repository.js';
@@ -41,6 +42,11 @@ afterAll(async () => {
 	db.release();
 	await app.close();
 });
+
+async function peerKeysOnNode(): Promise<readonly string[]> {
+	const node = app.get<IExitNode>(EXIT_NODE);
+	return (await node.listPeers()).map((peer) => peer.publicKey);
+}
 
 async function drainNotifications(): Promise<void> {
 	await app.get(OutboxRelay).runOnce();
@@ -1357,6 +1363,27 @@ describe('billing', () => {
 			const rows = await db`SELECT payload FROM outbox WHERE kind = 'device.revoke'`;
 			expect(rows).toHaveLength(1);
 			expect((rows[0] as { payload: { publicKey: string } }).payload.publicKey).toBe(PUBLIC_KEY);
+		});
+
+		it('forgets a peer whose account was deleted before the intent was published', async () => {
+			const session = await subscribed();
+			const created = await createDevice(session.accessToken).expect(201);
+			await drainNotifications();
+
+			expect(await peerKeysOnNode()).toContain(PUBLIC_KEY);
+
+			// Revoking writes the intent, but the account delete cascades the outbox
+			// row away before the relay ever sees it. Nothing else repairs this.
+			await request(app.getHttpServer())
+				.delete(`/devices/${created.body.device.id}`)
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(204);
+			await db`DELETE FROM outbox WHERE kind = 'device.revoke'`;
+			await db`DELETE FROM accounts WHERE id = ${session.accountId}`;
+
+			await app.get(PeerReconciler).runOnce();
+
+			expect(await peerKeysOnNode()).not.toContain(PUBLIC_KEY);
 		});
 
 		it('answers 404 for revoking a device that is already gone', async () => {

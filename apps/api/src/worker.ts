@@ -11,3 +11,5 @@ export { NotificationDispatcher } from './shared/notifications/notification-disp
 export { OutboxConsumer } from './shared/outbox/outbox-consumer.js';
 export type { ConsumerReport } from './shared/outbox/outbox-consumer.js';
 export { OutboxRelay } from './shared/outbox/outbox-relay.js';
+export { PeerReconciler } from './shared/devices/peer-reconciler.service.js';
+export type { ReconcileReport } from './shared/devices/peer-reconciler.service.js';
