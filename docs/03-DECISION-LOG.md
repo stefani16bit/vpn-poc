@@ -2304,3 +2304,65 @@ Revogar é `revoked_at`, não `DELETE`. A chave pública é o identificador do p
 nas duas pontas, e o worker precisa dela **depois** de a linha deixar de valer
 para dizer ao nó o que esquecer. O índice único é parcial, então o endereço e a
 chave voltam a ficar livres.
+
+---
+
+### DEC-065 — Uma fronteira que um cache ausente desliga não é fronteira
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** Duas metades da verificação de fronteira estavam quebradas de
+formas diferentes, e as duas passavam em verde.
+
+`@nx/enforce-module-boundaries` emite "No cached ProjectGraph is available. The
+rule will be skipped" e **sai com 0** quando
+`.nx/workspace-data/project-graph.json` não existe. `pnpm lint` era só
+`eslint . --max-warnings 0`, sem nada que materializasse o grafo — então depois
+de um `nx reset` toda a checagem de tag da DEC-017 parava de rodar e nada
+avisava. Foi assim que a tag errada de `apps/worker` sobreviveu.
+
+As zonas de par da DEC-027 estavam enumeradas à mão e cobriam `auth` e
+`billing`. `modules/devices` e `modules/entitlements` nasceram depois e não
+apareciam em zona nenhuma: `devices` podia importar `billing` sem que nada
+reclamasse.
+
+**Decisão.** `lint` passa a ser `node scripts/nx-graph.mjs && eslint .`. O script
+chama `createProjectGraphAsync()`, confere que `readCachedProjectGraph()` devolve
+projetos e sai com 1 dizendo por quê se não devolver. E as zonas de par deixam de
+ser lista: `siblingZones()` lê `apps/api/src/modules` e `apps/web/src/features` do
+disco e emite as N·(N−1) zonas.
+
+**Rationale.** Uma regra que pula é pior que uma regra ausente — a ausente não
+mente sobre o que foi verificado. O grafo é barato de construir e o script
+transforma "pulei" em "falhei", que é a única forma de a regra ser uma garantia.
+
+Derivar as zonas ataca a outra metade do mesmo problema: enumeração envelhece
+em silêncio, e o modo de falha é exatamente o que aconteceu — o módulo novo
+chega sem zona e ninguém percebe, porque não há erro para perceber. Lido do
+disco, um módulo é coberto no instante em que a pasta existe.
+
+Isto **não** revoga o aviso da DEC-027 de que zonas de par crescem em N·(N−1) e
+que chegar a 5 módulos é o sinal de promover módulo a projeto Nx. Hoje são 4, e
+derivar não muda a aritmética — só garante que o custo apareça em erro de lint,
+não em fronteira faltando.
+
+**Consequências.** `eslint.config.mjs` passa a ler o sistema de arquivos no
+carregamento. É `.mjs` e roda em Node, então não custa nada, mas quer dizer que
+uma pasta órfã dentro de `modules/` vira zona.
+
+`module-boundaries.spec.ts` importa o config da raiz e afirma que todo par
+ordenado tem zona — a prova de que a derivação cobre o que a enumeração cobria.
+
+As quatro sondas foram feitas, cada uma revertida:
+
+| Sonda                                       | O que falha                                       |
+| ------------------------------------------- | ------------------------------------------------- |
+| `nx reset` e `pnpm lint`                    | nada: o script reconstrói o grafo                 |
+| `modules/devices` importa `modules/billing` | `import-x/no-restricted-paths`, zona derivada     |
+| `shared/` importa `modules/`                | `import-x/no-restricted-paths`, zona do kernel    |
+| `infra` importa `@vpn-poc/env`              | `@nx/enforce-module-boundaries`, restrição de tag |
+
+A terceira e a quarta são as que importam: a primeira prova que o portão novo
+não é decorativo, e a quarta prova que a regra do Nx voltou a rodar de verdade.
+Um par circular (`libs/env` → `apps/api`) não serve de sonda de tag — a regra
+reporta o ciclo antes de chegar à tag, e o erro não é o que se quer provar.

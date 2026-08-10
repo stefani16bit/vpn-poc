@@ -1,3 +1,6 @@
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import js from '@eslint/js';
 import globals from 'globals';
 import nx from '@nx/eslint-plugin';
@@ -7,6 +10,23 @@ import { createNodeResolver, importX } from 'eslint-plugin-import-x';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
 import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
+
+function siblingZones(directory, message) {
+	const names = readdirSync(join(import.meta.dirname, directory), { withFileTypes: true })
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => entry.name)
+		.sort();
+
+	return names.flatMap((target) =>
+		names
+			.filter((from) => from !== target)
+			.map((from) => ({
+				target: `./${directory}/${target}/**`,
+				from: `./${directory}/${from}/**`,
+				message,
+			})),
+	);
+}
 
 export default [
 	{
@@ -79,18 +99,10 @@ export default [
 							message:
 								'shared/ is the kernel: every module may depend on it, and it may depend on no module.',
 						},
-						{
-							target: './apps/api/src/modules/auth/**',
-							from: './apps/api/src/modules/billing/**',
-							message:
-								'A module never reaches into another module. Move what is shared into shared/.',
-						},
-						{
-							target: './apps/api/src/modules/billing/**',
-							from: './apps/api/src/modules/auth/**',
-							message:
-								'A module never reaches into another module. Move what is shared into shared/.',
-						},
+						...siblingZones(
+							'apps/api/src/modules',
+							'A module never reaches into another module. Move what is shared into shared/.',
+						),
 						{
 							target: './apps/api/src/modules/*/controllers/**',
 							from: './apps/api/src/modules/*/repositories/**',
@@ -171,36 +183,10 @@ export default [
 							from: './apps/web/src/app',
 							message: 'components/ui is vendored: it may import lib/ and nothing else of ours.',
 						},
-						{
-							target: './apps/web/src/features/auth/**',
-							from: './apps/web/src/features/billing/**',
-							message: 'Features do not import each other. Lift what is shared into components/.',
-						},
-						{
-							target: './apps/web/src/features/billing/**',
-							from: './apps/web/src/features/auth/**',
-							message: 'Features do not import each other. Lift what is shared into components/.',
-						},
-						{
-							target: './apps/web/src/features/keys/**',
-							from: './apps/web/src/features/auth/**',
-							message: 'Features do not import each other. Lift what is shared into components/.',
-						},
-						{
-							target: './apps/web/src/features/keys/**',
-							from: './apps/web/src/features/billing/**',
-							message: 'Features do not import each other. Lift what is shared into components/.',
-						},
-						{
-							target: './apps/web/src/features/auth/**',
-							from: './apps/web/src/features/keys/**',
-							message: 'Features do not import each other. Lift what is shared into components/.',
-						},
-						{
-							target: './apps/web/src/features/billing/**',
-							from: './apps/web/src/features/keys/**',
-							message: 'Features do not import each other. Lift what is shared into components/.',
-						},
+						...siblingZones(
+							'apps/web/src/features',
+							'Features do not import each other. Lift what is shared into components/.',
+						),
 					],
 				},
 			],

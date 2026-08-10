@@ -178,11 +178,12 @@ sem Docker ensina a ignorar suíte vermelha.
       `rootDir: src`, e os imports de `libs/*` entram por caminho de fonte, fora
       dele. Não aparece no `pnpm verify`, que roda `typecheck` e não `build`; o
       deploy real é `apps/api-lambda`. Anterior a este trabalho.
-- [ ] **`pnpm lint` passa vazio sem grafo do Nx.** `@nx/enforce-module-boundaries`
-      emite "No cached ProjectGraph is available. The rule will be skipped" e sai
-      com 0 — depois de um `nx reset`, toda a verificação de fronteira da DEC-017 e
-      da DEC-027 não roda e nada avisa. Foi assim que a tag errada de
-      `apps/worker` ficou vermelha sem ninguém ver.
+- [x] ~~**`pnpm lint` passa vazio sem grafo do Nx.**~~ `lint` passa por
+      `scripts/nx-graph.mjs`, que constrói o grafo e sai com 1 se não conseguir,
+      então "a regra foi pulada" virou "o lint falhou". Junto veio a outra metade
+      do mesmo problema: as zonas de par da DEC-027 estavam enumeradas à mão e
+      `modules/devices` e `modules/entitlements` não apareciam em nenhuma — agora
+      são derivadas do disco. DEC-065.
 - [ ] **Uma transação de requisição atravessa chamada externa.**
       `BillingService.createCheckout` fala com o Stripe com a transação aberta,
       prendendo uma conexão do pool pela ida e volta. É um handler hoje; a
