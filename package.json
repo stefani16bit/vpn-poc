@@ -25,7 +25,8 @@
     "synth": "pnpm --filter @vpn-poc/infra synth",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "tunnel:doctor": "node scripts/tunnel-doctor.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

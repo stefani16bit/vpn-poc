@@ -120,6 +120,7 @@ make check                 # 16 asserções sobre o devstack
 pnpm db:migrate            # `up` e `reset` já rodam; aqui é para rodar sozinho
 pnpm dev                   # infra + api + web + worker (pm2)
 pnpm logs:trace <id>       # rastro completo de uma requisição, por correlationId
+pnpm tunnel:doctor         # nó, banco e túneis desta máquina, e o que não bate
 
 pnpm verify                # lint + typecheck + testes unitários
 pnpm --filter @vpn-poc/adapters test:integration   # adapters reais, precisa do devstack

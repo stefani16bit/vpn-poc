@@ -188,6 +188,12 @@ então tirá-lo do `.env` não muda nada nos testes.
   vai ter (DEC-005). Use `DELETE`.
 - **Erro de caminho no docker, no Git Bash:** `MSYS_NO_PATHCONV=1` antes do
   comando. `dev.sh` e `check.sh` já fazem isso.
+- **O túnel não conecta e não está claro por quê:** `pnpm tunnel:doctor`. Ele
+  compara os três lados — os peers que o nó conhece, os devices no banco e os
+  túneis ativos nesta máquina — e diz qual não bate. O caso mais comum é um
+  túnel importado no cliente cujo device foi revogado ou perdido num `reset` do
+  banco: o cliente continua **Up**, o nó não conhece mais a chave, e todo pacote
+  é descartado em silêncio. A saída nomeia o túnel e manda apagá-lo.
 - **`@vpn/...` não encontrado:** o Verdaccio está no ar mas os pacotes não foram
   publicados. `pnpm packages:publish:local`.
 - **O contêiner do wireguard está saudável e o handshake não acontece:** o
