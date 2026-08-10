@@ -4,6 +4,7 @@ import type { CreateDeviceRequest } from '@vpn/contracts';
 import { FixedClock } from '@vpn/testing/fakes';
 import type { Env } from '@vpn-poc/env';
 
+import type { AccessTokenClaims } from '../../../shared/access-control/access-token.service.js';
 import type {
 	DeviceRepository,
 	NewDevice,
@@ -40,15 +41,28 @@ function stored(values: NewDevice): StoredDevice {
 	};
 }
 
+function claims(overrides: Partial<AccessTokenClaims> = {}): AccessTokenClaims {
+	return {
+		userId: USER,
+		accountId: ACCOUNT,
+		role: 'member',
+		sessionId: 'session-1',
+		emailVerified: true,
+		...overrides,
+	};
+}
+
 function service({
 	taken = new Set<string>(),
 	claim,
+	revoked,
 }: {
 	taken?: ReadonlySet<string>;
 	claim?: (values: NewDevice) => Promise<StoredDevice | undefined>;
+	revoked?: StoredDevice | undefined;
 } = {}) {
 	const claimAddress = vi.fn(claim ?? ((values: NewDevice) => Promise.resolve(stored(values))));
-	const revoke = vi.fn();
+	const revoke = vi.fn(() => Promise.resolve(revoked));
 	const devices = {
 		takenAddresses: vi.fn(() => Promise.resolve(taken)),
 		claimAddress,
@@ -154,5 +168,43 @@ describe('DevicesService.create', () => {
 			kind: 'device.provision',
 			deviceId: 'device-10.13.13.4/32',
 		});
+	});
+});
+
+describe('DevicesService.revoke', () => {
+	const LIVE = stored({
+		accountId: ACCOUNT,
+		userId: USER,
+		name: 'laptop',
+		publicKey: REQUEST.publicKey,
+		tunnelAddress: '10.13.13.4/32',
+	});
+
+	it('asks only for a device the caller owns', async () => {
+		const { subject, revoke } = service({ revoked: LIVE });
+
+		await subject.revoke(claims(), LIVE.id);
+
+		expect(revoke).toHaveBeenCalledWith(LIVE.id, USER, expect.any(Date));
+	});
+
+	it('tells the node to forget the key once the row stops counting', async () => {
+		const { subject, enqueue } = service({ revoked: LIVE });
+
+		await subject.revoke(claims(), LIVE.id);
+
+		expect(enqueue).toHaveBeenCalledWith(ACCOUNT, {
+			kind: 'device.revoke',
+			publicKey: LIVE.publicKey,
+		});
+	});
+
+	it('says nothing was found rather than that it was forbidden', async () => {
+		const { subject, enqueue } = service({ revoked: undefined });
+
+		await expect(subject.revoke(claims(), LIVE.id)).rejects.toThrow(
+			new AppError('NOT_FOUND', 'no live device with that id'),
+		);
+		expect(enqueue).not.toHaveBeenCalled();
 	});
 });

@@ -5,6 +5,7 @@ import { CLOCK, type IClock } from '@vpn/ports';
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 
+import type { AccessTokenClaims } from '../../../shared/access-control/access-token.service.js';
 import { isUniqueViolation } from '../../../shared/database/pg-errors.js';
 import {
 	DeviceRepository,
@@ -66,8 +67,9 @@ export class DevicesService {
 		throw new AppError('CONFLICT', 'the exit node tunnel range has no free address left');
 	}
 
-	async revoke(accountId: string, deviceId: string): Promise<void> {
-		const revoked = await this.devices.revoke(deviceId, this.clock.now());
+	async revoke(claims: AccessTokenClaims, deviceId: string): Promise<void> {
+		const { accountId, userId } = claims;
+		const revoked = await this.devices.revoke(deviceId, userId, this.clock.now());
 		if (!revoked) throw new AppError('NOT_FOUND', 'no live device with that id');
 
 		await this.outbox.enqueue(accountId, {

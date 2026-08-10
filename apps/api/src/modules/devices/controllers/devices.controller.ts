@@ -40,6 +40,6 @@ export class DevicesController {
 	@HttpCode(204)
 	@RequiresCapability('vpn_access')
 	async revoke(@Auth() claims: AccessTokenClaims, @Param('id') id: string): Promise<void> {
-		await this.devices.revoke(claims.accountId, id);
+		await this.devices.revoke(claims, id);
 	}
 }

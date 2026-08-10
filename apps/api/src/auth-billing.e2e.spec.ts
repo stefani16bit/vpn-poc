@@ -1,5 +1,7 @@
 import { MAILPIT_URL } from './e2e.setup.js';
 
+import { randomUUID } from 'node:crypto';
+
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +14,7 @@ import type { MemoryBillingProvider } from '@vpn/testing/fakes';
 import type { createDatabase } from '@vpn-poc/database';
 
 import { createApp } from './bootstrap.js';
+import { AccessTokenService } from './shared/access-control/access-token.service.js';
 import { OutboxConsumer } from './shared/outbox/outbox-consumer.js';
 import { OutboxRelay } from './shared/outbox/outbox-relay.js';
 import { OutboxRepository } from './shared/outbox/outbox.repository.js';
@@ -1188,6 +1191,28 @@ describe('billing', () => {
 				.send({ name: 'laptop', publicKey });
 		}
 
+		// There is no endpoint that adds a user to an account yet, so the colleague
+		// is inserted as system and given a token the same service issues.
+		async function colleagueOf(accountId: string, role: 'admin' | 'member') {
+			const email = freshEmail();
+			const [user] = await db`
+				INSERT INTO users (account_id, email, password_hash, role, email_verified_at)
+				VALUES (${accountId}, ${email}, 'x', ${role}, now())
+				RETURNING id
+			`;
+			const userId = (user as { id: string }).id;
+
+			const accessToken = await app.get(AccessTokenService).issue({
+				userId,
+				accountId,
+				role,
+				sessionId: randomUUID(),
+				emailVerified: true,
+			});
+
+			return { userId, email, accessToken };
+		}
+
 		it('answers 402 when the account never subscribed, which is the gate doing its job', async () => {
 			const session = await subscribedSession();
 
@@ -1286,6 +1311,20 @@ describe('billing', () => {
 			const response = await createDevice(second.accessToken).expect(409);
 
 			expect(response.body.message).toContain('public key');
+		});
+
+		it('refuses to revoke a device that belongs to another member', async () => {
+			const owner = await subscribed();
+			const created = await createDevice(owner.accessToken).expect(201);
+			const colleague = await colleagueOf(owner.accountId, 'member');
+
+			await request(app.getHttpServer())
+				.delete(`/devices/${created.body.device.id}`)
+				.set('Authorization', `Bearer ${colleague.accessToken}`)
+				.expect(404);
+
+			const [row] = await db`SELECT revoked_at FROM devices WHERE id = ${created.body.device.id}`;
+			expect((row as { revoked_at: Date | null }).revoked_at).toBeNull();
 		});
 
 		it('answers 404 for revoking a device that is already gone', async () => {

@@ -95,13 +95,14 @@ export class DeviceRepository {
 
 	async revoke(
 		id: string,
+		userId: string,
 		at: Date,
 		executor: Executor = currentExecutor(),
 	): Promise<StoredDevice | undefined> {
 		const updated = await executor
 			.update(devices)
 			.set({ revokedAt: at })
-			.where(and(eq(devices.id, id), isNull(devices.revokedAt)))
+			.where(and(eq(devices.id, id), eq(devices.userId, userId), isNull(devices.revokedAt)))
 			.returning();
 
 		return updated[0];
