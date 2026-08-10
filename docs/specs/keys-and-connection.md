@@ -263,7 +263,7 @@ move o carimbo.
 ## Como validar
 
 ```bash
-sh devstack/dev.sh up && sh devstack/check.sh    # 16/16
+sh devstack/dev.sh up && sh devstack/check.sh    # 17/17
 pnpm verify
 pnpm --filter @vpn-poc/adapters test:integration # inclui HttpExitNode
 pnpm --filter @vpn-poc/api test:integration      # inclui devices sob RLS

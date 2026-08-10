@@ -2800,3 +2800,73 @@ Diagnosticar worker morto é trabalho do `tunnel:doctor`, não do badge.
 
 `listLive` não devolve device revogado, então uma linha revogada antes de ser
 provisionada não segura o polling aberto para sempre.
+
+---
+
+### DEC-073 — O plano de controle do nó exige credencial, e quem a cobra é o `httpd`
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** A DEC-063 registrou em voz alta que o agente do nó não tem
+autenticação nenhuma, e a DEC-062 é o que tornava isso defensável: aquele
+contêiner é fixture, não artefato. Mas `21821` está publicado no host, e qualquer
+coisa que o alcance adiciona ou remove qualquer peer — inclusive um `wg set` que
+mova o endereço de um device de outra account. É a primeira coisa que um nó real
+precisa e a última de que alguém vai lembrar.
+
+**Decisão.** HTTP Basic contra um **token compartilhado**, cobrado pelo próprio
+`busybox httpd`: o entrypoint escreve `/:worker:$EXIT_NODE_API_TOKEN` em
+`/etc/httpd.conf` e sobe `httpd -c /etc/httpd.conf -r 'poc-vpn exit node'`. O
+adapter carrega o cabeçalho; `EXIT_NODE_DRIVER=http` sem `EXIT_NODE_API_TOKEN`
+falha no boot, em `assertDriverConfiguration`, e o entrypoint do nó recusa subir
+sem token para conferir.
+
+**Rationale.** O 401 acontece **antes de qualquer CGI rodar**. É a mesma razão
+pela qual a idempotência aqui é restrição de banco e não `if`: não existe script
+que possa esquecer a checagem, porque nenhum script participa dela. Os três CGI
+ficam byte a byte como estavam.
+
+Rejeitado token `Bearer` comparado dentro de cada CGI. São três cópias da mesma
+guarda em shell, e a quarta rota que alguém escrever nasce sem ela. Além disso
+depende de o busybox repassar `Authorization` ao CGI, o que não é conferível
+contra esta imagem sem reconstruí-la — enquanto `-r REALM`, `-c FILE` e `-m` estão
+no `httpd --help` dela.
+
+O custo de trocar depois é simétrico e pequeno, e é isso que torna a escolha
+barata: a credencial **não entra na porta**. `IExitNode` e
+`describeExitNodeContract` não mudaram uma linha, então `packages/` não é
+republicado e os quatro consumidores não se movem. Se a suíte de conformidade
+tivesse precisado de edição, a credencial teria vazado para a porta e o desenho
+estaria errado. Ir para `Bearer` é uma linha no adapter mais uma guarda por CGI.
+
+mTLS continua sendo o teto, e é de um nó de verdade: ele é certificado de cliente
+num dispatcher de `fetch` mais terminação TLS no nó, e **não reaproveita esquema
+de cabeçalho nenhum**. Por isso um `Bearer` hoje não adiantaria caminho para o
+mTLS de amanhã.
+
+**Consequências.** O nome `worker` é constante nas duas pontas — o nó não tem
+diretório de usuários, então o token é a senha e o nome é literal no `Dockerfile`
+(`CONTROL_USER`) e em `HttpExitNode`. É o único detalhe do esquema que fica
+gravado, e ele desaparece junto com o esquema.
+
+`HttpExitNode` lança no construtor com token vazio, no precedente do
+`ConsoleSmsSender`: fecha o `?? ''` da factory do registry, que existe só para o
+tipo.
+
+O healthcheck do compose virou script (`healthcheck.sh`), com três sondas em vez
+de duas. A nova é a que importa: uma chamada **sem** credencial não pode receber a
+chave pública. Ela afirma a ausência do corpo, não um `401` — o texto da linha de
+status pertence a quem serve o realm, e o corpo é o que não pode escapar.
+
+O token do devstack é fixture commitado, na categoria de `vpn_app_dev` em
+`01-roles.sql` e das chaves de `wireguard/peers/`. Ele aparece em `.env.example` e
+como default no compose, e são dois lugares porque o diretório de projeto do
+compose é `devstack/`: o `.env` da raiz é invisível para ele, que é a razão de
+cada porta ali já ter default. O `check.sh` lê o token do `.env` da raiz, não do
+default — então a asserção que pede a chave pública prova também que **as duas
+metades concordam**. Sem isso, uma divergência é um 401 silencioso dentro do
+worker.
+
+Um nó real não herda nada disso a não ser a forma: um token só para a frota
+inteira não é rotacionável sem derrubar todos os nós ao mesmo tempo, e isso está
+no roadmap em voz alta.

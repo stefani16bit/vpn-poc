@@ -116,7 +116,7 @@ Add the shared port, contract and testing packages
 
 ```bash
 make up                    # devstack (docker)
-make check                 # 16 asserções sobre o devstack
+make check                 # 17 asserções sobre o devstack
 pnpm db:migrate            # `up` e `reset` já rodam; aqui é para rodar sozinho
 pnpm dev                   # infra + api + web + worker (pm2)
 pnpm logs:trace <id>       # rastro completo de uma requisição, por correlationId

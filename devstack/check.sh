@@ -33,6 +33,25 @@ EXIT_NODE_API_PORT=${EXIT_NODE_API_PORT:-21821}
 # rather than a peer count is what makes a silently empty wg0.conf fail here.
 WIREGUARD_PEER_PUBLIC_KEY='StZtsGF+hrd7nHOYtH0GhM/759qnBuUbKdVMEeFyLVU='
 
+# The name is a constant on both sides: the node has no user directory, so the
+# shared token is the password. DEC-073.
+EXIT_NODE_API_USER='worker'
+
+ENV_FILES=''
+[ -f ../.env.local ] && ENV_FILES="${ENV_FILES} ../.env.local"
+[ -f ../.env ] && ENV_FILES="${ENV_FILES} ../.env"
+
+# Read from the same two files loadEnv reads, in the same order, rather than from
+# a default: that is what makes the exit node probe below prove the token the
+# application will send is the token the node accepts. A mismatch is otherwise a
+# silent 401 inside the worker.
+read_env() {
+	# shellcheck disable=SC2086
+	[ -n "$ENV_FILES" ] && sed -n "s/^$1=//p" $ENV_FILES 2>/dev/null | tr -d '\r' | head -1
+}
+
+EXIT_NODE_API_TOKEN=${EXIT_NODE_API_TOKEN:-$(read_env EXIT_NODE_API_TOKEN)}
+
 PASSED=0
 FAILED=0
 
@@ -93,11 +112,8 @@ check_exec() {
 # so a key set in either one is set.
 check_env_drift() {
 	_label='the local env declares every key .env.example does'
-	_files=''
-	[ -f ../.env.local ] && _files="${_files} ../.env.local"
-	[ -f ../.env ] && _files="${_files} ../.env"
 
-	if [ -z "$_files" ]; then
+	if [ -z "$ENV_FILES" ]; then
 		fail "$_label" 'no .env or .env.local at the repository root; copy .env.example'
 		return
 	fi
@@ -105,13 +121,13 @@ check_env_drift() {
 	_absent=''
 	for _key in $(grep -oE '^[A-Z_][A-Z0-9_]*=' ../.env.example | tr -d '=' | sort -u); do
 		# shellcheck disable=SC2086
-		grep -qhE "^${_key}=" $_files || _absent="${_absent}${_key} "
+		grep -qhE "^${_key}=" $ENV_FILES || _absent="${_absent}${_key} "
 	done
 
 	if [ -z "$_absent" ]; then
 		pass "$_label"
 	else
-		fail "$_label" "absent from${_files}: ${_absent}"
+		fail "$_label" "absent from${ENV_FILES}: ${_absent}"
 	fi
 }
 
@@ -185,8 +201,15 @@ check_exec 'wireguard has the seeded peer on the tunnel' "$WIREGUARD_PEER_PUBLIC
 
 # From the host, not from inside: the worker reaches the node over the published
 # port, and a control plane bound to the wrong interface passes every in-container
-# probe there is.
+# probe there is. The credential comes from the repository .env, so this also
+# proves the two halves agree.
 check_body 'the exit node control plane answers with its own public key' 'publicKey=' \
+	-u "${EXIT_NODE_API_USER}:${EXIT_NODE_API_TOKEN}" \
+	"http://127.0.0.1:${EXIT_NODE_API_PORT}/cgi-bin/describe"
+
+# The whole point of DEC-073. An unauthenticated caller that gets 200 here can add
+# or remove any peer, and every other probe in this file stays green while it can.
+check_status 'the exit node control plane refuses an anonymous caller' 401 \
 	"http://127.0.0.1:${EXIT_NODE_API_PORT}/cgi-bin/describe"
 
 check_env_drift

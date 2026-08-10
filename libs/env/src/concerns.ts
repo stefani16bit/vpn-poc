@@ -66,6 +66,10 @@ export const queueEnvSchema = z.object({
 export const exitNodeEnvSchema = z.object({
 	EXIT_NODE_DRIVER: z.enum(['http', 'memory']).default('memory'),
 	EXIT_NODE_API_URL: z.string().url().optional(),
+	EXIT_NODE_API_TOKEN: z
+		.string()
+		.min(32, 'EXIT_NODE_API_TOKEN must be at least 32 characters')
+		.optional(),
 	EXIT_NODE_ENDPOINT: z.string().default('127.0.0.1:21820'),
 	EXIT_NODE_TUNNEL_CIDR: z.string().default('10.13.13.0/24'),
 	EXIT_NODE_CLIENT_ALLOWED_IPS: z.string().optional(),
@@ -93,6 +97,7 @@ export function assertDriverConfiguration(env: {
 	QUEUE_URL?: string | undefined;
 	EXIT_NODE_DRIVER: string;
 	EXIT_NODE_API_URL?: string | undefined;
+	EXIT_NODE_API_TOKEN?: string | undefined;
 }): void {
 	if (env.BILLING_DRIVER === 'stripe' && env.STRIPE_API_BASE) {
 		throw new Error(
@@ -120,8 +125,10 @@ export function assertDriverConfiguration(env: {
 	}
 	if (env.STORAGE_DRIVER === 's3' && !env.S3_BUCKET) missing.push('S3_BUCKET (STORAGE_DRIVER=s3)');
 	if (env.QUEUE_DRIVER === 'sqs' && !env.QUEUE_URL) missing.push('QUEUE_URL (QUEUE_DRIVER=sqs)');
-	if (env.EXIT_NODE_DRIVER === 'http' && !env.EXIT_NODE_API_URL)
-		missing.push('EXIT_NODE_API_URL (EXIT_NODE_DRIVER=http)');
+	if (env.EXIT_NODE_DRIVER === 'http') {
+		if (!env.EXIT_NODE_API_URL) missing.push('EXIT_NODE_API_URL (EXIT_NODE_DRIVER=http)');
+		if (!env.EXIT_NODE_API_TOKEN) missing.push('EXIT_NODE_API_TOKEN (EXIT_NODE_DRIVER=http)');
+	}
 
 	if (missing.length > 0) {
 		throw new Error(`missing environment configuration:\n  - ${missing.join('\n  - ')}`);

@@ -35,7 +35,7 @@ Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 Conferido como portão: `--coverage.thresholds.branches=99` falha citando o
 valor real.
 
-`make check` 16/16 · `cdk synth` 6 stacks · `consumer-check` verde ·
+`make check` 17/17 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
 
 `pnpm verify` roda com o Docker parado, de propósito: `*.integration.spec.ts` e
@@ -67,6 +67,15 @@ sem Docker ensina a ignorar suíte vermelha.
       por limitação do mock. O conserto é partir a suíte em dois — checkout e ciclo
       de vida — para que o Stripe passe pelo segundo; hoje cancelar e retomar são
       pinados à mão em `stripe.integration.spec.ts`. DEC-060.
+- [x] ~~**O agente do nó não tem autenticação.**~~ O plano de controle exige
+      credencial, cobrada pelo `httpd` do nó antes de qualquer CGI rodar, e
+      `EXIT_NODE_DRIVER=http` sem token falha no boot. A porta não mudou, então
+      `packages/` não se moveu. DEC-073.
+- [ ] **A credencial do nó é um token só, para a frota inteira.** Trocá-lo
+      derruba todos os nós ao mesmo tempo, e não há como distinguir no log qual
+      chamador o usou. O alvo é mTLS, que é certificado de cliente num dispatcher
+      de `fetch` mais terminação TLS no nó — o `busybox httpd` não fala TLS, então
+      isso é trabalho de nó real e da stack `network`. DEC-073, DEC-011.
 - [ ] Preencher as stacks CDK. Ordem: `network` → `data` → `events` → `api`.
 - [ ] Secrets Manager em vez de variáveis de ambiente para `AUTH_JWT_SECRET` e
       `STRIPE_WEBHOOK_SECRET`.
@@ -284,7 +293,7 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 16/16
+make up && make check                                # devstack: 17/17
 pnpm --filter @vpn-poc/api test:e2e                  # 84, o fluxo inteiro
 pnpm --filter @vpn-poc/api test:integration          # 54, RLS e formas de SQL
 pnpm --filter @vpn-poc/adapters test:integration     # 74, adapters reais

@@ -1,7 +1,28 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
-const CONTROL_URL = process.env['EXIT_NODE_API_URL'] ?? 'http://127.0.0.1:21821';
+// This script is plain node, so nothing has loaded the dotenv files for it. Read
+// the same two, in the same order loadEnv does, or the doctor diagnoses a node
+// that is fine against a credential it never had.
+function fromDotenv(key) {
+	for (const file of ['.env.local', '.env']) {
+		try {
+			const match = readFileSync(file, 'utf8').match(new RegExp(`^${key}=(.*)$`, 'm'));
+			if (match) return match[1].trim();
+		} catch {
+			// either file is optional
+		}
+	}
+
+	return '';
+}
+
+const CONTROL_URL =
+	process.env['EXIT_NODE_API_URL'] || fromDotenv('EXIT_NODE_API_URL') || 'http://127.0.0.1:21821';
+const CONTROL_TOKEN = process.env['EXIT_NODE_API_TOKEN'] || fromDotenv('EXIT_NODE_API_TOKEN');
+// a constant on both sides: the node has no user directory
+const CONTROL_USER = 'worker';
 const COMPOSE = ['compose', '-f', 'devstack/docker-compose.yml'];
 
 const GREEN = '[32m';
@@ -58,12 +79,18 @@ function powershell(script) {
 				.filter(Boolean);
 }
 
-async function control(path) {
+const AUTHORIZATION = `Basic ${Buffer.from(`${CONTROL_USER}:${CONTROL_TOKEN}`).toString('base64')}`;
+
+async function control(path, headers = { authorization: AUTHORIZATION }) {
 	try {
-		const response = await fetch(`${CONTROL_URL}${path}`, { signal: AbortSignal.timeout(4000) });
-		return response.ok ? await response.text() : null;
+		const response = await fetch(`${CONTROL_URL}${path}`, {
+			signal: AbortSignal.timeout(4000),
+			headers,
+		});
+
+		return { status: response.status, body: response.ok ? await response.text() : null };
 	} catch {
-		return null;
+		return { status: 0, body: null };
 	}
 }
 
@@ -92,14 +119,32 @@ if (state === null) {
 }
 
 const described = await control('/cgi-bin/describe');
-const nodeKey = described?.match(/^publicKey=(.+)$/m)?.[1]?.trim() ?? null;
+const nodeKey = described.body?.match(/^publicKey=(.+)$/m)?.[1]?.trim() ?? null;
 
 if (nodeKey) {
 	console.log(ok(`control plane answers at ${CONTROL_URL}`));
 	console.log(`     public key ${DIM}${nodeKey}${OFF}`);
+} else if (described.status === 401) {
+	console.log(bad(`control plane refuses this credential at ${CONTROL_URL}`));
+	advise(
+		CONTROL_TOKEN
+			? 'EXIT_NODE_API_TOKEN in .env is not the token the node was started with: recreate the node with `sh devstack/dev.sh up`'
+			: 'no EXIT_NODE_API_TOKEN in .env or .env.local: copy it from .env.example, or the worker 401s on every provision',
+	);
 } else if (nodeUp) {
 	console.log(bad(`control plane is not answering at ${CONTROL_URL}`));
 	advise('the worker cannot provision while the control plane is silent');
+}
+
+const anonymous = await control('/cgi-bin/describe', {});
+
+if (anonymous.status === 401) {
+	console.log(ok('control plane refuses an anonymous caller'));
+} else if (anonymous.status !== 0) {
+	console.log(bad(`control plane answered an anonymous caller with ${anonymous.status}`));
+	advise(
+		'anything that can reach the control plane can add or remove any peer: the node is serving without a credential',
+	);
 }
 
 const wg = docker(['exec', '-T', 'wireguard', 'wg', 'show', 'wg0']);

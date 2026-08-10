@@ -255,7 +255,7 @@ a leia como projeto.
 ## Como validar
 
 ```bash
-sh devstack/dev.sh up && sh devstack/check.sh    # 16/16, inclui o peer semeado
+sh devstack/dev.sh up && sh devstack/check.sh    # 17/17, inclui o peer semeado
 ```
 
 Depois, o que nenhum comando faz sozinho — e que é o item inteiro:

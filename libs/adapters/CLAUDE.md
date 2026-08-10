@@ -49,6 +49,20 @@ dunning nunca enviado, nada vermelho em nenhum teste. Ver DEC-057.
 **`ConsoleSmsSender`** lança no construtor se `NODE_ENV=production`. Ele imprime
 o código em vez de enviar; falhar no boot é melhor que o usuário nunca receber.
 
+**`HttpExitNode`** carrega a credencial do nó, e a porta não sabe disso. É
+`Authorization: Basic`, com o nome `worker` fixo nas duas pontas, porque quem
+cobra é o `busybox httpd` do nó — o 401 sai antes de qualquer CGI rodar, então não
+existe script que possa esquecer a checagem. Um token `Bearer` conferido dentro
+dos três CGI seria três cópias da mesma guarda. DEC-073.
+
+Ele **lança no construtor** com token vazio, no mesmo espírito do
+`ConsoleSmsSender`: o `?? ''` da factory existe para o tipo, e sem essa guarda ele
+seria um caminho silencioso para falar anônimo com o nó. Quem falha primeiro, e
+com a mensagem melhor, é `assertDriverConfiguration`.
+
+Trocar de esquema é uma linha aqui. A suíte de conformidade **não muda** — se
+precisar mudar, a credencial vazou para a porta.
+
 ## Don't
 
 - Não construa um adapter fora do registry. Se um módulo faz `new`, a

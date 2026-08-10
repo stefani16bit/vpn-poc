@@ -196,6 +196,7 @@ export const ADAPTERS = [
 			http: ({ env }) =>
 				new HttpExitNode({
 					apiUrl: env.EXIT_NODE_API_URL ?? '',
+					token: env.EXIT_NODE_API_TOKEN ?? '',
 					endpoint: env.EXIT_NODE_ENDPOINT,
 					allowedIps: (env.EXIT_NODE_CLIENT_ALLOWED_IPS ?? env.EXIT_NODE_TUNNEL_CIDR)
 						.split(',')

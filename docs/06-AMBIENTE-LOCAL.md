@@ -8,7 +8,7 @@ cd poc-vpn
 cp .env.example .env.local
 
 make up                      # sobe os 8 contêineres e espera ficarem saudáveis
-make check                   # 16 asserções; tem que dar 16/16
+make check                   # 17 asserções; tem que dar 17/17
 
 pnpm install
 pnpm packages:publish:local  # publica @vpn/* no Verdaccio local
@@ -34,7 +34,7 @@ mesmo erro — `relation "accounts" does not exist`.
 | mailpit      | 21025 / 28025 | SMTP + caixa de entrada — <http://localhost:28025>        |
 | caddy        | 20080 / 20443 | TLS e roteamento por Host — `https://app.localhost:20443` |
 | wireguard    | 21820/udp     | nó de saída — o túnel, `docs/specs/data-plane.md`         |
-| wireguard    | 21821         | agente de controle do nó — o worker provisiona por aqui   |
+| wireguard    | 21821         | agente de controle do nó — exige credencial (DEC-073)     |
 
 Portas no intervalo 2xxxx de propósito (DEC-010): três projetos irmãos dividem
 esta máquina e todos queriam a 5432.
@@ -105,7 +105,13 @@ quebram para quem consome.
 3. Entre com a senha
 4. Assine — ver a seção 7, que tem dois modos
 5. **Dispositivos e chaves** → gere um device; o `.conf` baixa na hora e o peer
-   aparece no nó em segundos (`curl http://127.0.0.1:21821/cgi-bin/peers`)
+   aparece no nó em segundos. O plano de controle pede credencial, então a consulta
+   à mão leva a do `.env`:
+
+   ```bash
+   curl -s -u "worker:${EXIT_NODE_API_TOKEN}" http://127.0.0.1:21821/cgi-bin/peers
+   ```
+
 6. "Esqueci minha senha" → mailpit → redefinir → entrar com a senha nova
 
 ## 7. Cobrança: os dois modos
@@ -196,9 +202,16 @@ então tirá-lo do `.env` não muda nada nos testes.
   é descartado em silêncio. A saída nomeia o túnel e manda apagá-lo.
 - **`@vpn/...` não encontrado:** o Verdaccio está no ar mas os pacotes não foram
   publicados. `pnpm packages:publish:local`.
+- **Toda chamada ao nó responde 401:** `EXIT_NODE_API_TOKEN` no `.env` da raiz não
+  é o token com que o contêiner subiu. Os dois lados vêm de lugares diferentes de
+  propósito — o compose lê o `.env` de `devstack/`, que não existe, e usa o default
+  dele — então uma divergência é possível. `sh devstack/check.sh` tem uma asserção
+  exatamente para isso, e `sh devstack/dev.sh up` recria o nó com o valor atual.
+  DEC-073.
 - **O contêiner do wireguard está saudável e o handshake não acontece:** o
-  healthcheck só afirma que `wg0` existe dentro do contêiner, então ele fica
-  verde mesmo sem nenhum pacote atravessando. Confirme o mapeamento com
+  healthcheck afirma que `wg0` existe e que o plano de controle cobra credencial,
+  e as duas coisas ficam verdes sem nenhum pacote atravessando o túnel. Confirme
+  o mapeamento com
   `docker compose port --protocol udp wireguard 51820` e olhe o nó com
   `docker compose exec wireguard wg show wg0` — sucesso é `latest handshake` mais
   `transfer` diferente de zero **nos dois sentidos**. Se o mapeamento existe e

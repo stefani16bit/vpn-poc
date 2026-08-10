@@ -3,21 +3,34 @@ import type { ExitNodeDescription, IExitNode, PeerSpec } from '@vpn/ports';
 // What `wg show wg0 allowed-ips` prints for a peer that holds no address.
 const NO_ALLOWED_IPS = '(none)';
 
+// The node has no user directory; busybox httpd only enforces Basic, so the
+// shared token is the password and the name is a constant on both sides.
+const CONTROL_USER = 'worker';
+
 export interface HttpExitNodeOptions {
 	readonly apiUrl: string;
 	readonly endpoint: string;
 	readonly allowedIps: readonly string[];
+	readonly token: string;
 }
 
 export class HttpExitNode implements IExitNode {
 	readonly #apiUrl: string;
 	readonly #endpoint: string;
 	readonly #allowedIps: readonly string[];
+	readonly #authorization: string;
 
 	constructor(options: HttpExitNodeOptions) {
+		if (!options.token) {
+			throw new Error(
+				'HttpExitNode refuses to talk to a node without a credential: set EXIT_NODE_API_TOKEN',
+			);
+		}
+
 		this.#apiUrl = options.apiUrl.replace(/\/+$/, '');
 		this.#endpoint = options.endpoint;
 		this.#allowedIps = options.allowedIps;
+		this.#authorization = `Basic ${Buffer.from(`${CONTROL_USER}:${options.token}`).toString('base64')}`;
 	}
 
 	async describe(): Promise<ExitNodeDescription> {
@@ -53,7 +66,11 @@ export class HttpExitNode implements IExitNode {
 	async #call(method: string, path: string, body?: string): Promise<string> {
 		const response = await fetch(`${this.#apiUrl}${path}`, {
 			method,
-			...(body === undefined ? {} : { body, headers: { 'content-type': 'text/plain' } }),
+			headers: {
+				authorization: this.#authorization,
+				...(body === undefined ? {} : { 'content-type': 'text/plain' }),
+			},
+			...(body === undefined ? {} : { body }),
 		});
 
 		const text = await response.text();

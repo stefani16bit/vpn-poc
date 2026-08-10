@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { renderEmail, renderSms } from './email/render.js';
+import { HttpExitNode } from './network/HttpExitNode.js';
 import { NoopErrorReporter, SENSITIVE_KEYS, redactObject } from './observability/reporters.js';
 
 describe('renderEmail', () => {
@@ -85,6 +86,22 @@ describe('redactObject', () => {
 		for (const key of ['token', 'accessToken', 'refreshToken', 'resetToken', 'otp']) {
 			expect(SENSITIVE_KEYS).toContain(key);
 		}
+	});
+});
+
+describe('HttpExitNode', () => {
+	const options = {
+		apiUrl: 'http://127.0.0.1:21821',
+		endpoint: '127.0.0.1:21820',
+		allowedIps: ['10.13.13.0/24'],
+	};
+
+	it('refuses to be built without a credential, so the registry cannot fall back to anonymous', () => {
+		expect(() => new HttpExitNode({ ...options, token: '' })).toThrow(/EXIT_NODE_API_TOKEN/);
+	});
+
+	it('accepts a credential', () => {
+		expect(() => new HttpExitNode({ ...options, token: 'x'.repeat(32) })).not.toThrow();
 	});
 });
 

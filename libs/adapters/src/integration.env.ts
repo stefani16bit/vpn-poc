@@ -13,6 +13,8 @@ export const INTEGRATION = {
 	stripeApiKey: process.env['STRIPE_API_KEY'] ?? 'sk_test_local',
 	stripeWebhookSecret: process.env['STRIPE_WEBHOOK_SECRET'] ?? 'whsec_local',
 	exitNodeApiUrl: process.env['EXIT_NODE_API_URL'] ?? 'http://127.0.0.1:21821',
+	exitNodeApiToken:
+		process.env['EXIT_NODE_API_TOKEN'] ?? 'exit_node_dev_1f4a9c2e8b7d6053a1c9e4f2b8d7a601',
 	exitNodeEndpoint: process.env['EXIT_NODE_ENDPOINT'] ?? '127.0.0.1:21820',
 	exitNodeTunnelCidr: process.env['EXIT_NODE_TUNNEL_CIDR'] ?? '10.13.13.0/24',
 } as const;
