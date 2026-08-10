@@ -24,6 +24,26 @@ function withoutSubtleX25519() {
 	});
 }
 
+function withScalarlessJwk() {
+	const real = globalThis.crypto;
+
+	vi.stubGlobal('crypto', {
+		getRandomValues: real.getRandomValues.bind(real),
+		randomUUID: real.randomUUID.bind(real),
+		subtle: {
+			...real.subtle,
+			generateKey: real.subtle.generateKey.bind(real.subtle),
+			exportKey: async (format: string, key: CryptoKey) => {
+				const exported = await real.subtle.exportKey(format as 'jwk', key);
+				if (format !== 'jwk') return exported;
+
+				const { d: _dropped, ...withoutScalar } = exported as JsonWebKey;
+				return withoutScalar;
+			},
+		},
+	});
+}
+
 describe('generateKeyPair', () => {
 	it('produces a public key wireguard would accept', async () => {
 		const pair = await generateKeyPair();
@@ -52,6 +72,21 @@ describe('generateKeyPair', () => {
 		expect(pair.source).toBe('noble');
 		expect(pair.publicKey).toMatch(WIREGUARD_PUBLIC_KEY);
 		expect(atob(pair.privateKey)).toHaveLength(32);
+	});
+
+	it('falls back to noble when the JWK comes back without a scalar', async () => {
+		withScalarlessJwk();
+
+		expect((await generateKeyPair()).source).toBe('noble');
+	});
+
+	it('never ships an empty private key when the scalar is missing', async () => {
+		withScalarlessJwk();
+
+		const pair = await generateKeyPair();
+
+		expect(atob(pair.privateKey)).toHaveLength(32);
+		expect(pair.publicKey).toMatch(WIREGUARD_PUBLIC_KEY);
 	});
 
 	it('derives the same public key from both paths, so the fallback is interchangeable', async () => {
