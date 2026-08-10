@@ -39,7 +39,7 @@ export function useGenerateDevice(): GenerateDevice {
 				configFileName(result.data.device.name),
 				buildWireguardConfig({
 					device: result.data.device,
-					node: result.data.node,
+					node: result.data.device.node,
 					privateKey: pair.privateKey,
 				}),
 			);

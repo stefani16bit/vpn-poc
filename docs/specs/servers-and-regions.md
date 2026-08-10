@@ -57,21 +57,23 @@ uma.
 
 ```
 Dado    um admin e um agente de controle no ar
-Quando  ele registra um nó com rótulo, região, endpoint e URL de controle
+Quando  ele registra um nó com rótulo, região, URL de controle e faixa do túnel
 Então   o servidor chama describe() naquela URL
-E       guarda a chave pública que o nó respondeu
+E       guarda a chave pública e o endpoint que o nó respondeu
 E       a resposta é 201
 ```
 
 ```
-Dado    um formulário que informa uma chave pública
+Dado    um corpo que informe chave pública ou endpoint
 Quando  o registro acontece
-Então   o valor informado é ignorado
+Então   os dois valores informados são ignorados
 ```
 
-A chave é a identidade do nó nas duas pontas e vai para dentro de todo `.conf`.
-Aceitar a digitada é aceitar que um erro de digitação vire um `.conf` que nunca
-fecha handshake — e a falha aparece longe, no cliente, sem nada apontando para
+O formulário não pede nenhum dos dois, e o schema não os aceita — `describe()`
+reporta os dois, então tomá-los do formulário seria o mesmo erro duas vezes. A
+chave é a identidade do nó nas duas pontas e vai para dentro de todo `.conf`;
+aceitar a digitada é aceitar que um erro de digitação vire um `.conf` que nunca
+fecha handshake, e a falha aparece longe, no cliente, sem nada apontando para
 cá.
 
 ```
@@ -186,6 +188,20 @@ Então   ela não conclui que os peers dele sumiram
 
 O caminho mais caro de errar: tratar silêncio como lista vazia faria a varredura
 "repor" tudo, ou pior, concluir que nada é reivindicado.
+
+## O que já está no contrato, e o que não está
+
+`@vpn/contracts` **0.10.0** já traz `regions.ts` e `exit-nodes.ts` inteiros, mais
+`deviceWithNode` — que mata a suposição de um nó por lista, porque dois devices
+do mesmo usuário podem ficar em nós diferentes assim que existir frota.
+
+Três campos ficaram **de fora de propósito**, e chegam com a implementação:
+`createDeviceRequestSchema.regionId`, `deviceSchema.regionId` e
+`deviceSchema.exitNodeId`. Eles são obrigatórios num fluxo que já funciona, então
+publicá-los antes das tabelas que os produzem obrigaria o servidor a inventar um
+`region_id` e um `exit_node_id` — que é exatamente o meio-aplicado que a DEC-043
+chama de pior que ausente. Um contrato que exige um dado que ninguém sabe
+produzir não é um contrato adiantado, é um contrato falso.
 
 ## Portas afetadas
 

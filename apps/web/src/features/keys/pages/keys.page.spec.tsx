@@ -82,25 +82,25 @@ function render() {
 
 describe('KeysPage', () => {
 	it('says the private key never leaves the browser, because that is the whole design', async () => {
-		api.reply({ devices: [], node: NODE });
+		api.reply({ devices: [] });
 		render();
 
 		expect(await screen.findByText(/never sent to us/i)).toBeInTheDocument();
 	});
 
 	it('offers nothing to download until a device exists', async () => {
-		api.reply({ devices: [], node: NODE });
+		api.reply({ devices: [] });
 		render();
 
 		expect(await screen.findByText(/no devices yet/i)).toBeInTheDocument();
 	});
 
 	it('sends only the public half of the pair', async () => {
-		api.reply({ devices: [], node: NODE });
+		api.reply({ devices: [] });
 		render();
 
 		await userEvent.type(await screen.findByLabelText('Device name'), 'work laptop');
-		api.reply({ device: device(), node: NODE }, 201);
+		api.reply({ device: { ...device(), node: NODE } }, 201);
 		await userEvent.click(screen.getByRole('button', { name: /generate key/i }));
 
 		await waitFor(() => expect(downloads).toHaveLength(1));
@@ -110,11 +110,11 @@ describe('KeysPage', () => {
 	});
 
 	it('never lets the private key reach the network, in any request', async () => {
-		api.reply({ devices: [], node: NODE });
+		api.reply({ devices: [] });
 		render();
 
 		await userEvent.type(await screen.findByLabelText('Device name'), 'laptop');
-		api.reply({ device: device(), node: NODE }, 201);
+		api.reply({ device: { ...device(), node: NODE } }, 201);
 		await userEvent.click(screen.getByRole('button', { name: /generate key/i }));
 
 		await waitFor(() => expect(downloads).toHaveLength(1));
@@ -127,11 +127,11 @@ describe('KeysPage', () => {
 	});
 
 	it('downloads a config the WireGuard client can import', async () => {
-		api.reply({ devices: [], node: NODE });
+		api.reply({ devices: [] });
 		render();
 
 		await userEvent.type(await screen.findByLabelText('Device name'), 'work laptop');
-		api.reply({ device: device({ name: 'work laptop' }), node: NODE }, 201);
+		api.reply({ device: { ...device({ name: 'work laptop' }), node: NODE } }, 201);
 		await userEvent.click(screen.getByRole('button', { name: /generate key/i }));
 
 		await waitFor(() => expect(downloads).toHaveLength(1));
@@ -144,21 +144,26 @@ describe('KeysPage', () => {
 	});
 
 	it('warns that the file cannot be downloaded again, which is what DEC-045 requires', async () => {
-		api.reply({ devices: [], node: NODE });
+		api.reply({ devices: [] });
 		render();
 
 		expect(await screen.findByText(/can only be downloaded now/i)).toBeInTheDocument();
 	});
 
 	it('says a device is still being opened up rather than pretending it works', async () => {
-		api.reply({ devices: [device()], node: NODE });
+		api.reply({ devices: [device()].map((d) => ({ ...d, node: NODE })) });
 		render();
 
 		expect(await screen.findByText(/opening access on the server/i)).toBeInTheDocument();
 	});
 
 	it('says a provisioned device is active', async () => {
-		api.reply({ devices: [device({ provisionedAt: '2026-08-09T00:00:05.000Z' })], node: NODE });
+		api.reply({
+			devices: [device({ provisionedAt: '2026-08-09T00:00:05.000Z' })].map((d) => ({
+				...d,
+				node: NODE,
+			})),
+		});
 		render();
 
 		expect(await screen.findByText('Active')).toBeInTheDocument();
@@ -166,12 +171,17 @@ describe('KeysPage', () => {
 
 	it('turns pending into active on its own, because the worker finishes after the response', async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
-		api.reply({ devices: [device()], node: NODE });
+		api.reply({ devices: [device()].map((d) => ({ ...d, node: NODE })) });
 		render();
 
 		expect(await screen.findByText(/opening access on the server/i)).toBeInTheDocument();
 
-		api.reply({ devices: [device({ provisionedAt: '2026-08-09T00:00:05.000Z' })], node: NODE });
+		api.reply({
+			devices: [device({ provisionedAt: '2026-08-09T00:00:05.000Z' })].map((d) => ({
+				...d,
+				node: NODE,
+			})),
+		});
 		await advance(2000);
 
 		expect(await screen.findByText('Active')).toBeInTheDocument();
@@ -179,7 +189,12 @@ describe('KeysPage', () => {
 
 	it('stops asking once nothing is pending, so a settled list costs nothing', async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
-		api.reply({ devices: [device({ provisionedAt: '2026-08-09T00:00:05.000Z' })], node: NODE });
+		api.reply({
+			devices: [device({ provisionedAt: '2026-08-09T00:00:05.000Z' })].map((d) => ({
+				...d,
+				node: NODE,
+			})),
+		});
 		render();
 
 		expect(await screen.findByText('Active')).toBeInTheDocument();
@@ -190,7 +205,7 @@ describe('KeysPage', () => {
 	});
 
 	it('does not revoke anything until the confirmation is accepted', async () => {
-		api.reply({ devices: [device()], node: NODE });
+		api.reply({ devices: [device()].map((d) => ({ ...d, node: NODE })) });
 		render();
 
 		await userEvent.click(await screen.findByRole('button', { name: 'Revoke' }));
@@ -201,7 +216,7 @@ describe('KeysPage', () => {
 	});
 
 	it('revokes once the confirmation is accepted', async () => {
-		api.reply({ devices: [device()], node: NODE });
+		api.reply({ devices: [device()].map((d) => ({ ...d, node: NODE })) });
 		render();
 
 		await userEvent.click(await screen.findByRole('button', { name: 'Revoke' }));
@@ -213,7 +228,7 @@ describe('KeysPage', () => {
 	});
 
 	it('keeps saying to delete the tunnel after the dialog that said it is gone', async () => {
-		api.reply({ devices: [device()], node: NODE });
+		api.reply({ devices: [device()].map((d) => ({ ...d, node: NODE })) });
 		render();
 
 		await userEvent.click(await screen.findByRole('button', { name: 'Revoke' }));
@@ -230,7 +245,7 @@ describe('KeysPage', () => {
 	});
 
 	it('tells the user when the browser cannot generate a key at all', async () => {
-		api.reply({ devices: [], node: NODE });
+		api.reply({ devices: [] });
 		const real = globalThis.crypto;
 		vi.stubGlobal('crypto', {
 			getRandomValues: () => {

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import type { CreateDeviceRequest, Device, ExitNodeView } from '@vpn/contracts';
+import type { CreateDeviceRequest, Device, DeviceWithNode, ExitNodeView } from '@vpn/contracts';
 import { CLOCK, type IClock } from '@vpn/ports';
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
@@ -24,8 +24,7 @@ import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 const LIVE_PUBLIC_KEY_INDEX = 'devices_live_public_key_key';
 
 export interface DeviceView {
-	readonly device: Device;
-	readonly node: ExitNodeView;
+	readonly device: DeviceWithNode;
 }
 
 @Injectable()
@@ -39,13 +38,13 @@ export class DevicesService {
 		@Inject(ENV) private readonly env: Env,
 	) {}
 
-	async list(claims: AccessTokenClaims): Promise<{ devices: Device[]; node: ExitNodeView }> {
+	async list(claims: AccessTokenClaims): Promise<{ devices: DeviceWithNode[] }> {
 		const [stored, node] = await Promise.all([
 			this.devices.listLive(scopeFor(claims)),
 			this.#node(),
 		]);
 
-		return { devices: stored.map(toView), node };
+		return { devices: stored.map((device) => ({ ...toView(device), node })) };
 	}
 
 	async create(
@@ -74,7 +73,7 @@ export class DevicesService {
 			if (created) {
 				await this.outbox.enqueue(accountId, { kind: 'device.provision', deviceId: created.id });
 
-				return { device: toView({ ...created, userEmail: owner.email }), node };
+				return { device: { ...toView({ ...created, userEmail: owner.email }), node } };
 			}
 		}
 
