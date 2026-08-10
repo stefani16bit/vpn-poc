@@ -13,7 +13,7 @@
     "dev:logs": "pm2 logs",
     "logs:trace": "node scripts/logs-trace.mjs",
     "devstack:check": "sh devstack/check.sh",
-    "build": "pnpm -r --filter './apps/*' --filter './libs/*' run build",
+    "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "verify": "node scripts/check-test-focus.mjs && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",

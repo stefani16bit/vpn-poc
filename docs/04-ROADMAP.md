@@ -174,10 +174,15 @@ sem Docker ensina a ignorar suíte vermelha.
       não aplicados.** Estão no tipo para os tiers se descreverem; o contador
       depende da DEC-043 e os dois últimos do data plane. Com um tier só não há o
       que aplicar, e meio-aplicar um contador parece aplicado.
-- [ ] **`pnpm --filter @vpn-poc/api build` falha.** `tsconfig.build.json` tem
-      `rootDir: src`, e os imports de `libs/*` entram por caminho de fonte, fora
-      dele. Não aparece no `pnpm verify`, que roda `typecheck` e não `build`; o
-      deploy real é `apps/api-lambda`. Anterior a este trabalho.
+- [x] ~~**`pnpm --filter @vpn-poc/api build` falha.**~~ Falhava, e os builds de
+      `api-lambda` e `worker` **saíam com 0** emitindo `.js` dentro de
+      `libs/*/src/` e um `dist` que morre com `ERR_UNKNOWN_FILE_EXTENSION`
+      porque `@vpn-poc/api` exporta `./src/bootstrap.ts`. Os três `build`, os
+      dois `start` e os três `tsconfig.build.json` foram apagados: o artefato é
+      um bundle. DEC-066.
+- [ ] **A Lambda não tem bundle.** `infra/` precisa de `NodejsFunction` (esbuild)
+      apontando para `apps/api-lambda/src/handler.ts`. É o que substitui o `tsc`
+      que a DEC-066 aposentou, e sem ele não há artefato de deployment nenhum.
 - [x] ~~**`pnpm lint` passa vazio sem grafo do Nx.**~~ `lint` passa por
       `scripts/nx-graph.mjs`, que constrói o grafo e sai com 1 se não conseguir,
       então "a regra foi pulada" virou "o lint falhou". Junto veio a outra metade

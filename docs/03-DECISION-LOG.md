@@ -2366,3 +2366,72 @@ A terceira e a quarta são as que importam: a primeira prova que o portão novo
 não é decorativo, e a quarta prova que a regra do Nx voltou a rodar de verdade.
 Um par circular (`libs/env` → `apps/api`) não serve de sonda de tag — a regra
 reporta o ciclo antes de chegar à tag, e o erro não é o que se quer provar.
+
+---
+
+### DEC-066 — O artefato de deployment é um bundle, e `tsc` nunca o produziu
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** `pnpm --filter @vpn-poc/api build` falhava, e o roadmap registrava
+isso como dívida anterior a este trabalho: `tsconfig.build.json` tem
+`rootDir: src`, e `libs/*` entram por caminho de fonte, fora dele. O
+`typecheck` nunca reclamou porque `noEmit: true` desliga a checagem de
+contenção do `rootDir`.
+
+Ao medir os três apps, o quadro ficou pior do que a dívida dizia:
+
+| Comando                     | Desfecho medido                                                    |
+| --------------------------- | ------------------------------------------------------------------ |
+| `@vpn-poc/api build`        | falha com `TS6059` em `libs/adapters`, `libs/database`, `libs/env` |
+| `@vpn-poc/api-lambda build` | **sai com 0**                                                      |
+| `@vpn-poc/worker build`     | **sai com 0**                                                      |
+
+Os dois que saem com 0 são o problema de verdade. Sem `rootDir` alcançável, o
+`tsc` infere a raiz comum e **emite `.js` e `.d.ts` dentro de `libs/*/src/`,
+ao lado do `.ts`** — arquivos não versionados que passam a competir com a fonte
+na resolução. E o `dist` que sai não roda:
+
+```console
+$ node apps/worker/dist/main.js
+ERR_UNKNOWN_FILE_EXTENSION  Unknown file extension ".ts"
+for .../apps/api/src/worker.ts
+```
+
+`@vpn-poc/api` declara `exports: { ".": "./src/bootstrap.ts" }`, então o
+especificador nu resolve para TypeScript em runtime. Um `build` verde cujo
+produto não executa é pior que um `build` vermelho.
+
+**Decisão.** Apagar os três scripts `build`, os dois `start` que apontavam para
+um `dist/main.js` que ninguém produzia, e os três `tsconfig.build.json`. O
+artefato de deployment é um **bundle** — esbuild via `NodejsFunction` — e isso
+passa a estar escrito em vez de suposto.
+
+**Rationale.** Consertar o `rootDir` foi considerado e rejeitado: tirar o
+`rootDir` faz o `tsc` sair com 0 e emitir uma árvore que continua não rodando,
+porque o problema não é o layout do output, é o especificador nu resolver para
+`.ts`. Seria verde pelo verde.
+
+Dar `build` de verdade às libs — `main`/`types` apontando para `dist`, project
+references — produz uma árvore executável, mas é a maior mudança possível aqui e
+mexe em como `vite-node`, `vitest` e `pnpm dev` resolvem as libs hoje, que é
+justamente o acordo que a DEC-018 fixou. Um bundler resolve o mesmo problema sem
+tocar nesse acordo, e é o que a Lambda vai precisar de qualquer forma.
+
+**Consequências.** `pnpm build` na raiz passa a construir só `apps/web`, que é o
+único build que sempre produziu algo utilizável. `infra/` ainda não tem
+`NodejsFunction` — o roadmap ganha o item, e agora ele nomeia o que falta em vez
+de nomear um `tsc` quebrado.
+
+O script da raiz também trocou `pnpm -r --filter './apps/*' --filter './libs/*'`
+por `pnpm -r`. O filtro por caminho é o mesmo que o roadmap já registra em
+`packages:publish:local`: no Git Bash ele não casa, e o `pnpm` responde
+`No projects matched the filters` **saindo com 0**. Ou seja, `pnpm build` era um
+no-op silencioso mesmo quando havia o que construir — a mesma forma de falha que
+a DEC-065 acabou de tirar do lint, no comando ao lado. Filtrar por nada e deixar
+cada pacote declarar se tem `build` é o que os scripts `test` e `typecheck` já
+faziam.
+
+Quem escrever o bundle não precisa mexer em `exports`: um bundler segue o
+especificador até a fonte de propósito. Foi isso que o `tsc` tentou fazer sem
+ser um bundler.
