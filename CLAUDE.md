@@ -128,3 +128,11 @@ pnpm --filter @vpn-poc/api test:e2e                # fluxo completo, precisa do 
 
 pnpm packages:publish:local  # republica @vpn/* no Verdaccio
 ```
+
+O submodule tem o portão dele, e ele roda **de dentro** — `nx` de lá resolve a
+raiz do workspace de fora, então o `pnpm -r` é o que escopa (DEC-067).
+
+```bash
+cd packages && pnpm verify           # format:check + typecheck + test, dos @vpn/*
+cd packages && pnpm consumer-check   # instala os tarballs publicados e os consome
+```

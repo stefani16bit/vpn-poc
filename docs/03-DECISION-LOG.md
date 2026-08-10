@@ -2435,3 +2435,53 @@ faziam.
 Quem escrever o bundle não precisa mexer em `exports`: um bundler segue o
 especificador até a fonte de propósito. Foi isso que o `tsc` tentou fazer sem
 ser um bundler.
+
+---
+
+### DEC-067 — O submodule formata a si mesmo
+
+**Data:** 2026-08-10 · **Status:** accepted · **Emenda a:** DEC-044
+
+**Contexto.** A DEC-044 pôs `packages/` no `.prettierignore` com o argumento de
+que submodule com workspace próprio não é formatado daqui. O argumento continua
+válido; a consequência é que **ninguém** formatava. O submodule não tinha
+`prettier`, não tinha `format`, não tinha `format:check`. Quatorze arquivos já
+haviam derivado — incluindo os cinco `package.json` cujo `files`/`exports` a
+DEC-002 depende que sejam legíveis.
+
+**Decisão.** O submodule ganha `prettier`, uma cópia do `.prettierrc.json`, um
+`.prettierignore` e um `verify` próprio: `format:check && typecheck && test`. A
+fronteira da DEC-044 não se move — a raiz continua sem formatar `packages/`.
+
+**Rationale.** Rejeitado tirar `packages/` do `.prettierignore` da raiz. Seria a
+opção que mais pega drift, porque todo `pnpm verify` passaria por lá, mas põe um
+config deste repositório governando texto de outro que tem toolchain próprio —
+exatamente o acoplamento que a DEC-002 evita. Uma cópia do config é uma coisa a
+manter em sincronia; um repositório governado de fora é uma fronteira que só
+existe no papel.
+
+O custo aceito é que o portão só roda de dentro de `packages/`. Isso é honesto:
+é o mesmo lugar de onde `publish:local` e `consumer-check` já rodam, e é o
+momento em que o drift importa.
+
+**Consequências.** Escrever o `verify` revelou um bug maior que o problema
+original. `nx run-many` resolve a raiz do workspace subindo até o **último**
+diretório com `nx.json` — que é o repositório de fora. Medido:
+
+```console
+$ cd packages && pnpm exec nx show projects
+["@vpn-poc/api-lambda","@vpn-poc/adapters","@vpn-poc/database",
+ "@vpn-poc/worker","@vpn-poc/api","@vpn-poc/env","@vpn-poc/web","@vpn-poc/infra"]
+```
+
+Ou seja: `build`, `test` e `typecheck` de dentro de `packages/` rodavam os alvos
+do consumidor e reportavam sucesso como se fossem os nossos. O pior é o
+`publish:local`, que começa com `pnpm build` — ele publicava o `dist` que
+estivesse no disco, sem reconstruir nada. Um publish sem build é a forma de
+falha que a DEC-002 menos pode tolerar, e ela existia em silêncio.
+
+Os três scripts passam a `pnpm -r run <alvo>`, que escopa por construção e já
+ordena por dependência. `test:agent` sai junto: existia para desligar daemon e
+cloud do nx, e sem nx não tem o que desligar. O `nx.json` do submodule fica —
+ele é o que faz `pnpm exec nx` ser utilizável de lá com raiz explícita — mas
+nenhum script depende dele.
