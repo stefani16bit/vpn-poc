@@ -8,6 +8,7 @@ const preset = createVitestConfig({
 		'src/bootstrap.ts',
 		'src/e2e.setup.ts',
 	],
+	thresholds: { lines: 94, functions: 87, branches: 88, statements: 93 },
 });
 
 export default defineConfig({

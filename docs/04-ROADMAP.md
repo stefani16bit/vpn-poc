@@ -4,7 +4,7 @@ Este arquivo faz as vezes de issue tracker. Não abra issues; edite aqui.
 
 ---
 
-## Estado — 2026-08-08
+## Estado — 2026-08-10
 
 **Fase 1 + i18n entregues. Fase 2: outbox, webhook, Account/User + RLS e
 entitlements entregues.** Cadastro, verificação, login, rotação de sessão, reset
@@ -18,17 +18,22 @@ por e-mail — inclusive a que tira o acesso, que até aqui era silenciosa.
 
 | Suíte                                                       | Testes   | Precisa do devstack |
 | ----------------------------------------------------------- | -------- | ------------------- |
-| `packages/` — portas, contratos, i18n, fakes                | 216      | não                 |
-| `libs/env`                                                  | 19       | não                 |
+| `packages/` — portas, contratos, i18n, fakes                | 248      | não                 |
+| `libs/env`                                                  | 21       | não                 |
 | `libs/adapters` — render de e-mail/SMS, redação, webhook    | 20       | não                 |
-| `apps/api` — kernel, serviços, controllers                  | 406      | não                 |
-| `apps/web` — store, telas, normalização de erro, locale     | 177      | não                 |
+| `apps/api` — kernel, serviços, controllers                  | 468      | não                 |
+| `apps/web` — store, telas, normalização de erro, locale     | 224      | não                 |
 | `infra` — validação de config CDK                           | 11       | não                 |
-| **Subtotal `pnpm verify`**                                  | **849**  | **não**             |
-| `libs/adapters` — as mesmas suítes contra os serviços reais | 74       | sim                 |
-| `apps/api` — RLS, transações e as formas de SQL dos repos   | 54       | sim                 |
-| `apps/api` — fluxo completo mais a matriz de locale         | 84       | sim                 |
-| **Total**                                                   | **1061** |                     |
+| **Subtotal `pnpm verify`**                                  | **992**  | **não**             |
+| `libs/adapters` — as mesmas suítes contra os serviços reais | 87       | sim                 |
+| `apps/api` — RLS, transações, a view e o trigger            | 63       | sim                 |
+| `apps/api` — fluxo completo mais a matriz de locale         | 99       | sim                 |
+| **Total**                                                   | **1241** |                     |
+
+Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
+94/87/88/93 (linhas/funções/ramos/statements), `apps/web` em 97/95/92/96.
+Conferido como portão: `--coverage.thresholds.branches=99` falha citando o
+valor real.
 
 `make check` 16/16 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.

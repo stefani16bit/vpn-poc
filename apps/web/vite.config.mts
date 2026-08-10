@@ -9,6 +9,7 @@ const preset = createVitestConfig({
 	environment: 'jsdom',
 	setupFiles: ['./src/test-setup.ts'],
 	coverageExclude: ['src/test-utils.tsx', 'src/components/ui/**'],
+	thresholds: { lines: 97, functions: 95, branches: 92, statements: 96 },
 });
 
 export default defineConfig({
