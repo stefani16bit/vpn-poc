@@ -38,7 +38,7 @@ export class DeviceRepository {
 		const inserted = await executor
 			.insert(devices)
 			.values(values)
-			.onConflictDoNothing()
+			.onConflictDoNothing({ target: devices.tunnelAddress, where: isNull(devices.revokedAt) })
 			.returning();
 
 		return inserted[0];
@@ -53,19 +53,6 @@ export class DeviceRepository {
 			.from(devices)
 			.where(and(eq(devices.userId, userId), isNull(devices.revokedAt)))
 			.orderBy(desc(devices.createdAt));
-	}
-
-	async findLiveByPublicKey(
-		publicKey: string,
-		executor: Executor = currentExecutor(),
-	): Promise<StoredDevice | undefined> {
-		const rows = await executor
-			.select()
-			.from(devices)
-			.where(and(eq(devices.publicKey, publicKey), isNull(devices.revokedAt)))
-			.limit(1);
-
-		return rows[0];
 	}
 
 	async findLiveById(

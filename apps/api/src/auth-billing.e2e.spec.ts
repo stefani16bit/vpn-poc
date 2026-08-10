@@ -1278,6 +1278,16 @@ describe('billing', () => {
 			expect(second.body.message).toContain('public key');
 		});
 
+		it('names the duplicate key even when the live device belongs to another account', async () => {
+			const first = await subscribed();
+			await createDevice(first.accessToken).expect(201);
+
+			const second = await subscribed();
+			const response = await createDevice(second.accessToken).expect(409);
+
+			expect(response.body.message).toContain('public key');
+		});
+
 		it('answers 404 for revoking a device that is already gone', async () => {
 			const session = await subscribed();
 			const created = await createDevice(session.accessToken).expect(201);

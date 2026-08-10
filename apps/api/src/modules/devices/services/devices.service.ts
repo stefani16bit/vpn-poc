@@ -5,11 +5,18 @@ import { CLOCK, type IClock } from '@vpn/ports';
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 
-import { DeviceRepository, type StoredDevice } from '../../../shared/devices/device.repository.js';
+import { isUniqueViolation } from '../../../shared/database/pg-errors.js';
+import {
+	DeviceRepository,
+	type NewDevice,
+	type StoredDevice,
+} from '../../../shared/devices/device.repository.js';
 import { ExitNodeDirectory } from '../../../shared/devices/exit-node-directory.service.js';
 import { assignableAddresses } from '../../../shared/devices/tunnel-address.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
+
+const LIVE_PUBLIC_KEY_INDEX = 'devices_live_public_key_key';
 
 export interface DeviceView {
 	readonly device: Device;
@@ -40,7 +47,7 @@ export class DevicesService {
 		const node = await this.#node();
 
 		for (const tunnelAddress of assignableAddresses(this.env.EXIT_NODE_TUNNEL_CIDR)) {
-			const created = await this.devices.claimAddress({
+			const created = await this.#claim({
 				accountId,
 				userId,
 				name: request.name,
@@ -52,12 +59,6 @@ export class DevicesService {
 				await this.outbox.enqueue(accountId, { kind: 'device.provision', deviceId: created.id });
 
 				return { device: toView(created), node };
-			}
-
-			// An untargeted `do nothing` also absorbs the public key index, so an
-			// empty insert has two meanings and only one of them is worth retrying.
-			if (await this.devices.findLiveByPublicKey(request.publicKey)) {
-				throw new AppError('CONFLICT', 'this public key already belongs to a live device');
 			}
 		}
 
@@ -72,6 +73,18 @@ export class DevicesService {
 			kind: 'device.revoke',
 			publicKey: revoked.publicKey,
 		});
+	}
+
+	async #claim(device: NewDevice): Promise<StoredDevice | undefined> {
+		try {
+			return await this.devices.claimAddress(device);
+		} catch (error: unknown) {
+			if (isUniqueViolation(error, LIVE_PUBLIC_KEY_INDEX)) {
+				throw new AppError('CONFLICT', 'this public key already belongs to a live device');
+			}
+
+			throw error;
+		}
 	}
 
 	async #node(): Promise<ExitNodeView> {
