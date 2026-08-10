@@ -2,7 +2,7 @@
 
 **Status:** entregue
 **Decisões relacionadas:** DEC-035, DEC-036, DEC-043, DEC-045, DEC-052, DEC-055,
-DEC-062, DEC-063, DEC-064
+DEC-062, DEC-063, DEC-064, DEC-068, DEC-069, DEC-070, DEC-071
 
 ## Problema
 
@@ -37,7 +37,8 @@ pelo outbox; e a página que gera o par, envia só a metade pública, monta o
   caminho.
 - **Rotação da chave do próprio nó.** Trocar a chave do nó invalidaria todo
   `.conf` já baixado, e não há como reemiti-los — é decisão de produto, não de
-  schema.
+  schema. **Detectá-la** entrou depois: a descrição do nó é cacheada por 60s e
+  uma chave que mudou sai em log de erro. DEC-068.
 - **Túnel completo (`0.0.0.0/0`).** Ver §Segurança.
 
 ## Vocabulário
@@ -311,3 +312,40 @@ teste que o força. O `vite build` o emite como chunk separado
 falharia no caminho que quase ninguém percorre.
 
 Nenhum outro navegador foi medido. Firefox e Safari continuam **não verificados**.
+
+## Emenda — 2026-08-10: as arestas que a entrega deixou
+
+O que estava certo continua certo. O que se aprendeu ao fechar as pontas:
+
+**A faixa de endereços é global e a leitura é por tenant.** O laço de alocação
+partia de `.4` e fazia um `INSERT` por candidato — ~197 idas ao banco para o 201º
+device, dentro da transação da requisição. Consertar exigiu uma view do dono do
+schema, porque `runAsSystem` recusa aninhar e a policy prende a leitura a uma
+account. O índice parcial continua sendo a autoridade. DEC-069.
+
+**O `on conflict do nothing` sem alvo mentia sobre a causa.** Ele absorvia
+também o índice de chave pública, e a desambiguação por `SELECT` era cega entre
+accounts: uma chave viva de outra empresa esgotava a faixa e o erro dizia "sem
+endereço livre". Com o alvo no índice de endereço, o de chave pública levanta
+`23505` e a restrição nomeia a falha.
+
+**`DELETE /devices/:id` não era do dono.** Filtrava só pelo id; só a policy
+segurava, e ela para na account. Um `member` podia revogar o device de um colega
+que o `GET` nunca lhe mostrou. Hoje posse é o escopo e a role alarga. DEC-070.
+
+**Apagar uma account deixava peers órfãos.** `devices` e `outbox` cascateiam da
+mesma linha, então a intenção de revogar morria junto com o que a causou. Duas
+metades: o banco recusa apagar device vivo, e o worker reconcilia o nó. DEC-071.
+
+**A tela não dizia o que acontece do lado do cliente.** Revogar não derruba o
+túnel na máquina de ninguém — ele fica **ativo** e descarta tudo em silêncio. O
+diálogo diz isso agora, e repete depois de revogar, porque o diálogo já não está
+lá quando a pessoa vai procurar o problema.
+
+### O que continua fora
+
+`devicesPerUser` segue sem aplicação e **sem contador de fachada** — a DEC-043
+não mudou. Regiões e metering seguem dependendo de mais de um nó. Autenticar o
+agente do nó continua sendo a primeira coisa que um nó real precisa (DEC-062,
+DEC-063), e reconciliar `provisioned_at` de devices pendentes é do reconciler
+apenas no sentido de repor o peer: quem carimba a coluna continua sendo o job.

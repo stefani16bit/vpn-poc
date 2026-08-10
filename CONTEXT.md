@@ -194,6 +194,12 @@ _empresa_ contratou, a **role** diz o que _esta pessoa_ pode fazer. O efetivo é
 interseção. Um `owner` num tier sem a feature não a tem; um `member` numa account
 que a tem pode continuar não podendo usá-la.
 
+A role se aplica como **escopo**, não como portão: em `/devices` toda operação é
+sobre o que a pessoa possui, e `admin` ou `owner` alargam para a account inteira.
+Não existe `@RequiresRole` — nenhuma rota é barrada por role sozinha ainda, e um
+guard que responde sim/não antes do handler não sabe expressar "os dois podem,
+com alcances diferentes". DEC-070.
+
 **Capability** — o entitlement que é um liga/desliga. Verificado no request, por
 um guard do kernel, que responde **402** quando falta: o problema não é quem você
 é, é o que a empresa contratou. Hoje existe **uma**, `vpn_access` — o que assinar
@@ -249,12 +255,26 @@ segundo nó, é a região que obriga a tabela.
 **Endereço no túnel** — o IP que um device ocupa dentro da faixa do nó. É
 reivindicado por restrição única na escrita, nunca contado antes: dois devices
 criados no mesmo instante atravessariam um `count()` juntos e pediriam o mesmo
-endereço. Um device revogado o devolve, porque o índice único é parcial.
+endereço. Um device revogado o devolve, porque o índice único é parcial. A faixa
+é **global**, não por account — uma view escolhe por onde começar a busca, e o
+índice continua sendo quem decide (DEC-069).
 
 **Revogado** — o device deixou de valer. É um _timestamp_, não uma remoção: a
 chave pública continua sendo o identificador do que já existiu, e é ela que o
 worker manda o nó esquecer. Um `.conf` perdido não se rebaixa — gera-se outro, e
-o anterior é revogado (DEC-045).
+o anterior é revogado (DEC-045). Revogar não derruba o túnel do outro lado: o
+cliente continua marcando a interface como ativa e descartando tudo até alguém
+apagá-la, e a interface diz isso.
+
+Uma linha viva **não pode ser apagada** — o banco recusa, cascade incluído,
+porque um `DELETE` que leva a linha junto com a intenção de revogar deixa o peer
+no nó para sempre. Quem apaga revoga antes. DEC-071.
+
+**Reconciliação** — a varredura que compara os peers do nó com as linhas vivas e
+converge os dois sentidos: tira o que nenhuma account reivindica, repõe o que um
+nó reconstruído esqueceu. Ela governa só a faixa que o alocador distribui, então
+um peer semeado à mão não é dela para revogar. É o que conserta o que o outbox
+não teve como entregar.
 
 ## Trabalho assíncrono
 

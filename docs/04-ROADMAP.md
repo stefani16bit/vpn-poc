@@ -128,18 +128,14 @@ sem Docker ensina a ignorar suíte vermelha.
       roda, e a combinação impossível é recusada no boot em vez de dar 500 no
       clique. O modo offline continua no `memory`, agora com um checkout que o
       navegador abre e `pnpm billing:activate` para a ativação.
-- [ ] `pnpm packages:publish:local` **não publica nada** no Git Bash e sai com 0.
-      O filtro `./packages/*` não casa e o resultado é
-      `No projects matched the filters`. **As variáveis de ambiente sozinhas não
-      resolvem** — medido em 2026-08-07: com `MSYS_NO_PATHCONV=1` e
-      `MSYS2_ARG_CONV_EXCL='*'` exportadas, o script da raiz continua publicando
-      zero pacotes e saindo com 0. O que funciona é rodar o comando de dentro de
-      `packages/`, invocando o `pnpm -r --filter './packages/*' publish`
-      diretamente em vez de passar pelo `pnpm -C packages` do script da raiz, que
-      resolve o filtro contra o diretório errado. Consertar o script — ou
-      fazê-lo falhar quando publica zero pacotes — vale mais que o contorno,
-      porque um publish silenciosamente pulado é o pior modo de falha possível
-      para a DEC-002. **Confira sempre com
+- [x] ~~`pnpm packages:publish:local` **não publica nada** no Git Bash e sai com 0.~~
+      Duas causas, as duas corrigidas. O filtro `./packages/*` não casa no Git
+      Bash e o `pnpm` responde `No projects matched the filters` **saindo com
+      0** — o filtro saiu, e `pnpm -r` escopa por construção. E o `pnpm build`
+      que precede o publish rodava os alvos do repositório **de fora**, porque
+      `nx run-many` resolve a raiz subindo até o `nx.json` mais externo: ele
+      publicava o `dist` que estivesse no disco, sem reconstruir. DEC-066,
+      DEC-067. **Continue conferindo com
       `npm view @vpn/<pkg> version --registry …` depois.**
 - [x] ~~`apps/api` não tem forma de ver o erro real de um 500 no e2e.~~
       `e2e.setup.ts` passou a usar `??=` em vez de fixar `LOG_LEVEL=silent`, então
@@ -162,6 +158,10 @@ sem Docker ensina a ignorar suíte vermelha.
       O conserto real é o e2e ter banco ou schema próprio, que também acabaria
       com o `DELETE FROM accounts` global do `beforeEach`. O e2e já fixa
       `QUEUE_DRIVER=memory` para não dividir a fila; a tabela é o que sobra.
+- [x] ~~**Nada reconcilia o nó com o banco.**~~ O worker varre `listPeers()`
+      contra as linhas vivas a cada 5 min, tira o que nenhuma account
+      reivindica e repõe o que um nó reconstruído esqueceu, dentro da faixa que
+      o alocador distribui. DEC-071.
 - [ ] **Nada reconcilia a subscription com o provider.** Se um webhook se perder,
       a projeção fica parada e a account continua entitulada para sempre — o TTL
       de 60s do cache encurta a janela de uma invalidação perdida, não a de um
@@ -170,6 +170,10 @@ sem Docker ensina a ignorar suíte vermelha.
 - [x] **`@RequiresCapability` ganhou chamador em produção.** `/devices` é a
       primeira rota guardada, e o 402 é provado no e2e apagando o decorator e
       vendo os dois casos virarem 201 e 200.
+- [ ] **Mudar um script CGI do nó exige `docker compose build wireguard`.**
+      `control/` entra na imagem por `COPY`, não por bind mount, então um
+      `restart` continua servindo o script velho — e o sintoma é a suíte de
+      conformidade do `HttpExitNode` vermelha contra um adapter correto.
 - [ ] **`seats`, `devicesPerUser`, `monthlyTrafficGb` e `regions` são anunciados e
       não aplicados.** Estão no tipo para os tiers se descreverem; o contador
       depende da DEC-043 e os dois últimos do data plane. Com um tier só não há o
