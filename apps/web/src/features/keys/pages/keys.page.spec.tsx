@@ -33,6 +33,8 @@ function device(overrides: Record<string, unknown> = {}) {
 		name: 'laptop',
 		publicKey: 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=',
 		tunnelAddress: '10.13.13.4/32',
+		userId: '11111111-1111-1111-1111-111111111111',
+		userEmail: 'ada@example.com',
 		provisionedAt: null,
 		createdAt: '2026-08-09T00:00:00.000Z',
 		...overrides,
@@ -176,6 +178,16 @@ describe('KeysPage', () => {
 		await waitFor(() =>
 			expect(api.requests.some((request) => request.method === 'DELETE')).toBe(true),
 		);
+	});
+
+	it('keeps saying to delete the tunnel after the dialog that said it is gone', async () => {
+		api.reply({ devices: [device()], node: NODE });
+		render();
+
+		await userEvent.click(await screen.findByRole('button', { name: 'Revoke' }));
+		await userEvent.click(await screen.findByRole('button', { name: 'Yes, revoke' }));
+
+		expect(await screen.findByText(/delete the tunnel in the app/i)).toBeInTheDocument();
 	});
 
 	it('shows the 402 as a plan problem rather than a generic failure', async () => {

@@ -8,7 +8,7 @@ respond() {
 }
 
 if [ "$REQUEST_METHOD" = 'GET' ]; then
-	respond 200 "$(wg show wg0 peers)"
+	respond 200 "$(wg show wg0 allowed-ips)"
 fi
 
 if [ "$REQUEST_METHOD" != 'POST' ]; then

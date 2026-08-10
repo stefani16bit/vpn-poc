@@ -18,6 +18,8 @@ export function DeviceList({
 
 	if (devices.length === 0) return <p className="text-muted-foreground">{t('keys.empty')}</p>;
 
+	const shared = new Set(devices.map((device) => device.userId)).size > 1;
+
 	return (
 		<ul className="grid gap-3">
 			{devices.map((device) => (
@@ -30,6 +32,12 @@ export function DeviceList({
 							onConfirm={() => onRevoke(device.id)}
 						/>
 					</div>
+
+					{shared ? (
+						<span className="text-sm text-muted-foreground">
+							{t('keys.ownedBy', { email: device.userEmail })}
+						</span>
+					) : null}
 
 					<span className="text-sm text-muted-foreground">
 						{t('keys.address')}: {device.tunnelAddress}

@@ -23,7 +23,7 @@ export class DevicesController {
 	@Get()
 	@RequiresCapability('vpn_access')
 	async list(@Auth() claims: AccessTokenClaims): Promise<DeviceListResponse> {
-		return this.devices.list(claims.userId);
+		return this.devices.list(claims);
 	}
 
 	@Post()

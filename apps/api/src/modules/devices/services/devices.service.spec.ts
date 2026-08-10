@@ -11,6 +11,7 @@ import type {
 	StoredDevice,
 } from '../../../shared/devices/device.repository.js';
 import type { ExitNodeDirectory } from '../../../shared/devices/exit-node-directory.service.js';
+import type { UserRepository } from '../../../shared/identity/repositories/user.repository.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import type { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
 import { DevicesService } from './devices.service.js';
@@ -18,6 +19,7 @@ import { DevicesService } from './devices.service.js';
 const CIDR = '10.13.13.0/24';
 const ACCOUNT = 'account-1';
 const USER = 'user-1';
+const OWNER_EMAIL = 'owner@example.com';
 const REQUEST: CreateDeviceRequest = {
 	name: 'laptop',
 	publicKey: 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=',
@@ -63,11 +65,17 @@ function service({
 } = {}) {
 	const claimAddress = vi.fn(claim ?? ((values: NewDevice) => Promise.resolve(stored(values))));
 	const revoke = vi.fn(() => Promise.resolve(revoked));
+	const listLive = vi.fn(() => Promise.resolve([]));
 	const devices = {
 		takenAddresses: vi.fn(() => Promise.resolve(taken)),
 		claimAddress,
+		listLive,
 		revoke,
 	} as unknown as DeviceRepository;
+
+	const users = {
+		findById: () => Promise.resolve({ id: USER, email: OWNER_EMAIL }),
+	} as unknown as UserRepository;
 
 	const enqueue = vi.fn(() => Promise.resolve());
 	const outbox = { enqueue } as unknown as OutboxRepository;
@@ -81,11 +89,11 @@ function service({
 			}),
 	} as unknown as ExitNodeDirectory;
 
-	const subject = new DevicesService(devices, outbox, directory, new FixedClock(), {
+	const subject = new DevicesService(devices, users, outbox, directory, new FixedClock(), {
 		EXIT_NODE_TUNNEL_CIDR: CIDR,
 	} as Env);
 
-	return { subject, claimAddress, enqueue, revoke };
+	return { subject, claimAddress, enqueue, listLive, revoke };
 }
 
 describe('DevicesService.create', () => {
@@ -222,5 +230,31 @@ describe('DevicesService.revoke', () => {
 			new AppError('NOT_FOUND', 'no live device with that id'),
 		);
 		expect(enqueue).not.toHaveBeenCalled();
+	});
+});
+
+describe('DevicesService.list', () => {
+	it('shows a member only what they own', async () => {
+		const { subject, listLive } = service();
+
+		await subject.list(claims());
+
+		expect(listLive).toHaveBeenCalledWith({ ownedBy: USER });
+	});
+
+	it('shows an admin the whole account, which is what offboarding needs to see', async () => {
+		const { subject, listLive } = service();
+
+		await subject.list(claims({ role: 'admin' }));
+
+		expect(listLive).toHaveBeenCalledWith({ wholeAccount: true });
+	});
+
+	it('shows an owner the whole account too', async () => {
+		const { subject, listLive } = service();
+
+		await subject.list(claims({ role: 'owner' }));
+
+		expect(listLive).toHaveBeenCalledWith({ wholeAccount: true });
 	});
 });

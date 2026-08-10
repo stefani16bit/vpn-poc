@@ -41,6 +41,14 @@ export function KeysPage() {
 					</Alert>
 				) : null}
 
+				{revokeState.isSuccess ? (
+					<Alert className="mt-4">
+						<AlertDescription>
+							{t('keys.revoked')} {t('keys.revokeClientWarning')}
+						</AlertDescription>
+					</Alert>
+				) : null}
+
 				<form
 					className="mt-6"
 					noValidate

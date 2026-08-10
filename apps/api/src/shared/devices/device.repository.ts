@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 
 import { DATABASE } from '@vpn-poc/adapters';
-import { devices, liveTunnelAddresses, type Database } from '@vpn-poc/database';
+import { devices, liveTunnelAddresses, users, type Database } from '@vpn-poc/database';
 
 import { currentExecutor } from '../database/db-scope.js';
 import type { Executor } from '../database/transaction-runner.js';
@@ -17,6 +17,10 @@ export interface StoredDevice {
 	readonly provisionedAt: Date | null;
 	readonly revokedAt: Date | null;
 	readonly createdAt: Date;
+}
+
+export interface OwnedDevice extends StoredDevice {
+	readonly userEmail: string;
 }
 
 export type DeviceScope = { readonly ownedBy: string } | { readonly wholeAccount: true };
@@ -53,13 +57,25 @@ export class DeviceRepository {
 	}
 
 	async listLive(
-		userId: string,
+		scope: DeviceScope,
 		executor: Executor = currentExecutor(),
-	): Promise<readonly StoredDevice[]> {
+	): Promise<readonly OwnedDevice[]> {
 		return executor
-			.select()
+			.select({
+				id: devices.id,
+				accountId: devices.accountId,
+				userId: devices.userId,
+				userEmail: users.email,
+				name: devices.name,
+				publicKey: devices.publicKey,
+				tunnelAddress: devices.tunnelAddress,
+				provisionedAt: devices.provisionedAt,
+				revokedAt: devices.revokedAt,
+				createdAt: devices.createdAt,
+			})
 			.from(devices)
-			.where(and(eq(devices.userId, userId), isNull(devices.revokedAt)))
+			.innerJoin(users, eq(users.id, devices.userId))
+			.where(and(ownerOf(scope), isNull(devices.revokedAt)))
 			.orderBy(desc(devices.createdAt));
 	}
 

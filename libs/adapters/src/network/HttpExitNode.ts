@@ -1,5 +1,8 @@
 import type { ExitNodeDescription, IExitNode, PeerSpec } from '@vpn/ports';
 
+// What `wg show wg0 allowed-ips` prints for a peer that holds no address.
+const NO_ALLOWED_IPS = '(none)';
+
 export interface HttpExitNodeOptions {
 	readonly apiUrl: string;
 	readonly endpoint: string;
@@ -36,12 +39,15 @@ export class HttpExitNode implements IExitNode {
 		await this.#call('POST', '/cgi-bin/revoke', `${publicKey}\n`);
 	}
 
-	async listPeers(): Promise<readonly string[]> {
+	async listPeers(): Promise<readonly PeerSpec[]> {
 		const body = await this.#call('GET', '/cgi-bin/peers');
-		return body
-			.split('\n')
-			.map((line) => line.trim())
-			.filter(Boolean);
+
+		return body.split('\n').flatMap((line) => {
+			const [publicKey, tunnelAddress] = line.trim().split(/\s+/);
+			if (!publicKey || !tunnelAddress || tunnelAddress === NO_ALLOWED_IPS) return [];
+
+			return [{ publicKey, tunnelAddress }];
+		});
 	}
 
 	async #call(method: string, path: string, body?: string): Promise<string> {

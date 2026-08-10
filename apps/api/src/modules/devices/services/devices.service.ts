@@ -12,9 +12,11 @@ import {
 	DeviceRepository,
 	type DeviceScope,
 	type NewDevice,
+	type OwnedDevice,
 	type StoredDevice,
 } from '../../../shared/devices/device.repository.js';
 import { ExitNodeDirectory } from '../../../shared/devices/exit-node-directory.service.js';
+import { UserRepository } from '../../../shared/identity/repositories/user.repository.js';
 import { assignableAddresses, firstFreeHost } from '../../../shared/devices/tunnel-address.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
@@ -30,14 +32,18 @@ export interface DeviceView {
 export class DevicesService {
 	constructor(
 		private readonly devices: DeviceRepository,
+		private readonly users: UserRepository,
 		private readonly outbox: OutboxRepository,
 		private readonly directory: ExitNodeDirectory,
 		@Inject(CLOCK) private readonly clock: IClock,
 		@Inject(ENV) private readonly env: Env,
 	) {}
 
-	async list(userId: string): Promise<{ devices: Device[]; node: ExitNodeView }> {
-		const [stored, node] = await Promise.all([this.devices.listLive(userId), this.#node()]);
+	async list(claims: AccessTokenClaims): Promise<{ devices: Device[]; node: ExitNodeView }> {
+		const [stored, node] = await Promise.all([
+			this.devices.listLive(scopeFor(claims)),
+			this.#node(),
+		]);
 
 		return { devices: stored.map(toView), node };
 	}
@@ -48,7 +54,13 @@ export class DevicesService {
 		request: CreateDeviceRequest,
 	): Promise<DeviceView> {
 		const cidr = this.env.EXIT_NODE_TUNNEL_CIDR;
-		const [node, taken] = await Promise.all([this.#node(), this.devices.takenAddresses()]);
+		const [node, taken, owner] = await Promise.all([
+			this.#node(),
+			this.devices.takenAddresses(),
+			this.users.findById(userId),
+		]);
+
+		if (!owner) throw new AppError('NOT_FOUND', 'no user with that id in this account');
 
 		for (const tunnelAddress of assignableAddresses(cidr, firstFreeHost(cidr, taken))) {
 			const created = await this.#claim({
@@ -62,7 +74,7 @@ export class DevicesService {
 			if (created) {
 				await this.outbox.enqueue(accountId, { kind: 'device.provision', deviceId: created.id });
 
-				return { device: toView(created), node };
+				return { device: toView({ ...created, userEmail: owner.email }), node };
 			}
 		}
 
@@ -106,12 +118,14 @@ function scopeFor(claims: AccessTokenClaims): DeviceScope {
 	return hasAtLeastRole(claims.role, 'admin') ? { wholeAccount: true } : { ownedBy: claims.userId };
 }
 
-function toView(device: StoredDevice): Device {
+function toView(device: OwnedDevice): Device {
 	return {
 		id: device.id,
 		name: device.name,
 		publicKey: device.publicKey,
 		tunnelAddress: device.tunnelAddress,
+		userId: device.userId,
+		userEmail: device.userEmail,
 		provisionedAt: device.provisionedAt?.toISOString() ?? null,
 		createdAt: device.createdAt.toISOString(),
 	};

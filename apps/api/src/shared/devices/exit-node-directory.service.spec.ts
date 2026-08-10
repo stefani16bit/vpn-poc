@@ -33,7 +33,7 @@ class CountingNode implements IExitNode {
 		return Promise.resolve();
 	}
 
-	listPeers(): Promise<readonly string[]> {
+	listPeers(): Promise<readonly PeerSpec[]> {
 		return Promise.resolve([]);
 	}
 }

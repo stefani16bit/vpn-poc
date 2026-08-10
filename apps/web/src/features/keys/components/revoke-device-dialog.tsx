@@ -37,7 +37,10 @@ export function RevokeDeviceDialog({
 			<AlertDialogContent>
 				<AlertDialogHeader>
 					<AlertDialogTitle>{t('keys.revokeConfirmTitle')}</AlertDialogTitle>
-					<AlertDialogDescription>{t('keys.revokeConfirmBody', { name })}</AlertDialogDescription>
+					<AlertDialogDescription>
+						{t('keys.revokeConfirmBody', { name })}
+						<strong className="mt-2 block font-normal">{t('keys.revokeClientWarning')}</strong>
+					</AlertDialogDescription>
 				</AlertDialogHeader>
 
 				<AlertDialogFooter>
