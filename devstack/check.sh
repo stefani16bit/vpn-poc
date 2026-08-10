@@ -126,7 +126,10 @@ fi
 check_exec 'postgres accepts connections' 'accepting connections' \
 	postgres pg_isready -h 127.0.0.1 -U postgres -d poc_vpn_dev
 
-check_exec 'postgres has the four roles' '4' \
+# The four the running system needs. `vpn_admin` is a human's login and is left
+# out on purpose: it fails loudly at a connection dialog, while these four fail
+# where nobody is looking.
+check_exec 'postgres has the four application roles' '4' \
 	postgres psql -U postgres -d poc_vpn_dev -tAc \
 	"SELECT count(*) FROM pg_roles WHERE rolname IN ('vpn_migrator','vpn_app','app_system','vpn_readonly')"
 

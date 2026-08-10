@@ -11,8 +11,9 @@ CREATE ROLE vpn_migrator LOGIN PASSWORD 'vpn_migrator_dev' NOSUPERUSER NOBYPASSR
 CREATE ROLE vpn_app LOGIN PASSWORD 'vpn_app_dev' NOSUPERUSER NOBYPASSRLS NOINHERIT;
 CREATE ROLE app_system NOLOGIN NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE vpn_readonly LOGIN PASSWORD 'vpn_readonly_dev' NOSUPERUSER BYPASSRLS;
+CREATE ROLE vpn_admin LOGIN PASSWORD 'vpn_admin_dev' NOSUPERUSER BYPASSRLS;
 
-GRANT CONNECT ON DATABASE poc_vpn_dev TO vpn_migrator, vpn_app, vpn_readonly;
+GRANT CONNECT ON DATABASE poc_vpn_dev TO vpn_migrator, vpn_app, vpn_readonly, vpn_admin;
 
 -- CREATE on the database, not just on public: Drizzle keeps its migration
 -- ledger in a `drizzle` schema it creates on first run, and without this the
@@ -21,7 +22,7 @@ GRANT CONNECT ON DATABASE poc_vpn_dev TO vpn_migrator, vpn_app, vpn_readonly;
 GRANT CREATE ON DATABASE poc_vpn_dev TO vpn_migrator;
 
 ALTER SCHEMA public OWNER TO vpn_migrator;
-GRANT USAGE ON SCHEMA public TO vpn_app, app_system, vpn_readonly;
+GRANT USAGE ON SCHEMA public TO vpn_app, app_system, vpn_readonly, vpn_admin;
 
 -- app_system is the future grantee of job-bypass policies. vpn_app holds the
 -- membership but NOINHERIT means it does not pick the privileges up
@@ -41,3 +42,14 @@ ALTER DEFAULT PRIVILEGES FOR ROLE vpn_migrator IN SCHEMA public
   GRANT SELECT ON TABLES TO vpn_readonly;
 ALTER DEFAULT PRIVILEGES FOR ROLE vpn_migrator IN SCHEMA public
   GRANT SELECT ON SEQUENCES TO vpn_readonly;
+
+-- A human at a GUI, and nothing else. It is deliberately not the schema owner:
+-- browsing as `vpn_migrator` puts hand-typed DDL under the identity that owns
+-- the migration history, and drift there reads as schema rather than as a typo.
+-- TRUNCATE is the one privilege it holds that `vpn_app` does not, and that gap
+-- is the tell: a test that needs this role is asserting against privileges the
+-- application will never have. See DEC-005.
+ALTER DEFAULT PRIVILEGES FOR ROLE vpn_migrator IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO vpn_admin;
+ALTER DEFAULT PRIVILEGES FOR ROLE vpn_migrator IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO vpn_admin;

@@ -86,6 +86,38 @@ concede SELECT/INSERT/UPDATE/DELETE apenas. Testes limpam com `DELETE`. O
 migrator precisa de `GRANT CREATE ON DATABASE` porque o Drizzle cria o schema
 `drizzle` do próprio ledger de migrações.
 
+**Emenda — 2026-08-08.** Um quinto papel, `vpn_admin`: `LOGIN`, `BYPASSRLS`,
+DML completo mais TRUNCATE, e **nenhuma** posse de schema. É o papel de um
+humano num cliente gráfico, e existe só no devstack.
+
+O que ele resolve é o atrito real de olhar o banco pelo DBeaver. `vpn_app` não
+serve: a policy da DEC-035 usa `current_setting` estrito, então toda query fora
+de uma transação com escopo levanta `42704` — correto por construção, inútil
+para navegar. `vpn_readonly` não serve quando é preciso escrever. Sobrava
+`vpn_migrator`, que funciona por ser dono das tabelas — RLS está `ENABLE`, não
+`FORCE`, e o dono é isento das próprias policies.
+
+Usar o migrator é justamente o que a emenda evita. Ele é a identidade que possui
+o histórico de migrações; um `ALTER TABLE` digitado à mão numa GUI sob esse papel
+não se distingue de schema legítimo, e drift ali é caro de perceber. `vpn_admin`
+tem `USAGE` em `public` e nada de `CREATE`, então DDL falha com
+`permission denied for schema public` em vez de virar dívida silenciosa.
+
+TRUNCATE é o único privilégio que ele tem e `vpn_app` não. A assimetria é
+proposital e serve de detector: um teste que precise deste papel está afirmando
+contra privilégios que a aplicação nunca terá, e a regra de limpar com `DELETE`
+continua valendo.
+
+Rejeitado criar o papel à mão na conexão: `01-roles.sql` só roda no initdb, e
+`make reset` é `docker compose down -v` — um papel não versionado evapora no
+próximo reset e reaparece como um erro de login sem causa óbvia. Rejeitado
+`SUPERUSER`: nada aqui precisa, e um superusuário na lista de conexões salvas é
+o caminho mais curto para alguém apontar a aplicação para ele e não ver policy
+nenhuma falhar.
+
+Não há credencial nova em `.env`: nenhum processo conecta como `vpn_admin`. Ele
+existe para um humano digitar num formulário de conexão.
+
 ---
 
 ### DEC-006 — Refresh token opaco com rotação por família
