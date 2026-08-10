@@ -6,9 +6,11 @@ import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 
 import type { AccessTokenClaims } from '../../../shared/access-control/access-token.service.js';
+import { hasAtLeastRole } from '../../../shared/access-control/roles.js';
 import { isUniqueViolation } from '../../../shared/database/pg-errors.js';
 import {
 	DeviceRepository,
+	type DeviceScope,
 	type NewDevice,
 	type StoredDevice,
 } from '../../../shared/devices/device.repository.js';
@@ -68,11 +70,10 @@ export class DevicesService {
 	}
 
 	async revoke(claims: AccessTokenClaims, deviceId: string): Promise<void> {
-		const { accountId, userId } = claims;
-		const revoked = await this.devices.revoke(deviceId, userId, this.clock.now());
+		const revoked = await this.devices.revoke(deviceId, scopeFor(claims), this.clock.now());
 		if (!revoked) throw new AppError('NOT_FOUND', 'no live device with that id');
 
-		await this.outbox.enqueue(accountId, {
+		await this.outbox.enqueue(claims.accountId, {
 			kind: 'device.revoke',
 			publicKey: revoked.publicKey,
 		});
@@ -99,6 +100,10 @@ export class DevicesService {
 			allowedIps: [...description.allowedIps],
 		};
 	}
+}
+
+function scopeFor(claims: AccessTokenClaims): DeviceScope {
+	return hasAtLeastRole(claims.role, 'admin') ? { wholeAccount: true } : { ownedBy: claims.userId };
 }
 
 function toView(device: StoredDevice): Device {

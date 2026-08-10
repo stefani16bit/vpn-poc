@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 
 import { DATABASE } from '@vpn-poc/adapters';
 import { devices, liveTunnelAddresses, type Database } from '@vpn-poc/database';
@@ -18,6 +18,8 @@ export interface StoredDevice {
 	readonly revokedAt: Date | null;
 	readonly createdAt: Date;
 }
+
+export type DeviceScope = { readonly ownedBy: string } | { readonly wholeAccount: true };
 
 export interface NewDevice {
 	readonly accountId: string;
@@ -95,16 +97,20 @@ export class DeviceRepository {
 
 	async revoke(
 		id: string,
-		userId: string,
+		scope: DeviceScope,
 		at: Date,
 		executor: Executor = currentExecutor(),
 	): Promise<StoredDevice | undefined> {
 		const updated = await executor
 			.update(devices)
 			.set({ revokedAt: at })
-			.where(and(eq(devices.id, id), eq(devices.userId, userId), isNull(devices.revokedAt)))
+			.where(and(eq(devices.id, id), ownerOf(scope), isNull(devices.revokedAt)))
 			.returning();
 
 		return updated[0];
 	}
+}
+
+function ownerOf(scope: DeviceScope): SQL {
+	return 'wholeAccount' in scope ? sql`true` : eq(devices.userId, scope.ownedBy);
 }

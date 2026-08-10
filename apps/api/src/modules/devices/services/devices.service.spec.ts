@@ -180,12 +180,28 @@ describe('DevicesService.revoke', () => {
 		tunnelAddress: '10.13.13.4/32',
 	});
 
-	it('asks only for a device the caller owns', async () => {
+	it('asks only for a device the member owns', async () => {
 		const { subject, revoke } = service({ revoked: LIVE });
 
 		await subject.revoke(claims(), LIVE.id);
 
-		expect(revoke).toHaveBeenCalledWith(LIVE.id, USER, expect.any(Date));
+		expect(revoke).toHaveBeenCalledWith(LIVE.id, { ownedBy: USER }, expect.any(Date));
+	});
+
+	it('lets an admin reach the whole account, because offboarding is not self-service', async () => {
+		const { subject, revoke } = service({ revoked: LIVE });
+
+		await subject.revoke(claims({ role: 'admin', userId: 'someone-else' }), LIVE.id);
+
+		expect(revoke).toHaveBeenCalledWith(LIVE.id, { wholeAccount: true }, expect.any(Date));
+	});
+
+	it('lets an owner reach it too', async () => {
+		const { subject, revoke } = service({ revoked: LIVE });
+
+		await subject.revoke(claims({ role: 'owner', userId: 'someone-else' }), LIVE.id);
+
+		expect(revoke).toHaveBeenCalledWith(LIVE.id, { wholeAccount: true }, expect.any(Date));
 	});
 
 	it('tells the node to forget the key once the row stops counting', async () => {

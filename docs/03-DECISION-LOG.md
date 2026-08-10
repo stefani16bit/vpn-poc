@@ -2599,3 +2599,61 @@ direto de B **não** devolve. Fica vermelho no dia em que alguém puser
 `0002_tunnel_allocation.sql`, depois do `--> statement-breakpoint`. Quem
 regenerar `0000_init` recupera a view pelo `pgView` e **perde o `GRANT`** — está
 dito aqui e no roadmap.
+
+---
+
+### DEC-070 — Posse é o escopo padrão; a role só alarga
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** O `CONTEXT.md` diz há tempo que autorização tem duas dimensões que
+compõem: o entitlement diz o que a _empresa_ contratou, a role diz o que _esta
+pessoa_ pode fazer, e o efetivo é a interseção. A primeira ganhou chamador de
+produção com `/devices` (DEC-055). A segunda não tinha chamador **nenhum**:
+`role` era escrita como `'owner'` no cadastro, copiada para o claim `rol` e nunca
+mais lida.
+
+Duas consequências, em direções opostas:
+
+- `GET /devices` filtra por `claims.userId`, então um `owner` **não vê** o device
+  de um membro. Desligar alguém deixa o túnel dessa pessoa de pé, e não há tela
+  que mostre isso.
+- `DELETE /devices/:id` filtrava só pelo `id`. O que segurava a requisição era a
+  policy `devices_tenant`, que para na account — **não** na pessoa. Ou seja: um
+  `member` já podia revogar o device de um colega, adivinhando um id que o `GET`
+  nunca lhe mostraria.
+
+As duas são a mesma dimensão faltando, vista de lados opostos.
+
+**Decisão.** Toda operação de device tem um **escopo**: `{ ownedBy: userId }` por
+padrão, `{ wholeAccount: true }` quando `hasAtLeastRole(role, 'admin')`. A policy
+dá o limite da account; a consulta dá o limite da pessoa. `hasAtLeastRole` é uma
+função pura em `shared/access-control/roles.ts`, com um mapa de ranks.
+
+**Rationale.** `admin` entra junto com `owner` porque desligar gente é trabalho de
+administração, e deixar `admin` de fora manteria uma role que o código continua
+não lendo — que é exatamente o problema que esta decisão fecha.
+
+O 404 do caso negativo é deliberado: um id inexistente e o id de outra pessoa
+respondem igual. Um 403 confirmaria que o device existe para quem não pode
+vê-lo, o que é a mesma família de vazamento que o inegociável nº 4 trata em
+`login`.
+
+**Não existe `@RequiresRole`.** Nenhuma rota aqui é barrada por role sozinha: as
+duas roles chegam ao `DELETE /devices/:id` e o que muda é o **escopo**, não o
+acesso. Um guard que responde sim/não antes do handler não sabe expressar isso —
+ele teria que ler a linha para decidir, e ler a linha é trabalho do serviço. O
+roadmap já registra o custo de embarcar um guard sem chamador de produção:
+`@RequiresCapability` esperou `/devices`. `@RequiresRole` chega com a página de
+usuários, que é a primeira rota barrada por role e nada mais. `FORBIDDEN → 403`
+já existe em `app-error.ts` para esse dia.
+
+**Consequências.** `DeviceRepository.revoke` e `listLive` recebem escopo em vez
+de `userId`. `DevicesService` passa a receber os claims inteiros em vez de duas
+strings soltas — a decisão de escopo é dele, e para decidir ele precisa da role.
+
+Um `member` continua vendo só os próprios devices; um `admin` passa a ver os da
+account inteira, e cada linha carrega de quem é. Isso muda o `deviceSchema` de
+`@vpn/contracts`, que ganha `userId` e `userEmail`. Não é vazamento novo: um
+`member` só recebe as próprias linhas, então o único e-mail que ele vê continua
+sendo o dele.

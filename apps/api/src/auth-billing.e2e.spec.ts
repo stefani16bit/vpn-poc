@@ -1327,6 +1327,35 @@ describe('billing', () => {
 			expect((row as { revoked_at: Date | null }).revoked_at).toBeNull();
 		});
 
+		it('lets an admin revoke a device that is not theirs, which is what offboarding needs', async () => {
+			const owner = await subscribed();
+			const created = await createDevice(owner.accessToken).expect(201);
+			const admin = await colleagueOf(owner.accountId, 'admin');
+
+			await request(app.getHttpServer())
+				.delete(`/devices/${created.body.device.id}`)
+				.set('Authorization', `Bearer ${admin.accessToken}`)
+				.expect(204);
+
+			const [row] = await db`SELECT revoked_at FROM devices WHERE id = ${created.body.device.id}`;
+			expect((row as { revoked_at: Date | null }).revoked_at).not.toBeNull();
+		});
+
+		it('tells the node to forget a peer an admin revoked', async () => {
+			const owner = await subscribed();
+			const created = await createDevice(owner.accessToken).expect(201);
+			const admin = await colleagueOf(owner.accountId, 'admin');
+
+			await request(app.getHttpServer())
+				.delete(`/devices/${created.body.device.id}`)
+				.set('Authorization', `Bearer ${admin.accessToken}`)
+				.expect(204);
+
+			const rows = await db`SELECT payload FROM outbox WHERE kind = 'device.revoke'`;
+			expect(rows).toHaveLength(1);
+			expect((rows[0] as { payload: { publicKey: string } }).payload.publicKey).toBe(PUBLIC_KEY);
+		});
+
 		it('answers 404 for revoking a device that is already gone', async () => {
 			const session = await subscribed();
 			const created = await createDevice(session.accessToken).expect(201);
