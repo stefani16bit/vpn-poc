@@ -276,6 +276,12 @@ nó reconstruído esqueceu. Ela governa só a faixa que o alocador distribui, en
 um peer semeado à mão não é dela para revogar. É o que conserta o que o outbox
 não teve como entregar.
 
+A linha tem **duas** projeções, e a varredura converge as duas: a lista de peers
+do nó e o `provisioned_at`. Um device cujo job morreu na DLQ ganha o peer de volta
+_e_ o carimbo, senão o túnel volta a funcionar e a tela segue dizendo que está
+liberando o acesso. Pendente só é tratado como falho passado um prazo — antes
+dele, o job ainda está a caminho e a varredura não disputa com ele. DEC-074.
+
 ## Trabalho assíncrono
 
 **Outbox** — a tabela onde uma notificação é escrita **dentro da transação que a

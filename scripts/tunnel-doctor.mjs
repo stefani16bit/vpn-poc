@@ -24,6 +24,8 @@ const CONTROL_TOKEN = process.env['EXIT_NODE_API_TOKEN'] || fromDotenv('EXIT_NOD
 // a constant on both sides: the node has no user directory
 const CONTROL_USER = 'worker';
 const COMPOSE = ['compose', '-f', 'devstack/docker-compose.yml'];
+// seeded by hand in the devstack and below the .4 the allocator starts at
+const FIXTURE_ADDRESS = '10.13.13.2';
 
 const GREEN = '[32m';
 const RED = '[31m';
@@ -166,16 +168,6 @@ if (wg) {
 	}
 }
 
-section(`peers on the node (${peers.size})`);
-if (peers.size === 0) console.log(`     ${DIM}none${OFF}`);
-for (const [key, peer] of peers) {
-	const alive = peer.handshake && !/never/i.test(peer.handshake);
-	const moving = peer.transfer && !/^0 B received, 0 B sent$/.test(peer.transfer);
-	const mark = alive && moving ? ok : alive ? warn : bad;
-	console.log(mark(`${short(key)}  ${peer.allowed ?? '?'}`));
-	console.log(`     handshake ${peer.handshake ?? 'never'} · transfer ${peer.transfer ?? '0'}`);
-}
-
 // ------------------------------------------------------------ the database
 
 const rows = psql(
@@ -194,6 +186,27 @@ const devices = (rows ?? []).map((line) => {
 });
 
 const live = devices.filter((device) => !device.revoked);
+
+section(`peers on the node (${peers.size})`);
+if (peers.size === 0) console.log(`     ${DIM}none${OFF}`);
+for (const [key, peer] of peers) {
+	const owner = live.find((device) => device.publicKey === key);
+	const fixture = peer.allowed?.startsWith(`${FIXTURE_ADDRESS}/`);
+	const alive = peer.handshake && !/never/i.test(peer.handshake);
+
+	if (fixture) {
+		console.log(ok(`${short(key)}  ${peer.allowed} — the devstack spike fixture`));
+	} else if (!owner) {
+		console.log(bad(`${short(key)}  ${peer.allowed ?? '?'} — no live device owns this peer`));
+		advise(
+			`the node serves ${peer.allowed ?? short(key)}, which no live device claims: the reconciler should sweep it`,
+		);
+	} else {
+		console.log((alive ? ok : warn)(`${short(key)}  ${peer.allowed ?? '?'} — "${owner.name}"`));
+	}
+
+	console.log(`     handshake ${peer.handshake ?? 'never'} · transfer ${peer.transfer ?? '0'}`);
+}
 
 section(`devices in the database (${devices.length}, ${live.length} live)`);
 if (rows === null) console.log(warn('could not read the database'));
@@ -215,6 +228,11 @@ for (const device of devices) {
 	} else if (device.provisioned && !onNode) {
 		console.log(bad(`${device.name} — marked provisioned but ABSENT from the node`));
 		advise(`"${device.name}" is out of sync: the node was rebuilt after it was provisioned`);
+	} else if (!device.provisioned && onNode) {
+		console.log(bad(`${device.name} — on the node, but never marked provisioned`));
+		advise(
+			`"${device.name}" works on the node but the database never recorded it: the screen will say it is still being opened up forever`,
+		);
 	} else {
 		console.log(ok(`${device.name} — ${device.address} on the node`));
 	}
@@ -237,7 +255,7 @@ for (const adapter of adapters) {
 	);
 	const address = addresses[0] ?? '?';
 	const match = live.find((device) => device.address.startsWith(`${address}/`));
-	const fixture = address === '10.13.13.2';
+	const fixture = address === FIXTURE_ADDRESS;
 
 	if (match) {
 		console.log(ok(`${name} (${status}) — ${address} → device "${match.name}"`));

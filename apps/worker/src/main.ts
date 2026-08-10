@@ -44,7 +44,7 @@ async function main(): Promise<void> {
 			logger.error({ event: 'worker.dispatch_failed', ...failure });
 		}
 
-		await reconciler.runOnce().catch((error: unknown) => {
+		await reconciler.runIfDue().catch((error: unknown) => {
 			logger.error({ event: 'worker.reconcile_failed', error });
 		});
 

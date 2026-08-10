@@ -9,6 +9,10 @@ import type { DeviceRepository, StoredDevice } from './device.repository.js';
 import { PeerReconciler } from './peer-reconciler.service.js';
 
 const CIDR = '10.13.13.0/24';
+const NOW = new Date('2026-01-01T00:00:00.000Z');
+const BEFORE_THE_GRACE = new Date('2025-12-31T23:55:00.000Z');
+const INSIDE_THE_GRACE = new Date('2025-12-31T23:59:30.000Z');
+
 const SPIKE_FIXTURE = {
 	publicKey: 'StZtsGF+hrd7nHOYtH0GhM/759qnBuUbKdVMEeFyLVU=',
 	tunnelAddress: '10.13.13.2/32',
@@ -36,9 +40,16 @@ function live(peer: { publicKey: string; tunnelAddress: string }): StoredDevice 
 	};
 }
 
+function pending(
+	peer: { publicKey: string; tunnelAddress: string },
+	createdAt: Date,
+): StoredDevice {
+	return { ...live(peer), provisionedAt: null, createdAt };
+}
+
 function reconciler(rows: readonly StoredDevice[] = []) {
 	const node = new MemoryExitNode();
-	const clock = new FixedClock();
+	const clock = new FixedClock(NOW);
 
 	const markProvisioned = vi.fn(() => Promise.resolve());
 	const devices = {
@@ -93,7 +104,7 @@ describe('PeerReconciler', () => {
 		const report = await subject.runOnce();
 
 		expect(await node.listPeers()).toEqual([ADA, GRACE]);
-		expect(report).toMatchObject({ provisioned: 2 });
+		expect(report).toMatchObject({ provisioned: 2, stamped: 0 });
 		expect(markProvisioned).not.toHaveBeenCalled();
 	});
 
@@ -106,25 +117,91 @@ describe('PeerReconciler', () => {
 		expect(await node.listPeers()).toEqual([ADA]);
 	});
 
-	it('does nothing on the next turn of the loop, because a sweep is not free', async () => {
-		const { subject, node } = reconciler();
-		await node.provisionPeer(ADA);
-		await subject.runOnce();
+	describe('a device the queue never provisioned', () => {
+		it('lands the peer and stamps the row, because the DLQ never will', async () => {
+			const device = pending(ADA, BEFORE_THE_GRACE);
+			const { subject, node, markProvisioned } = reconciler([device]);
 
-		await node.provisionPeer(GRACE);
-		const report = await subject.runOnce();
+			const report = await subject.runOnce();
 
-		expect(report).toBeNull();
-		expect(await node.listPeers()).toEqual([GRACE]);
+			expect(await node.listPeers()).toEqual([ADA]);
+			expect(report).toMatchObject({ provisioned: 1, stamped: 1 });
+			expect(markProvisioned).toHaveBeenCalledWith(device.id, NOW);
+		});
+
+		it('stamps a row whose peer the node already serves, which is a job that died after wg set', async () => {
+			const device = pending(ADA, BEFORE_THE_GRACE);
+			const { subject, node, markProvisioned } = reconciler([device]);
+			await node.provisionPeer(ADA);
+
+			const report = await subject.runOnce();
+
+			expect(report).toMatchObject({ provisioned: 0, stamped: 1 });
+			expect(markProvisioned).toHaveBeenCalledWith(device.id, NOW);
+		});
+
+		it('is left alone inside the grace, so the sweep does not race a job still in flight', async () => {
+			const { subject, node, markProvisioned } = reconciler([pending(ADA, INSIDE_THE_GRACE)]);
+
+			const report = await subject.runOnce();
+
+			expect(await node.listPeers()).toEqual([]);
+			expect(report).toMatchObject({ provisioned: 0, stamped: 0 });
+			expect(markProvisioned).not.toHaveBeenCalled();
+		});
+
+		it('keeps the peer a job just landed, even inside the grace, so it is never mistaken for an orphan', async () => {
+			const { subject, node } = reconciler([pending(ADA, INSIDE_THE_GRACE)]);
+			await node.provisionPeer(ADA);
+
+			const report = await subject.runOnce();
+
+			expect(await node.listPeers()).toEqual([ADA]);
+			expect(report).toMatchObject({ revoked: 0, stamped: 0 });
+		});
+
+		it('is stamped once the grace passes, without the row having to change', async () => {
+			const { subject, clock, markProvisioned } = reconciler([pending(ADA, NOW)]);
+
+			expect(await subject.runOnce()).toMatchObject({ stamped: 0 });
+
+			clock.advance(121);
+
+			expect(await subject.runOnce()).toMatchObject({ stamped: 1 });
+			expect(markProvisioned).toHaveBeenCalledTimes(1);
+		});
 	});
 
-	it('sweeps again once the interval has passed', async () => {
-		const { subject, node, clock } = reconciler();
-		await subject.runOnce();
+	describe('the interval belongs to the loop', () => {
+		it('does nothing on the next turn of the loop, because a sweep is not free', async () => {
+			const { subject, node } = reconciler();
+			await node.provisionPeer(ADA);
+			await subject.runIfDue();
 
-		await node.provisionPeer(ADA);
-		clock.advance(301);
+			await node.provisionPeer(GRACE);
+			const report = await subject.runIfDue();
 
-		expect(await subject.runOnce()).toMatchObject({ revoked: 1 });
+			expect(report).toBeNull();
+			expect(await node.listPeers()).toEqual([GRACE]);
+		});
+
+		it('sweeps again once the interval has passed', async () => {
+			const { subject, node, clock } = reconciler();
+			await subject.runIfDue();
+
+			await node.provisionPeer(ADA);
+			clock.advance(301);
+
+			expect(await subject.runIfDue()).toMatchObject({ revoked: 1 });
+		});
+
+		it('sweeps every time it is asked directly, so a caller that means now gets now', async () => {
+			const { subject, node } = reconciler();
+			await subject.runOnce();
+
+			await node.provisionPeer(ADA);
+
+			expect(await subject.runOnce()).toMatchObject({ revoked: 1 });
+		});
 	});
 });

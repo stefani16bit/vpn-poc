@@ -1408,9 +1408,47 @@ describe('billing', () => {
 			await db`DELETE FROM outbox WHERE kind = 'device.revoke'`;
 			await db`DELETE FROM accounts WHERE id = ${session.accountId}`;
 
-			await app.get(PeerReconciler).runOnce();
+			expect(await app.get(PeerReconciler).runOnce()).toMatchObject({ revoked: 1 });
 
 			expect(await peerKeysOnNode()).not.toContain(PUBLIC_KEY);
+		});
+
+		it('lands the peer and stamps the row for a device the queue never delivered', async () => {
+			const session = await subscribed();
+			const created = await createDevice(session.accessToken).expect(201);
+			const deviceId = created.body.device.id as string;
+
+			// The intent is written and never published: this is the DLQ, without
+			// having to exhaust maxReceiveCount to get there. Backdating is what
+			// puts the row past the grace the sweep waits out for a job in flight.
+			await db`DELETE FROM outbox WHERE kind = 'device.provision'`;
+			await db`UPDATE devices SET created_at = now() - interval '10 minutes' WHERE id = ${deviceId}`;
+
+			expect(await peerKeysOnNode()).not.toContain(PUBLIC_KEY);
+
+			const report = await app.get(PeerReconciler).runOnce();
+
+			expect(report).toMatchObject({ provisioned: 1, stamped: 1 });
+			expect(await peerKeysOnNode()).toContain(PUBLIC_KEY);
+
+			const [row] = await db`SELECT provisioned_at FROM devices WHERE id = ${deviceId}`;
+			expect((row as { provisioned_at: Date | null }).provisioned_at).not.toBeNull();
+		});
+
+		it('changes nothing on a second sweep, because wg set converges', async () => {
+			const session = await subscribed();
+			const created = await createDevice(session.accessToken).expect(201);
+			await drainNotifications();
+
+			const before = await app.get<IExitNode>(EXIT_NODE).listPeers();
+			const report = await app.get(PeerReconciler).runOnce();
+
+			expect(report).toEqual({ revoked: 0, provisioned: 0, stamped: 0 });
+			expect(await app.get<IExitNode>(EXIT_NODE).listPeers()).toEqual(before);
+
+			const [row] =
+				await db`SELECT provisioned_at FROM devices WHERE id = ${created.body.device.id}`;
+			expect((row as { provisioned_at: Date | null }).provisioned_at).not.toBeNull();
 		});
 
 		it('answers 404 for revoking a device that is already gone', async () => {

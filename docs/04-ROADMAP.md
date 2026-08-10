@@ -16,19 +16,25 @@ ele já chegou, e a ativação avisa por e-mail. Cancelar pergunta antes, e um
 cancelamento agendado pode ser desfeito. As cinco transições de cobrança avisam
 por e-mail — inclusive a que tira o acesso, que até aqui era silenciosa.
 
+O plano de dados deixou de ter as duas arestas que a spec dele admitia: o agente
+do nó **exige credencial** e a aplicação recusa subir apontada para ele sem uma,
+e a varredura do worker passou a carimbar `provisioned_at` — um device cujo job
+morreu na DLQ recupera o túnel **e** para de dizer que está liberando o acesso.
+DEC-073, DEC-074.
+
 | Suíte                                                       | Testes   | Precisa do devstack |
 | ----------------------------------------------------------- | -------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                | 248      | não                 |
-| `libs/env`                                                  | 21       | não                 |
-| `libs/adapters` — render de e-mail/SMS, redação, webhook    | 20       | não                 |
-| `apps/api` — kernel, serviços, controllers                  | 468      | não                 |
-| `apps/web` — store, telas, normalização de erro, locale     | 224      | não                 |
+| `libs/env`                                                  | 23       | não                 |
+| `libs/adapters` — render de e-mail/SMS, redação, webhook    | 22       | não                 |
+| `apps/api` — kernel, serviços, controllers                  | 474      | não                 |
+| `apps/web` — store, telas, normalização de erro, locale     | 226      | não                 |
 | `infra` — validação de config CDK                           | 11       | não                 |
-| **Subtotal `pnpm verify`**                                  | **992**  | **não**             |
-| `libs/adapters` — as mesmas suítes contra os serviços reais | 87       | sim                 |
+| **Subtotal `pnpm verify`**                                  | **1004** | **não**             |
+| `libs/adapters` — as mesmas suítes contra os serviços reais | 90       | sim                 |
 | `apps/api` — RLS, transações, a view e o trigger            | 63       | sim                 |
-| `apps/api` — fluxo completo mais a matriz de locale         | 99       | sim                 |
-| **Total**                                                   | **1241** |                     |
+| `apps/api` — fluxo completo mais a matriz de locale         | 103      | sim                 |
+| **Total**                                                   | **1260** |                     |
 
 Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 94/87/88/93 (linhas/funções/ramos/statements), `apps/web` em 97/95/92/96.
@@ -184,11 +190,15 @@ sem Docker ensina a ignorar suíte vermelha.
 - [x] **`@RequiresCapability` ganhou chamador em produção.** `/devices` é a
       primeira rota guardada, e o 402 é provado no e2e apagando o decorator e
       vendo os dois casos virarem 201 e 200.
-- [ ] **O reconciler repõe o peer e não carimba `provisioned_at`.** Um device
-      cujo job de provisionamento morreu na DLQ volta a ter túnel funcionando,
-      mas a tela continua dizendo "liberando o acesso no servidor" para sempre.
-      Reconciliar device pendente era item à parte antes disso; o reconciler
-      tornou o descompasso alcançável por um caminho novo. DEC-071.
+- [x] ~~**O reconciler repõe o peer e não carimba `provisioned_at`.**~~ A mesma
+      varredura converge as duas projeções da linha agora, passado um prazo de
+      120s que separa "o job está a caminho" de "o job morreu". Medido contra o
+      nó real sem worker nenhum: `provisioned: 1, stamped: 1`. DEC-074.
+- [ ] **Um peer recusado aborta a varredura inteira.** As chamadas ao nó não são
+      isoladas peer a peer, então um `wg set` que falhe deixa o resto da varredura
+      sem rodar e nada é carimbado. A próxima varredura repete e `wg set`
+      converge, então isso custa latência e não correção — mas o relatório mente
+      sobre quanto havia para fazer. DEC-074.
 - [ ] **A faixa do túnel ignora o prefixo do CIDR.** `assignableAddresses` e
       `isAssignable` usam só os três primeiros octetos, então `10.13.13.0/25`
       é tratado como `/24` e o alocador distribuiria endereços fora da faixa.

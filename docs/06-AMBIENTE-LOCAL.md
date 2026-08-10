@@ -202,6 +202,12 @@ então tirá-lo do `.env` não muda nada nos testes.
   é descartado em silêncio. A saída nomeia o túnel e manda apagá-lo.
 - **`@vpn/...` não encontrado:** o Verdaccio está no ar mas os pacotes não foram
   publicados. `pnpm packages:publish:local`.
+- **O device fica "liberando o acesso" para sempre:** o job de provisionamento
+  não chegou ao nó. `pnpm tunnel:doctor` distingue os dois casos que parecem
+  iguais na tela — worker parado (`pm2 start worker`) e job morto na DLQ com o
+  peer já no nó. O segundo é reparado pela varredura sozinha, passados 120s desde
+  a criação da linha: ela repõe o peer se faltar e carimba `provisioned_at`. O
+  worker varre a cada 5 min, então o pior caso é ~7 min. DEC-074.
 - **Toda chamada ao nó responde 401:** `EXIT_NODE_API_TOKEN` no `.env` da raiz não
   é o token com que o contêiner subiu. Os dois lados vêm de lugares diferentes de
   propósito — o compose lê o `.env` de `devstack/`, que não existe, e usa o default

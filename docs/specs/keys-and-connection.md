@@ -353,7 +353,10 @@ estado neutro para oferecer no fim de um limite. DEC-072.
 ### O que continua fora
 
 `devicesPerUser` segue sem aplicação e **sem contador de fachada** — a DEC-043
-não mudou. Regiões e metering seguem dependendo de mais de um nó. Autenticar o
-agente do nó continua sendo a primeira coisa que um nó real precisa (DEC-062,
-DEC-063), e reconciliar `provisioned_at` de devices pendentes é do reconciler
-apenas no sentido de repor o peer: quem carimba a coluna continua sendo o job.
+não mudou. Regiões e metering seguem dependendo de mais de um nó.
+
+As duas pontas que esta seção deixava abertas foram fechadas depois, em
+[`node-control-plane.md`](node-control-plane.md): o agente do nó passou a exigir
+credencial (DEC-073), e a varredura passou a carimbar `provisioned_at` de device
+pendente em vez de só repor o peer (DEC-074). O que sobrou daquele par é o teto e
+não o piso — mTLS, e a rotação de um token que serve a frota inteira.

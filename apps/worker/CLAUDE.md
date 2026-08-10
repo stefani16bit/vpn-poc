@@ -7,8 +7,8 @@ O laço que drena o outbox e entrega as notificações. É **só** o laço: um
 
 ## Por que não tem nada aqui
 
-Tudo que ele faz mora no kernel de `apps/api`: `OutboxRelay`,
-`NotificationConsumer`, `NotificationDispatcher`. Este app monta um
+Tudo que ele faz mora no kernel de `apps/api`: `OutboxRelay`, `OutboxConsumer`,
+`NotificationDispatcher`, `DeviceProvisioner`, `PeerReconciler`. Este app monta um
 `ApplicationContext` do Nest a partir do mesmo `AppModule` — o mesmo movimento
 que `apps/api-lambda` faz com `createApp()` — e chama `runOnce()` num laço.
 
@@ -18,7 +18,11 @@ morasse aqui, o teste de ponta a ponta teria que duplicar a lógica ou o
 `apps/api` teria que depender de `apps/worker`, que já depende dele.
 
 A ordem no laço é relay → consumer: publicar antes de consumir faz uma
-notificação recém-escrita sair na mesma volta em vez de esperar a próxima.
+notificação recém-escrita sair na mesma volta em vez de esperar a próxima. Depois
+vem o `PeerReconciler`, e o laço chama **`runIfDue()`**, não `runOnce()`: o
+intervalo de 5 minutos é dele, e `runOnce()` é o que varre agora — é o que o e2e e
+uma sonda à mão usam, e é por isso que os dois são métodos diferentes em vez de um
+parâmetro. DEC-074.
 
 ## Coisas que quebram de formas não óbvias
 

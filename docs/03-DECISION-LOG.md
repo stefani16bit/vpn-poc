@@ -2870,3 +2870,64 @@ worker.
 Um nó real não herda nada disso a não ser a forma: um token só para a frota
 inteira não é rotacionável sem derrubar todos os nós ao mesmo tempo, e isso está
 no roadmap em voz alta.
+
+---
+
+### DEC-074 — A varredura converge duas projeções, e pendente não é falho antes de um prazo
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** A DEC-064 escolheu o outbox para que uma queda não perdesse o
+trabalho, mas at-least-once só vale enquanto alguém continua entregando. Um
+`device.provision` que esgota o `maxReceiveCount: 5` termina na DLQ, e a linha diz
+`provisioned_at IS NULL` para sempre: sem alarme e sem reparo. A DEC-071 já pôs um
+reconciliador no worker, e ele repõe o **peer** — mas não carimba a coluna. O
+roadmap registrava exatamente esse descompasso: o túnel volta a funcionar e a tela
+continua dizendo "liberando o acesso no servidor" indefinidamente.
+
+**Decisão.** A mesma varredura converge as duas projeções da linha: a lista de
+peers do nó **e** `provisioned_at`. Um device vivo sem carimbo, passado um prazo
+de 120s desde `created_at`, tem o peer reposto se faltar e a coluna carimbada com
+o instante da varredura. Dentro do prazo ele não é assunto da varredura: continua
+em `wanted`, para que o peer que um job acabou de escrever nunca seja confundido
+com órfão, mas não é provisionado nem carimbado.
+
+Os pontos de entrada são dois: `runOnce()` varre sempre, `runIfDue()` mantém o
+intervalo de 300s e é o que o laço do worker chama.
+
+**Rationale.** O prazo é o que separa "o job está a caminho" de "o job morreu".
+Sem ele a varredura disputaria com o consumer todo device recém-criado — inofensivo,
+porque `wg set` converge (DEC-063), mas passaria a haver dois processos escrevendo
+a mesma coluna no mesmo segundo e nenhum jeito de dizer, num log, qual dos dois fez
+o trabalho.
+
+Rejeitado reenfileirar `device.provision` para que o job continuasse o único
+escritor da coluna. Isso põe uma leitura de `outbox` justamente no serviço que não
+pode disputar com o relay: sem `for update skip locked` ela brigaria, e o sintoma
+seria um job rodando duas vezes ou nenhuma, diferente a cada corrida. E
+reconduziria o trabalho exatamente pelo caminho que já esgotou as tentativas dele.
+Hoje o reconciliador **não toca em `outbox`**, e é uma propriedade a manter.
+
+O que autoriza a varredura a escrever nas duas pontas é o que a DEC-071 já
+argumentou: o banco tem a RLS, a account e o histórico; o nó tem uma lista de
+chaves. O nó é projeção, e projeção se conserta reconciliando — em qualquer um dos
+dois sentidos.
+
+**Consequências.** `ReconcileReport` ganha `stamped`, e o
+`exit_node.reconciled` do log passa a dizer os três números. Uma varredura em
+regime devolve `{ revoked: 0, provisioned: 0, stamped: 0 }` e não escreve nada:
+medido contra o nó real, três varreduras seguidas, lista de peers idêntica e
+carimbo intacto.
+
+`markProvisioned` continua `where provisioned_at is null`, então nem a segunda
+entrega do job nem a varredura seguinte movem o carimbo. As escritas acontecem numa
+**segunda** transação de sistema, depois de todas as chamadas ao nó: chamada
+externa com transação aberta é a dívida que o roadmap já nomeia em
+`createCheckout`, e a DEC-071 já tinha se recusado a repeti-la.
+
+Um peer que o nó recusa aborta a varredura e nada é carimbado — carimbar o que o
+nó não aceitou seria mentir na direção mais cara. A próxima varredura repete, e é
+`wg set` convergir que torna isso seguro. Isolar peer a peer fica no roadmap.
+
+O `runIfDue()` continua com o intervalo num campo privado do processo, então dois
+workers varreriam em paralelo. Há um; a dívida segue registrada.
