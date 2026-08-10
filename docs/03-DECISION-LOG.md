@@ -2931,3 +2931,78 @@ nó não aceitou seria mentir na direção mais cara. A próxima varredura repet
 
 O `runIfDue()` continua com o intervalo num campo privado do processo, então dois
 workers varreriam em paralelo. Há um; a dívida segue registrada.
+
+---
+
+### DEC-075 — A prova do túnel é um recurso privado próprio, e o nó não mascara o caminho até ele
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** Nada neste repositório responde "o túnel carrega tráfego?". O
+`check.sh` afirma que o peer semeado existe e que o plano de controle responde —
+as duas coisas são estáticas e ficam verdes com zero pacote atravessando. O e2e
+fixa `EXIT_NODE_DRIVER=memory`, então não toca `wg` nenhum. Handshake, `ping` e a
+sonda de NAT existem só como prosa em `data-plane.md`, medidos uma vez à mão. A
+própria spec já dizia o que falta: _"'O contêiner subiu' não é sucesso."_
+
+**Decisão.** Um **recurso privado** de propósito, o canário: uma página e um
+`GET /api/hello` numa sub-rede fixada, `172.30.13.0/24`, **sem porta publicada**.
+O nó ganha um pé nessa rede e uma regra `RETURN` acima do MASQUERADE existente. O
+serviço mora num repositório irmão, `poc-vpn-canary`; a rede é declarada aqui.
+
+**Rationale.** A sonda de `data-plane.md` mira o Verdaccio, e isso tem dois
+defeitos que só aparecem na segunda vez que alguém a roda. Ela **empresta um
+serviço** — o Verdaccio existe para publicar `@vpn/*`, e uma prova de rede que
+depende dele passa a falhar por motivo de registry. E ela mira um endereço que
+**se move**: o próprio documento mediu o Verdaccio saindo de `172.18.0.7` para
+`172.18.0.8` num `reset`, e declara todo `172.18.x.x` ilustrativo. Uma prova cujo
+alvo precisa ser descoberto antes de cada execução não vira asserção. Fixar a
+sub-rede é o que troca "descubra o endereço" por um número que se pode escrever
+num teste.
+
+`RETURN` acima do MASQUERADE, e não mais MASQUERADE, por duas razões. Um recurso
+privado precisa ver o **endereço do túnel**, não o do nó, ou não tem como dizer
+_qual_ device o alcançou — e `seenFrom` é a única linha que separa "um servidor
+respondeu" de "um servidor viu meu device". MASQUERADE é para egress à internet,
+onde o mundo lá fora não tem rota de volta para `10.13.13.0/24`; aqui a rota
+existe, porque o nó está nas duas redes. A regra casa em **destino**
+(`-d 172.30.13.0/24`) em vez de interface, o que a torna independente de qual de
+`eth0`/`eth1` o Docker entrega a cada rede — uma ordem que o Docker não garante
+depois que um contêiner entra em duas. A linha de MASQUERADE fica byte a byte
+como estava, então o `200 → 000 → 200` de `data-plane.md` continua verdadeiro.
+
+`172.30.13.0/24` não é arbitrário. Está dentro de `172.16.0.0/12`, que é o que o
+`.conf` do spike já traz em `AllowedIPs`, então o arquivo commitado alcança o
+canário sem edição. E está livre da tabela de rotas que `data-plane.md` mediu
+nesta máquina — `192.168.15.0/24`, `192.168.48.0/20` e `26.0.0.0/8`, esta última
+a rota default do Radmin VPN.
+
+Repositório irmão pelo mesmo argumento da DEC-062, um passo adiante. Lá a linha
+foi desenhada porque o nó é fixture e não artefato de produto; o canário está
+ainda mais fora, porque ele não representa nem a nossa infraestrutura — ele faz o
+papel do **serviço de um cliente**. Um diretório dentro deste repo diria que o
+produto tem um recurso privado, e ele não tem.
+
+**Consequências.** Nenhuma mudança de código de aplicação, e nenhuma em
+`apps/web`. O caminho já é genérico: `EXIT_NODE_CLIENT_ALLOWED_IPS` já é dividido
+por vírgula em `adapters.module.ts`, `exitNodeSchema.allowedIps` é
+`z.array(z.string())` sem forma por entrada, e o teste de `buildWireguardConfig`
+já afirma o caso de duas faixas. **`packages/` não se move.**
+
+O compose passa a declarar `networks:`, o que `data-plane.md` citava como não
+sendo o caso. O que aquele documento afirma continua valendo: o endereço na
+bridge default continua vindo do pool do Docker e continua se movendo num
+`reset`. O que ganha endereço estável é só a rede do canário.
+
+`wireguard` precisa listar `default:` explicitamente. No instante em que um
+serviço declara `networks:`, ele deixa de entrar na rede default implicitamente —
+e o sintoma seria todo o resto do devstack perdendo o nó, não o canário falhando.
+
+A rede é declarada **aqui** e consumida como `external` lá, para que `make up`
+funcione numa máquina que nunca ouviu falar do repositório do canário. Em troca,
+`make reset` destrói a rede e o canário precisa subir de novo.
+
+Em produção nada disso é configuração: `EXIT_NODE_CLIENT_ALLOWED_IPS=0.0.0.0/0` e
+qualquer recurso privado é alcançável sem faixa nenhuma listada. A faixa estreita
+local é contorno da rota default desta máquina, não desenho que cresce para uma
+tela.

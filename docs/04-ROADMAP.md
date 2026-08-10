@@ -22,6 +22,13 @@ e a varredura do worker passou a carimbar `provisioned_at` — um device cujo jo
 morreu na DLQ recupera o túnel **e** para de dizer que está liberando o acesso.
 DEC-073, DEC-074.
 
+E o túnel deixou de ser afirmação: existe um **recurso privado** atrás dele, sem
+porta publicada, e um provador que roda o ciclo inteiro — isolamento, criar a
+chave como o navegador cria, conectar, alcançar, revogar, deixar de alcançar — e
+sai diferente de zero em qualquer passo. Medido: `seenFrom` é o endereço que a
+API alocou, e a revogação mata o acesso em 4s **com o túnel ainda de pé**.
+DEC-075, `docs/specs/tunnel-proof.md`.
+
 | Suíte                                                       | Testes   | Precisa do devstack |
 | ----------------------------------------------------------- | -------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                | 248      | não                 |
@@ -41,7 +48,7 @@ Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 Conferido como portão: `--coverage.thresholds.branches=99` falha citando o
 valor real.
 
-`make check` 17/17 · `cdk synth` 6 stacks · `consumer-check` verde ·
+`make check` 19/19 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
 
 `pnpm verify` roda com o Docker parado, de propósito: `*.integration.spec.ts` e
@@ -199,6 +206,19 @@ sem Docker ensina a ignorar suíte vermelha.
       sem rodar e nada é carimbado. A próxima varredura repete e `wg set`
       converge, então isso custa latência e não correção — mas o relatório mente
       sobre quanto havia para fazer. DEC-074.
+- [x] ~~**Nada prova que o túnel carrega tráfego.**~~ Um recurso privado sem
+      porta publicada no repositório irmão `poc-vpn-canary`, duas asserções novas
+      no `check.sh` (endereço do nó na rede e a **ordem** das regras de
+      POSTROUTING), uma quarta seção no `tunnel:doctor` e um provador de 12
+      asserções. Nenhuma linha de aplicação mudou e `packages/` não se moveu —
+      que é o resultado, não a sorte. DEC-075.
+- [ ] **A regra de MASQUERADE do nó ainda casa por interface (`-o eth0`).** Com
+      duas redes, qual interface o Docker entrega a cada uma não é garantido, e
+      se a default virasse `eth1` o egress à internet pararia de ser mascarado. O
+      caminho do canário não corre esse risco — a regra de `RETURN` casa por
+      **destino**, de propósito. Ficou como está porque `data-plane.md` documenta
+      a linha de MASQUERADE textualmente e a sonda `200 → 000 → 200` dela cita a
+      regra exata. DEC-075.
 - [ ] **A faixa do túnel ignora o prefixo do CIDR.** `assignableAddresses` e
       `isAssignable` usam só os três primeiros octetos, então `10.13.13.0/25`
       é tratado como `/24` e o alocador distribuiria endereços fora da faixa.
@@ -303,7 +323,7 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 17/17
+make up && make check                                # devstack: 19/19
 pnpm --filter @vpn-poc/api test:e2e                  # 84, o fluxo inteiro
 pnpm --filter @vpn-poc/api test:integration          # 54, RLS e formas de SQL
 pnpm --filter @vpn-poc/adapters test:integration     # 74, adapters reais

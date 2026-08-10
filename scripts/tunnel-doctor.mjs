@@ -26,6 +26,9 @@ const CONTROL_USER = 'worker';
 const COMPOSE = ['compose', '-f', 'devstack/docker-compose.yml'];
 // seeded by hand in the devstack and below the .4 the allocator starts at
 const FIXTURE_ADDRESS = '10.13.13.2';
+// pinned in the compose network, so it can be written down instead of discovered
+const CANARY_URL = process.env['CANARY_URL'] || 'http://172.30.13.10';
+const CANARY_NODE_ADDRESS = '10.13.13.1';
 
 const GREEN = '[32m';
 const RED = '[31m';
@@ -93,6 +96,15 @@ async function control(path, headers = { authorization: AUTHORIZATION }) {
 		return { status: response.status, body: response.ok ? await response.text() : null };
 	} catch {
 		return { status: 0, body: null };
+	}
+}
+
+async function probe(url) {
+	try {
+		const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+		return response.ok ? await response.text() : null;
+	} catch {
+		return null;
 	}
 }
 
@@ -266,6 +278,51 @@ for (const adapter of adapters) {
 		advise(
 			`tunnel "${name}" points at ${address}, which no live device owns: it was revoked or the database was reset. Delete it in the WireGuard app and generate a new one.`,
 		);
+	}
+}
+
+// ----------------------------------------------------------------- the canary
+
+section('the canary');
+
+const canaryName = run('docker', [
+	'ps',
+	'--filter',
+	'name=^poc-vpn-canary$',
+	'--format',
+	'{{.Names}}',
+]);
+const canaryUp = (canaryName ?? '').trim() !== '';
+const tunnelUp = adapters.some((adapter) => adapter.split('|')[1] === 'Up');
+
+if (!canaryUp) {
+	console.log(`     ${DIM}not running — it lives in the sibling repo poc-vpn-canary${OFF}`);
+} else {
+	const answer = await probe(`${CANARY_URL}/api/hello`);
+	const seenFrom = answer === null ? null : JSON.parse(answer).seenFrom;
+
+	if (tunnelUp && seenFrom) {
+		const owner = live.find((device) => device.address.startsWith(`${seenFrom}/`));
+		console.log(ok(`answers through the tunnel, and saw ${seenFrom}`));
+		if (owner) console.log(`     that address belongs to ${DIM}"${owner.name}"${OFF}`);
+		if (!owner && seenFrom === CANARY_NODE_ADDRESS) {
+			console.log(bad('it saw the node, not the device'));
+			advise(
+				'the canary sees the exit node instead of the device: the RETURN rule is missing or sits after the MASQUERADE one in POSTROUTING',
+			);
+		}
+	} else if (tunnelUp) {
+		console.log(bad(`a tunnel is up and ${CANARY_URL} does not answer`));
+		advise(
+			`the tunnel is active but carries nothing to the canary: check that the .conf AllowedIPs includes 172.30.13.0/24 and regenerate the key if it does not`,
+		);
+	} else if (seenFrom) {
+		console.log(bad('it answers with no tunnel active'));
+		advise(
+			'the canary answered without a tunnel, so it has a published port: every proof that goes through it is void until the `ports:` mapping is removed',
+		);
+	} else {
+		console.log(ok('unreachable with no tunnel active, which is the whole point'));
 	}
 }
 

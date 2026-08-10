@@ -8,7 +8,7 @@ cd poc-vpn
 cp .env.example .env.local
 
 make up                      # sobe os 8 contêineres e espera ficarem saudáveis
-make check                   # 17 asserções; tem que dar 17/17
+make check                   # 19 asserções; tem que dar 19/19
 
 pnpm install
 pnpm packages:publish:local  # publica @vpn/* no Verdaccio local
@@ -195,8 +195,9 @@ então tirá-lo do `.env` não muda nada nos testes.
 - **Erro de caminho no docker, no Git Bash:** `MSYS_NO_PATHCONV=1` antes do
   comando. `dev.sh` e `check.sh` já fazem isso.
 - **O túnel não conecta e não está claro por quê:** `pnpm tunnel:doctor`. Ele
-  compara os três lados — os peers que o nó conhece, os devices no banco e os
-  túneis ativos nesta máquina — e diz qual não bate. O caso mais comum é um
+  compara os quatro lados — os peers que o nó conhece, os devices no banco, os
+  túneis ativos nesta máquina e o canário — e diz qual não bate. O caso mais
+  comum é um
   túnel importado no cliente cujo device foi revogado ou perdido num `reset` do
   banco: o cliente continua **Up**, o nó não conhece mais a chave, e todo pacote
   é descartado em silêncio. A saída nomeia o túnel e manda apagá-lo.
@@ -236,3 +237,60 @@ então tirá-lo do `.env` não muda nada nos testes.
   `server.host` do Vite precisam usar o mesmo: `localhost` e `127.0.0.1` são
   sites diferentes para o navegador, e o cookie é gravado no login e nunca mais
   enviado. Tudo aqui é `127.0.0.1` (DEC-032).
+
+## 9. A prova do túnel
+
+O `make check` afirma que o nó está de pé e que o plano de controle cobra
+credencial. As duas coisas ficam verdes com zero pacote atravessando. O que
+responde **"o túnel carrega tráfego?"** é o canário: uma página e um
+`GET /api/hello` numa sub-rede sem porta publicada, alcançável só pelo túnel.
+`docs/specs/tunnel-proof.md`, DEC-075.
+
+Ele mora num repositório irmão, `poc-vpn-canary`, clonado ao lado deste. A rede é
+declarada aqui — então `make up` funciona sem ele, e `make reset` destrói a rede
+e obriga a subir o canário de novo.
+
+```bash
+cd ../poc-vpn-canary
+docker compose up -d --build
+```
+
+### 9.1 O caminho automatizado
+
+```bash
+make up                    # a rede é deste repo; o canário a consome
+pnpm dev                   # o provador precisa da API E do worker
+pnpm billing:activate      # sem vpn_access, POST /devices responde 402
+
+cd ../poc-vpn-canary && docker compose run --rm prover
+```
+
+O provador faz o ciclo inteiro num contêiner Linux — isolamento, login, criar a
+chave como o navegador cria, esperar o peer no nó, conectar, alcançar o canário,
+revogar, deixar de alcançar — e sai diferente de zero em qualquer passo.
+
+É o **inverso** do e2e quanto ao worker: o e2e pede `pm2 stop worker` porque
+disputa o `outbox` (§4), e o provador precisa do worker rodando, porque é ele
+quem leva o peer até o nó. Os dois não rodam juntos.
+
+### 9.2 O caminho do navegador, que nenhum comando faz
+
+1. Crie uma chave em <http://127.0.0.1:5173> e importe o `.conf` pela **GUI do
+   WireGuard for Windows**. `wg-quick up` não é o caminho do cliente nesta
+   máquina, e `data-plane.md` é explícito que escrevê-lo como conselho é
+   conselho não testado.
+2. Abra <http://172.30.13.10>: "Hello", e o **seu próprio endereço de túnel** na
+   tela. Desative o túnel, recarregue: nada.
+3. Com o túnel ainda ativo, revogue o device na web e recarregue. Tem que morrer
+   em poucos segundos — é o que prova que o portão é a lista de peers do nó, e
+   não o cliente sendo educado.
+
+Se a página mostrar `seenFrom: 10.13.13.1`, o canário está vendo o **nó** e não o
+device:
+
+```bash
+docker compose exec wireguard iptables -t nat -S POSTROUTING
+```
+
+`RETURN` tem que aparecer antes do `MASQUERADE`. O `make check` tem uma asserção
+para exatamente essa ordem, e o `tunnel:doctor` diagnostica o mesmo caso.

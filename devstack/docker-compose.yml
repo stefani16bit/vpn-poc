@@ -159,6 +159,13 @@ services:
       # here — same reason every port above carries one. It is a committed
       # fixture credential, in the category of vpn_app_dev. DEC-073.
       EXIT_NODE_API_TOKEN: ${EXIT_NODE_API_TOKEN:-exit_node_dev_1f4a9c2e8b7d6053a1c9e4f2b8d7a601}
+    networks:
+      # `default` is listed because declaring this key at all stops the service
+      # from joining it implicitly, and the symptom would be every other
+      # container losing the node rather than the canary failing. DEC-075.
+      default:
+      canary:
+        ipv4_address: 172.30.13.2
     ports:
       - '${WIREGUARD_PORT:-21820}:51820/udp'
       - '${EXIT_NODE_API_PORT:-21821}:51821'
@@ -172,6 +179,17 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+networks:
+  # Declared here and consumed as `external` by poc-vpn-canary, so that `make up`
+  # works on a machine that has never heard of that repository. The subnet is
+  # pinned because a proof whose target has to be discovered before every run is
+  # not an assertion. DEC-075.
+  canary:
+    name: poc-vpn-canary
+    ipam:
+      config:
+        - subnet: 172.30.13.0/24
 
 volumes:
   postgres-data:

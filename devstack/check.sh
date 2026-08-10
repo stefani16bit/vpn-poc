@@ -37,6 +37,17 @@ WIREGUARD_PEER_PUBLIC_KEY='StZtsGF+hrd7nHOYtH0GhM/759qnBuUbKdVMEeFyLVU='
 # shared token is the password. DEC-073.
 EXIT_NODE_API_USER='worker'
 
+# The node's pinned foot in the canary network. Both assertions below are about
+# poc-vpn alone: this file has to stay green on a machine that has never heard of
+# the canary repository. DEC-075.
+CANARY_NODE_ADDRESS='172.30.13.2/24'
+
+# The adjacency, not merely the presence of both rules. POSTROUTING is evaluated
+# in insertion order, so a RETURN appended after the MASQUERADE would leave every
+# private resource seeing the node's address instead of the device's — a failure
+# that answers 200 and loses the only fact worth having.
+POSTROUTING_ORDER='-s 10.13.13.0/24 -d 172.30.13.0/24 -j RETURN -A POSTROUTING -s 10.13.13.0/24 -o eth0 -j MASQUERADE'
+
 ENV_FILES=''
 [ -f ../.env.local ] && ENV_FILES="${ENV_FILES} ../.env.local"
 [ -f ../.env ] && ENV_FILES="${ENV_FILES} ../.env"
@@ -198,6 +209,12 @@ check_body 'app.localhost terminates TLS and routes by Host' 'ok' \
 # peer was added. A container that came up without NET_ADMIN has no wg0 at all.
 check_exec 'wireguard has the seeded peer on the tunnel' "$WIREGUARD_PEER_PUBLIC_KEY" \
 	wireguard wg show wg0 peers
+
+check_exec 'the node has its pinned address on the canary network' "$CANARY_NODE_ADDRESS" \
+	wireguard ip -4 -o addr show
+
+check_exec 'the node returns canary traffic before it masquerades the rest' "$POSTROUTING_ORDER" \
+	wireguard sh -c "iptables -t nat -S POSTROUTING | tr '\n' ' '"
 
 # From the host, not from inside: the worker reaches the node over the published
 # port, and a control plane bound to the wrong interface passes every in-container

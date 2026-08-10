@@ -252,6 +252,19 @@ de variável de ambiente e é um contêiner do devstack — um nó não é uma f
 `regions` segue anunciado no tier e aplicado em lugar nenhum. Quando houver o
 segundo nó, é a região que obriga a tabela.
 
+**Recurso privado** — o que existe do outro lado do túnel e em lugar nenhum
+mais. É o destino que dá sentido ao túnel: a rede interna de um cliente, um banco
+sem endereço público, um painel que só a VPN alcança. O produto **não tem
+nenhum** — quem os possui é o cliente, e o que vendemos é o caminho até eles.
+
+O devstack tem um, o **canário**: uma página e um `GET /api/hello` numa sub-rede
+sem porta publicada. É instrumento, na categoria do `tunnel:doctor` e das chaves
+de `wireguard/peers/`, não artefato de produto. Ele existe porque "o túnel
+carrega tráfego" precisava de resposta em dez segundos, e até aqui só tinha
+resposta lida em saída de `wg show`. Com o túnel fora do ar não há **rota** até
+ele — e é a ausência de rota, não uma regra que alguém possa configurar errado,
+que faz a prova valer. DEC-075.
+
 **Endereço no túnel** — o IP que um device ocupa dentro da faixa do nó. É
 reivindicado por restrição única na escrita, nunca contado antes: dois devices
 criados no mesmo instante atravessariam um `count()` juntos e pediriam o mesmo
