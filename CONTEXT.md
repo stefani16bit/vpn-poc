@@ -245,19 +245,34 @@ existe, não por user — daí `devicesPerUser` ser um entitlement.
 provisionamento cria, e é onde o entitlement de região é aplicado: no servidor,
 nunca só na UI, porque o cliente que pede o peer é código do usuário.
 
-**Exit node** — a máquina por onde o tráfego sai. **Region** — o agrupamento
-geográfico de exit nodes que o produto vende (`us`, `eu`), e o que um tier
-entitula. Um cliente escolhe região; qual nó atende é nosso.
+**Exit node** — a máquina por onde o tráfego sai, e uma linha **do tenant**: quem
+registra os nós é a account, sob RLS como qualquer outra tabela de domínio. O que
+o registro guarda é o que o nó **responde** quando perguntado, nunca o que o
+formulário afirmou — a chave pública é a que o `describe()` reportou, que é a
+custódia desenhada pela DEC-063. DEC-077.
+
+**Region** — o agrupamento de exit nodes que o **tenant** nomeia, e por onde o
+usuário final escolhe. `us` e `eu` eram um enum fechado do produto, e um enum
+fechado não sobrevive a uma empresa brasileira que quer "São Paulo": num produto
+whitelabel quem nomeia é o cliente. O que o tier entitula deixa então de ser
+_quais_ regiões e passa a ser **quantas** — um contador, da mesma natureza de
+`seats`, aplicado na escrita e por restrição. DEC-078.
+
+Um cliente escolhe região; **qual nó atende é nosso**. Por isso um device carrega
+duas coisas diferentes, e este glossário existe para não deixar que virem a
+mesma: a **região**, que é a escolha da pessoa, e o **exit node**, que é a nossa
+atribuição.
 
 **Device** e **Peer** existem: `devices` é tabela, sob RLS como qualquer outra, e
 a chave pública é o identificador nas duas pontas — a linha e o peer no nó. O que
 liga uma à outra é o **outbox**, não uma chamada: a linha é o registro e o nó é
 uma projeção dela, reconciliada pelo worker. DEC-064.
 
-**Exit node** e **Region** continuam **não construídos**. Existe um nó, ele vem
-de variável de ambiente e é um contêiner do devstack — um nó não é uma frota, e
-`regions` segue anunciado no tier e aplicado em lugar nenhum. Quando houver o
-segundo nó, é a região que obriga a tabela.
+**Exit node** e **Region** ainda **não são tabelas**. Existe um nó, ele vem de
+variável de ambiente e é um contêiner do devstack — um nó não é uma frota. O
+vocabulário acima chegou **antes** do schema de propósito, que é a regra deste
+arquivo; a tabela vem com a página de servidores. Até lá, `regions` segue
+anunciado no tier e aplicado em lugar nenhum.
 
 **Recurso privado** — o que existe do outro lado do túnel e em lugar nenhum
 mais. É o destino que dá sentido ao túnel: a rede interna de um cliente, um banco

@@ -3069,3 +3069,105 @@ dois índices de owner são parciais e o caminho de cadastro nunca os alcança d
 outro jeito. É o mesmo defeito que o trabalho de devices já consertou uma vez
 (DEC-069): o alvo passa a ser nomeado, e qualquer outra violação levanta `23505`
 para o `isUniqueViolation` tratar, em vez de virar um "não fiz nada" silencioso.
+
+---
+
+### DEC-077 — Exit node é dado do tenant, e o que vale é o que o nó responde
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** Existe **um** nó, e ele vem de variável de ambiente
+(`EXIT_NODE_*`). Isso bastou enquanto o produto tinha um data plane só e nenhuma
+tela para administrá-lo. O brief pede gerenciamento de servidores e regiões, e uma
+frota não cabe num `.env`: ela muda em runtime, ela é diferente por cliente, e ela
+precisa de dono.
+
+**Decisão.** `exit_nodes` vira tabela **sob RLS**, como qualquer outra tabela de
+domínio, com `account_id`. Colunas: rótulo, região, endpoint, URL de controle, a
+chave pública **reportada**, referência à credencial e `last_seen_at`. O registro
+de um nó **chama `describe()`** e guarda o que o nó respondeu. A semente é o que
+hoje está no `.env`.
+
+**Rationale.** Num produto whitelabel o nó é do cliente: é a máquina dele, na
+região dele, com a banda dele. Um nó global compartilhado seria um produto
+diferente — e, pior, faria uma account enxergar a infraestrutura de outra. RLS não
+é enfeite aqui; é a mesma razão da DEC-035, e a tabela nasce com policy por
+construção.
+
+Guardar **o que o nó responde**, e nunca o que o formulário afirmou, é a parte que
+carrega peso. A chave pública é a identidade do nó nas duas pontas — é ela que vai
+para dentro de todo `.conf` baixado. Aceitar a chave que alguém digitou num campo é
+aceitar que um erro de digitação vire um `.conf` que nunca fecha handshake, e a
+falha aparece longe, no cliente, sem nada apontando para a causa. A DEC-063 já
+tinha desenhado essa custódia — _"a chave pública que o nó reporta"_ —, e esta
+decisão só a move de uma variável de ambiente para uma linha.
+
+`last_seen_at` existe para uma regra e não para um gráfico: **um nó que não
+responde há tempo demais não é entregue a um device novo**. Sem isso, o primeiro
+sintoma de um nó morto é um cliente com um `.conf` que não conecta.
+
+**Consequências.** O `.conf` nomeia um servidor específico, o que o tenant
+registrou. Isso é limitação e vai dita em voz alta, no registro que
+`data-plane.md` usa: **um device fica preso ao nó que lhe foi atribuído**, e se
+esse nó sair do ar o `.conf` é **reemitido**, não reapontado. Em troca, não existe
+par de chaves compartilhado por região nem DNS para reapontar, e a custódia da
+DEC-063 sobrevive inteira.
+
+A faixa de endereços passa a ser **por nó**, e isso levanta um teto que já estava
+perto: o índice único parcial de hoje distribui de um único `/24` — `.4` a `.254`,
+**251 endereços** — contra `seats: 25 × devicesPerUser: 5 = 125` devices vivos por
+account totalmente assinante. **Duas** accounts e acabou. Como dois nós são redes
+independentes, o índice vira `(exit_node_id, tunnel_address) where revoked_at is
+null` e cada nó ganha os seus 251. A view `live_tunnel_addresses` da DEC-069 passa
+a ser por nó — e o `GRANT` dela é escrito à mão em `0002_tunnel_allocation`, porque
+o drizzle-kit não modela privilégio.
+
+A varredura passa a rodar **por nó**, convergindo cada um contra os devices vivos
+atribuídos a ele. É também o momento de consertar o defeito que o roadmap já
+registra: hoje um peer recusado aborta a varredura inteira, e o isolamento por nó é
+a fronteira natural para isolar peer a peer.
+
+---
+
+### DEC-078 — O entitlement de região conta, não lista
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** `REGIONS = ['us','eu']` é um enum fechado em `@vpn/contracts`, e
+`entitlements.regions` é um array dele. Foi assim desde a DEC-036, quando região
+era um rótulo de produto que nós escolhíamos.
+
+**Decisão.** As regiões passam a ser **nomeadas pelo tenant**, e o entitlement
+deixa de dizer _quais_ para dizer **quantas**: `regions` vira um inteiro, da mesma
+natureza de `seats`, aplicado na escrita e por restrição de banco (DEC-043).
+
+**Rationale.** Um enum fechado e um produto whitelabel são incompatíveis, e a
+prova cabe numa frase: uma empresa brasileira não vai vender "us | eu" para os
+clientes dela. Ela quer "São Paulo" e "Rio". No instante em que o cliente nomeia, o
+enum deixa de poder ser a fonte da verdade — ele viraria uma tabela de-para entre o
+nome que o cliente mostra e o rótulo que nós guardamos, que é a pior das duas
+opções porque parece funcionar.
+
+E se o nome é do cliente, o tier não tem como entitular **quais**: ele não conhece
+os nomes. Sobra o que ele sempre pôde dizer — quantas. Contador é uma forma que já
+existe aqui e cujo mecanismo já está decidido: aplicar na escrita, por restrição,
+nunca `count()` seguido de `INSERT`.
+
+Rejeitado manter o enum fixo e fazer os tenants arquivarem os servidores deles sob
+ele. É mais simples, é uma linha de código a menos, e está errado pelo motivo que
+importa: obriga o cliente a traduzir a geografia dele para a nossa. Num produto
+cujo ponto inteiro é não ter a nossa marca, impor o nosso vocabulário de região é a
+mesma falha de marca com outra roupa.
+
+**Consequências.** `REGIONS` e `regionSchema` saem de `@vpn/contracts` como fonte
+da verdade. `regions` vira tabela do tenant, sob RLS, e `entitlements.regions` muda
+de `Region[]` para `number` — uma mudança **quebrante** no pacote, e é por isso que
+ela viaja na mesma release da superfície de usuários.
+
+`devices` ganha **duas** colunas e não uma: `region_id`, que é a escolha da pessoa,
+e `exit_node_id`, que é a nossa atribuição. São fatos diferentes, e o glossário
+existe para não deixar que virem o mesmo campo.
+
+Continua valendo o que a DEC-043 diz: com **um** tier não há o que aplicar, e
+meio-aplicado parece aplicado. O contador entra no tipo e no schema agora; a
+aplicação chega quando existir um segundo tier para diferenciar.

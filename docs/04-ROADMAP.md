@@ -296,6 +296,13 @@ plane que ainda não existe.
       no PoC; o user nasce verificado porque o admin avalizou. Traz
       `@RequiresRole`, e só esta rota. Seats não são aplicados com um tier só.
       DEC-076, e `docs/specs/user-management.md`.
+- [ ] **Servidores e regiões.** Escopo obrigatório do brief, e a peça que subiu
+      da Fase 3. O tenant registra os próprios nós e os agrupa em regiões que
+      **ele** nomeia; o usuário final escolhe região e a atribuição do nó é
+      nossa. `exit_nodes` e `regions` viram tabelas sob RLS, a faixa de endereços
+      passa a ser por nó — o que levanta um teto de duas accounts — e a varredura
+      passa a rodar por nó. DEC-077, DEC-078, e
+      `docs/specs/servers-and-regions.md`.
 - [x] **Spike do WireGuard, depois a spec.** Contêiner com `NET_ADMIN`,
       `/dev/net/tun` e `21820/udp`, um peer semeado à mão, handshake provado da
       GUI do WireGuard for Windows e egress provado por NAT — o publish de UDP
@@ -314,9 +321,15 @@ plane que ainda não existe.
       não constroem nada em direção a um túnel.
 - [ ] Apps nativos (React Native, Tauri/Electron). Refresh por body, tenant por
       slug, e **nenhum fluxo de compra**. DEC-041, DEC-042.
-- [ ] Regiões e metering de tráfego. `monthlyTrafficGb` existe no tipo para os
-      tiers anunciarem; a aplicação depende do data plane e é explicitamente
-      adiada.
+- [ ] Metering de tráfego. `monthlyTrafficGb` existe no tipo para os tiers
+      anunciarem; a aplicação depende de medição contínua e continua adiada.
+- [~] ~~Regiões.~~ **Subiu para a Fase 2, atropelado pelo brief.** Esta linha
+  dizia "quando o produto exigir" e chamava a aplicação de "explicitamente
+  adiada"; o brief pede gerenciamento de servidores e regiões como escopo
+  obrigatório, então a condição foi satisfeita por fora. Fica registrado em
+  vez de reordenado em silêncio, porque a razão do adiamento — não havia o
+  segundo nó — continua sendo a razão pela qual isto é caro. DEC-077,
+  DEC-078.
 - [ ] SMS de verdade atrás de `ISmsSender` (SNS ou Twilio).
 - [ ] Expurgo do `outbox` publicado. Como `verification_tokens` e
       `refresh_tokens`, cresce para sempre; é o mesmo job.
