@@ -175,6 +175,19 @@ sem Docker ensina a ignorar suíte vermelha.
 - [x] **`@RequiresCapability` ganhou chamador em produção.** `/devices` é a
       primeira rota guardada, e o 402 é provado no e2e apagando o decorator e
       vendo os dois casos virarem 201 e 200.
+- [ ] **O reconciler repõe o peer e não carimba `provisioned_at`.** Um device
+      cujo job de provisionamento morreu na DLQ volta a ter túnel funcionando,
+      mas a tela continua dizendo "liberando o acesso no servidor" para sempre.
+      Reconciliar device pendente era item à parte antes disso; o reconciler
+      tornou o descompasso alcançável por um caminho novo. DEC-071.
+- [ ] **A faixa do túnel ignora o prefixo do CIDR.** `assignableAddresses` e
+      `isAssignable` usam só os três primeiros octetos, então `10.13.13.0/25`
+      é tratado como `/24` e o alocador distribuiria endereços fora da faixa.
+      Anterior a este trabalho, agora com teste que fixa o comportamento — o
+      teste descreve o que é, não o que deveria ser.
+- [ ] **O intervalo do reconciler é de processo.** Dois workers varreriam em
+      paralelo; hoje há um. Quando houver dois, o throttle vira linha travada
+      ou chave no cache, não um campo privado.
 - [ ] **Mudar um script CGI do nó exige `docker compose build wireguard`.**
       `control/` entra na imagem por `COPY`, não por bind mount, então um
       `restart` continua servindo o script velho — e o sintoma é a suíte de

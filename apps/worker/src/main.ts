@@ -44,11 +44,11 @@ async function main(): Promise<void> {
 			logger.error({ event: 'worker.dispatch_failed', ...failure });
 		}
 
-		if (published === 0 && report.received === 0) {
-			await reconciler.runOnce().catch((error: unknown) => {
-				logger.error({ event: 'worker.reconcile_failed', error });
-			});
+		await reconciler.runOnce().catch((error: unknown) => {
+			logger.error({ event: 'worker.reconcile_failed', error });
+		});
 
+		if (published === 0 && report.received === 0) {
 			await new Promise((resolve) => setTimeout(resolve, IDLE_PAUSE_MS));
 		}
 	}

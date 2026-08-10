@@ -1322,6 +1322,33 @@ describe('billing', () => {
 			expect(response.body.message).toContain('public key');
 		});
 
+		it('shows an admin the devices of the whole account, named by owner', async () => {
+			const owner = await subscribed();
+			await createDevice(owner.accessToken).expect(201);
+			const admin = await colleagueOf(owner.accountId, 'admin');
+
+			const listed = await request(app.getHttpServer())
+				.get('/devices')
+				.set('Authorization', `Bearer ${admin.accessToken}`)
+				.expect(200);
+
+			expect(listed.body.devices).toHaveLength(1);
+			expect(listed.body.devices[0].userEmail).toBe(owner.email);
+		});
+
+		it('shows a member nothing of what a colleague owns', async () => {
+			const owner = await subscribed();
+			await createDevice(owner.accessToken).expect(201);
+			const member = await colleagueOf(owner.accountId, 'member');
+
+			const listed = await request(app.getHttpServer())
+				.get('/devices')
+				.set('Authorization', `Bearer ${member.accessToken}`)
+				.expect(200);
+
+			expect(listed.body.devices).toEqual([]);
+		});
+
 		it('refuses to revoke a device that belongs to another member', async () => {
 			const owner = await subscribed();
 			const created = await createDevice(owner.accessToken).expect(201);
