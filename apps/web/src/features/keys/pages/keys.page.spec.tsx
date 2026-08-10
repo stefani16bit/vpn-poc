@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -47,8 +47,15 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
+
+async function advance(ms: number) {
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(ms);
+	});
+}
 
 function signedIn(): TestStore {
 	const store = makeStore();
@@ -155,6 +162,31 @@ describe('KeysPage', () => {
 		render();
 
 		expect(await screen.findByText('Active')).toBeInTheDocument();
+	});
+
+	it('turns pending into active on its own, because the worker finishes after the response', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		api.reply({ devices: [device()], node: NODE });
+		render();
+
+		expect(await screen.findByText(/opening access on the server/i)).toBeInTheDocument();
+
+		api.reply({ devices: [device({ provisionedAt: '2026-08-09T00:00:05.000Z' })], node: NODE });
+		await advance(2000);
+
+		expect(await screen.findByText('Active')).toBeInTheDocument();
+	});
+
+	it('stops asking once nothing is pending, so a settled list costs nothing', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		api.reply({ devices: [device({ provisionedAt: '2026-08-09T00:00:05.000Z' })], node: NODE });
+		render();
+
+		expect(await screen.findByText('Active')).toBeInTheDocument();
+		const settled = api.requests.length;
+		await advance(30_000);
+
+		expect(api.requests).toHaveLength(settled);
 	});
 
 	it('does not revoke anything until the confirmation is accepted', async () => {

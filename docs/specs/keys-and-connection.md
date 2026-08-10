@@ -342,6 +342,14 @@ túnel na máquina de ninguém — ele fica **ativo** e descarta tudo em silênc
 diálogo diz isso agora, e repete depois de revogar, porque o diálogo já não está
 lá quando a pessoa vai procurar o problema.
 
+**A tela dizia "liberando o acesso" até alguém recarregar.** O `invalidatesTags`
+da mutation dispara um refetch só, e ele cai dentro da janela em que o worker
+ainda não escreveu o peer: a resposta volta pendente e nada mais pergunta. O
+túnel já funcionava nesse meio tempo — a única coisa errada era a frase na tela.
+A lista agora pesquisa enquanto houver device sem `provisioned_at` e para quando
+não houver. Sem prazo, ao contrário da tela de checkout, porque aqui não existe
+estado neutro para oferecer no fim de um limite. DEC-072.
+
 ### O que continua fora
 
 `devicesPerUser` segue sem aplicação e **sem contador de fachada** — a DEC-043

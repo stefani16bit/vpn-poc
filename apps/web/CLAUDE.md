@@ -46,11 +46,14 @@ isso o teste consulta por papel (`findByRole('alertdialog')`) e não por texto.
 catch-all `/billing/*`, que fica para subpath desconhecido — inclusive `/billing`,
 que é o link dos e-mails de cobrança.
 
-A de sucesso é o único polling do app: quem ativa a assinatura é o webhook, e o
-redirect ganha essa corrida. Ela consulta a projeção até o tier aparecer ou até o
-limite, e o limite é **estado neutro** — "sendo processada", com um botão de
-verificar de novo. Nunca "o pagamento falhou": não existe redirect de falha, um
-cartão recusado não sai da página do provider. Ver DEC-058.
+A de sucesso faz polling: quem ativa a assinatura é o webhook, e o redirect ganha
+essa corrida. Ela consulta a projeção até o tier aparecer ou até o limite, e o
+limite é **estado neutro** — "sendo processada", com um botão de verificar de
+novo. Nunca "o pagamento falhou": não existe redirect de falha, um cartão
+recusado não sai da página do provider. Ver DEC-058.
+
+O outro polling do app é a lista de dispositivos, e ele **não** tem prazo — a
+diferença está na DEC-072.
 
 O que decide "ativada" é `resolveTier` de `@vpn/contracts`, a mesma função da API.
 Duplicar a regra aqui faria a tela e o servidor discordarem sobre `trialing`.

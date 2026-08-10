@@ -2721,3 +2721,50 @@ O reconciler lê `listPeers()` **fora** de transação, abre `runAsSystem` só p
 ler as linhas vivas, fecha, e só então fala com o nó. Chamada externa com
 transação aberta é a dívida que o roadmap já nomeia em `createCheckout`, e
 repeti-la aqui seria escrevê-la de novo de propósito.
+
+---
+
+### DEC-072 — A lista de dispositivos pesquisa enquanto houver pendente, e sem prazo
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** Criar um device responde 201 com `provisioned_at` nulo: quem
+escreve o peer no nó é o outbox (DEC-064), e isso termina cerca de um segundo
+depois. O `invalidatesTags: ['Devices']` da mutation dispara **um** refetch,
+imediatamente após o POST — ou seja, sempre dentro da janela em que o worker
+ainda não terminou. A resposta volta pendente, nada mais refaz a consulta, e o
+badge fica em "Liberando o acesso no servidor…" até alguém apertar F5.
+
+O que torna isso pior que uma tela desatualizada: o túnel **já funciona** nesse
+meio tempo. O handshake completa, o tráfego passa, e a única coisa errada na
+máquina é a frase na tela dizendo que ainda não está pronto.
+
+**Decisão.** `useDevicesQuery` recebe `pollingInterval` de 2s enquanto **algum**
+device da lista estiver sem `provisioned_at`, e 0 quando não houver nenhum. O
+predicado é derivado da lista, não do sucesso da mutation: um device pendente
+carregado num boot de página — outra aba, outro dispositivo, um reload no meio
+do provisionamento — resolve igual.
+
+**Rationale.** Sem prazo, ao contrário da DEC-058, e a diferença não é
+inconsistência. Lá o polling alimenta uma tela terminal, e o limite existe
+porque há um estado neutro para oferecer no fim dele: "sendo processada", com um
+botão de verificar de novo. Aqui o polling alimenta um badge dentro de uma lista
+que já é o estado vivo da página, e não existe evento terminal único a esperar.
+Um limite sem estado novo não resolveria nada — recriaria este mesmo bug alguns
+segundos mais tarde, que é precisamente o defeito que a decisão está corrigindo.
+
+Rejeitado também acordar a lista pelo retorno da mutation: isso conserta só o
+caminho de quem acabou de clicar em gerar, e é o caminho que menos precisa de
+conserto, porque é o único em que a pessoa sabe o que está esperando.
+
+**Consequências.** É o segundo polling do app, e `apps/web/CLAUDE.md` deixa de
+dizer que a tela de checkout é o único. O custo no caso normal é uma requisição:
+o worker termina em ~1s e o predicado fecha na primeira volta.
+
+Se o worker estiver morto, uma aba aberta na página consulta a cada 2s pelo tempo
+que ficar aberta. É aceitável e é deliberado — a alternativa é parar de perguntar
+e continuar mostrando "liberando", que é a mentira que a decisão remove.
+Diagnosticar worker morto é trabalho do `tunnel:doctor`, não do badge.
+
+`listLive` não devolve device revogado, então uma linha revogada antes de ser
+provisionada não segura o polling aberto para sempre.

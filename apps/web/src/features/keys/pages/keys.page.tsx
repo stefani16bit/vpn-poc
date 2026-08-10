@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { normalizeError } from '@/app/store/api-error.js';
@@ -14,15 +14,26 @@ import { DeviceList } from '@/features/keys/components/device-list.tsx';
 import { useGenerateDevice } from '@/features/keys/hooks/use-generate-device.js';
 import { useTranslator } from '@/i18n/locale-context.tsx';
 
+const PROVISION_POLL_INTERVAL_MS = 2000;
+
 export function KeysPage() {
 	const t = useTranslator();
 	const [name, setName] = useState('');
+	const [awaitingProvision, setAwaitingProvision] = useState(false);
 
-	const devices = useDevicesQuery();
+	const devices = useDevicesQuery(undefined, {
+		pollingInterval: awaitingProvision ? PROVISION_POLL_INTERVAL_MS : 0,
+	});
 	const generator = useGenerateDevice();
 	const [revokeDevice, revokeState] = useRevokeDeviceMutation();
 
 	const pending = generator.pending || revokeState.isLoading;
+	const list = devices.data?.devices ?? [];
+	const unprovisioned = list.some((device) => !device.provisionedAt);
+
+	useEffect(() => {
+		setAwaitingProvision(unprovisioned);
+	}, [unprovisioned]);
 
 	return (
 		<Card className="w-full max-w-md">
@@ -81,11 +92,7 @@ export function KeysPage() {
 					{devices.isLoading ? (
 						<Loading />
 					) : (
-						<DeviceList
-							devices={devices.data?.devices ?? []}
-							pending={pending}
-							onRevoke={(id) => void revokeDevice(id)}
-						/>
+						<DeviceList devices={list} pending={pending} onRevoke={(id) => void revokeDevice(id)} />
 					)}
 				</div>
 
