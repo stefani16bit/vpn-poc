@@ -2485,3 +2485,50 @@ ordena por dependência. `test:agent` sai junto: existia para desligar daemon e
 cloud do nx, e sem nx não tem o que desligar. O `nx.json` do submodule fica —
 ele é o que faz `pnpm exec nx` ser utilizável de lá com raiz explícita — mas
 nenhum script depende dele.
+
+---
+
+### DEC-068 — A descrição do nó é cacheada com prazo, e uma chave trocada é dita em voz alta
+
+**Data:** 2026-08-10 · **Status:** accepted
+
+**Contexto.** `ExitNodeDirectory` memoizava a **promessa** de `describe()` pela
+vida do processo. A memoização em si está certa: `describe()` está no caminho de
+`GET /devices` e de `POST /devices`, e guardar a promessa — não o valor — é o que
+faz dez chamadores concorrentes produzirem uma ida ao nó em vez de dez.
+
+O que faltava era prazo. Reconstruir o contêiner do nó gera uma chave nova, e a
+API continuava servindo a antiga até alguém reiniciá-la. Quem baixasse um `.conf`
+nesse intervalo recebia um arquivo que **nunca** completa handshake, e a DEC-063
+já tinha registrado que esse é justamente o sintoma sem log.
+
+**Decisão.** A memo ganha TTL de **60 segundos** — o mesmo prazo que
+`EntitlementsService` usa — e a releitura compara a chave com a anterior. Se
+mudou, sai `exit_node.public_key_changed` em nível de erro, com a chave velha e a
+nova.
+
+**Rationale.** Das três invalidações possíveis, o TTL é a única que resolve o
+caso real. "Limpar a memo quando falha" **já existia** e continua: uma rejeição
+nunca foi cacheada. Mas um nó reconstruído não falha — ele responde, com outra
+chave —, então o caminho de erro nunca é percorrido. "Reler quando um provision
+falha" não ajuda: quem provisiona é o worker, que injeta `EXIT_NODE` direto e não
+passa pelo directory; seria invalidar a memo do processo errado.
+
+60 segundos limita o dano a uma janela, e o log é o que transforma essa janela em
+algo diagnosticável. Só o TTL seria uma correção silenciosa de um problema
+silencioso: quem baixou o `.conf` velho continua com um arquivo morto, e ninguém
+saberia dizer por quê. Rotação da chave do nó continua fora de escopo como
+produto (a spec de chaves diz isso), mas **detectá-la** não é escolha de produto.
+
+**Consequências.** O directory passa a depender de `IClock`, então o teste
+controla o tempo em vez de esperar. O arquivo não tinha spec nenhuma; agora tem
+oito casos, e os dois que estavam vermelhos são o TTL e a chave trocada.
+
+`e2e.setup.ts` passa a fixar `EXIT_NODE_DRIVER=memory`. Era o único driver que o
+arquivo não fixava, e sem isso a suíte e2e conversa com o contêiner do devstack
+que outras suítes usam ao mesmo tempo — um acoplamento que não se manifesta hoje
+e se manifestaria em cheio no primeiro teste que varra os peers do nó.
+
+O logger é `new Logger(...)` do `@nestjs/common`, como no `GlobalExceptionFilter`
+e no `HealthCheckFilter`: `MODULE_LOGGER` é registrado por módulo de rota, e o
+directory mora no kernel, que não tem um.

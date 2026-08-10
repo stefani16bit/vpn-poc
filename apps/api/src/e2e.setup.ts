@@ -13,6 +13,7 @@ process.env['SMS_DRIVER'] = 'memory';
 process.env['BILLING_DRIVER'] = 'memory';
 process.env['STORAGE_DRIVER'] = 'memory';
 process.env['QUEUE_DRIVER'] = 'memory';
+process.env['EXIT_NODE_DRIVER'] = 'memory';
 process.env['STRIPE_PRICE_ID'] = 'price_local_monthly';
 process.env['STRIPE_PRICE_ID_YEARLY'] = 'price_local_yearly';
 process.env['SENTRY_DSN'] = '';
