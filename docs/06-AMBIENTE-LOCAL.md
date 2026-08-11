@@ -157,8 +157,17 @@ hospedada, assinatura do webhook, normalização do evento.
 ```bash
 stripe login                       # uma vez, contra sua conta em test mode
 pnpm billing:prices                # cria produto e os dois preços, imprime os ids
-stripe listen --forward-to localhost:3000/billing/webhook
+stripe listen --forward-to 127.0.0.1:3000/billing/webhook
 ```
+
+**`127.0.0.1` e não `localhost`, e aqui isso não é estilo.** A CLI do Stripe
+resolve `localhost` e tenta `::1` primeiro, exatamente como o Node faz (DEC-032).
+A API sobe em `0.0.0.0:3000` **só em IPv4**, então qualquer outro dev server desta
+máquina que suba dual-stack fica dono do `[::]:3000` — e o Windows deixa os dois
+coexistirem, porque as famílias de socket são diferentes e nenhum vê "porta em
+uso". O sintoma é a CLI reportando **404 em todo evento**, encaminhado para um
+processo que não é este, com a assinatura nunca ativando e nada aparecendo no log
+da API. `netstat -ano | grep :3000` mostra os dois donos.
 
 No `.env`, com o `whsec_...` que o `listen` imprimiu:
 
@@ -201,6 +210,15 @@ então tirá-lo do `.env` não muda nada nos testes.
   túnel importado no cliente cujo device foi revogado ou perdido num `reset` do
   banco: o cliente continua **Up**, o nó não conhece mais a chave, e todo pacote
   é descartado em silêncio. A saída nomeia o túnel e manda apagá-lo.
+- **A CLI do Stripe responde 404 em todo evento e a assinatura nunca ativa:**
+  ela está encaminhando para outro processo. Aconteceu de verdade: um dev server
+  de outro projeto desta máquina segurava `[::]:3000` enquanto a API segurava
+  `0.0.0.0:3000` em IPv4, e `--forward-to localhost:3000` foi para o vizinho.
+  Encaminhe para `127.0.0.1:3000` e confira com `netstat -ano | grep :3000` — dois
+  PIDs ali é o diagnóstico. Um `POST` à mão distingue os dois em um segundo: a
+  API responde **403** (assinatura inválida), o vizinho responde **404**.
+  Depois de consertar, `stripe events resend <evt_...>` recupera o que se perdeu;
+  nada aqui reconcilia com o provider sozinho.
 - **`@vpn/...` não encontrado:** o Verdaccio está no ar mas os pacotes não foram
   publicados. `pnpm packages:publish:local`.
 - **O device fica "liberando o acesso" para sempre:** o job de provisionamento
