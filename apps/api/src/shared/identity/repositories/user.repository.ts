@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, count, eq, isNull } from 'drizzle-orm';
 
 import { DATABASE } from '@vpn-poc/adapters';
-import { users, type Database } from '@vpn-poc/database';
+import { devices, users, type Database } from '@vpn-poc/database';
 
 import { currentExecutor } from '../../database/db-scope.js';
 import type { Executor } from '../../database/transaction-runner.js';
@@ -10,6 +10,16 @@ import type { User, UserRole } from '../user.js';
 
 export interface StoredUser extends User {
 	readonly passwordHash: string;
+}
+
+export interface AccountMember {
+	readonly id: string;
+	readonly email: string;
+	readonly role: UserRole;
+	readonly emailVerifiedAt: Date | null;
+	readonly locale: string;
+	readonly createdAt: Date;
+	readonly liveDeviceCount: number;
 }
 
 @Injectable()
@@ -23,10 +33,35 @@ export class UserRepository {
 			passwordHash: string;
 			role: UserRole;
 			locale: string;
+			emailVerifiedAt?: Date;
 		},
 		executor: Executor = currentExecutor(),
 	): Promise<StoredUser | undefined> {
-		const inserted = await executor.insert(users).values(values).onConflictDoNothing().returning();
+		const inserted = await executor
+			.insert(users)
+			.values(values)
+			.onConflictDoNothing({ target: users.email, where: eq(users.role, 'owner') })
+			.returning();
+
+		return toStoredUser(inserted[0]);
+	}
+
+	async insertMember(
+		values: {
+			accountId: string;
+			email: string;
+			passwordHash: string;
+			role: UserRole;
+			locale: string;
+			emailVerifiedAt: Date;
+		},
+		executor: Executor = currentExecutor(),
+	): Promise<StoredUser | undefined> {
+		const inserted = await executor
+			.insert(users)
+			.values(values)
+			.onConflictDoNothing({ target: [users.accountId, users.email] })
+			.returning();
 
 		return toStoredUser(inserted[0]);
 	}
@@ -91,6 +126,51 @@ export class UserRepository {
 		executor: Executor = currentExecutor(),
 	): Promise<void> {
 		await executor.update(users).set({ locale, updatedAt: now }).where(eq(users.id, id));
+	}
+
+	async listByAccount(
+		accountId: string,
+		executor: Executor = currentExecutor(),
+	): Promise<readonly AccountMember[]> {
+		return executor
+			.select({
+				id: users.id,
+				email: users.email,
+				role: users.role,
+				emailVerifiedAt: users.emailVerifiedAt,
+				locale: users.locale,
+				createdAt: users.createdAt,
+				liveDeviceCount: count(devices.id),
+			})
+			.from(users)
+			.leftJoin(devices, and(eq(devices.userId, users.id), isNull(devices.revokedAt)))
+			.where(eq(users.accountId, accountId))
+			.groupBy(users.id)
+			.orderBy(users.createdAt);
+	}
+
+	async updateRole(
+		id: string,
+		role: UserRole,
+		now: Date,
+		executor: Executor = currentExecutor(),
+	): Promise<boolean> {
+		const updated = await executor
+			.update(users)
+			.set({ role, updatedAt: now })
+			.where(eq(users.id, id))
+			.returning({ id: users.id });
+
+		return updated.length === 1;
+	}
+
+	async deleteById(id: string, executor: Executor = currentExecutor()): Promise<boolean> {
+		const deleted = await executor
+			.delete(users)
+			.where(eq(users.id, id))
+			.returning({ id: users.id });
+
+		return deleted.length === 1;
 	}
 
 	async markEmailVerified(

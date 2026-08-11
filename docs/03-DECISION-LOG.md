@@ -3063,12 +3063,28 @@ mesmas regras que uma digitada — ela não é uma espécie à parte.
 Nenhuma coluna nova, nenhum caminho de login novo.
 
 Aparece uma segunda via de criação de user, e com ela um problema que estava
-adormecido: `UserRepository.insert` faz `onConflictDoNothing()` **sem alvo**, o que
-absorve os quatro índices únicos de `users` de uma vez. Hoje é benigno só porque os
-dois índices de owner são parciais e o caminho de cadastro nunca os alcança de
-outro jeito. É o mesmo defeito que o trabalho de devices já consertou uma vez
-(DEC-069): o alvo passa a ser nomeado, e qualquer outra violação levanta `23505`
-para o `isUniqueViolation` tratar, em vez de virar um "não fiz nada" silencioso.
+adormecido: `UserRepository.insert` fazia `onConflictDoNothing()` **sem alvo**, o
+que absorve os quatro índices únicos de `users` de uma vez — o mesmo defeito que o
+trabalho de devices já consertou uma vez (DEC-069).
+
+**Emenda — 2026-08-11.** A primeira versão desta decisão dizia que o cadastro
+"nunca alcança os índices de owner de outro jeito" e que bastaria nomear um alvo.
+Errado, e o e2e provou: o cadastro **depende** de absorver `users_owner_email_key`
+— é exatamente assim que ele detecta um e-mail repetido e devolve o mesmo 202 do
+caso novo, que é o inegociável nº 4. Nomear `(account_id, email)` fez um segundo
+cadastro levantar `23505` e virar 500.
+
+São dois caminhos com índices diferentes, e cada um nomeia o seu, no precedente do
+`device.repository`, que já usa `target` com `where` para índice parcial:
+
+- `insert`, do cadastro, nomeia `(email) where role = 'owner'`. Uma account nova
+  não pode colidir em `(account_id, email)`, então esse é o único índice
+  alcançável ali.
+- `insertMember`, da página de usuários, nomeia `(account_id, email)`.
+
+Em ambos, o que **não** foi nomeado levanta `23505` em vez de virar um "não fiz
+nada" silencioso — que é o ponto original, agora aplicado com o alvo certo em cada
+lado.
 
 ---
 

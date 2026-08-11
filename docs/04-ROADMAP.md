@@ -4,7 +4,7 @@ Este arquivo faz as vezes de issue tracker. Não abra issues; edite aqui.
 
 ---
 
-## Estado — 2026-08-10
+## Estado — 2026-08-11
 
 **Fase 1 + i18n entregues. Fase 2: outbox, webhook, Account/User + RLS e
 entitlements entregues.** Cadastro, verificação, login, rotação de sessão, reset
@@ -29,24 +29,31 @@ sai diferente de zero em qualquer passo. Medido: `seenFrom` é o endereço que a
 API alocou, e a revogação mata o acesso em 4s **com o túnel ainda de pé**.
 DEC-075, `docs/specs/tunnel-proof.md`.
 
-O alocador de endereços passou a ler a máscara do CIDR, o que fecha uma dívida
-antiga e desarma uma armadilha nova: o contrato de servidores já aceita
-`tunnelCidr`, então um `/25` tratado como `/24` deixaria de ser teórico assim que
-um tenant registrasse o primeiro nó.
+E existe uma segunda pessoa. A página de usuários fecha o penúltimo item da
+Fase 2 e traz `@RequiresRole` com o primeiro chamador de produção — provado
+apagando o decorator e vendo o 403 virar 200. A senha é gerada e mostrada uma
+vez, o user nasce verificado, e mudar a role mata as sessões dele em vez de
+esperar o token de 15 minutos expirar. Os cinco casos que fabricavam um colega
+com SQL cru agora o criam pelo endpoint. DEC-076.
+
+Junto veio o alocador de endereços lendo a máscara do CIDR, o que fecha uma
+dívida antiga e desarma uma armadilha nova: o contrato de servidores já aceita
+`tunnelCidr`, então um `/25` tratado como `/24` deixaria de ser teórico assim
+que um tenant registrasse o primeiro nó.
 
 | Suíte                                                       | Testes   | Precisa do devstack |
 | ----------------------------------------------------------- | -------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                | 248      | não                 |
 | `libs/env`                                                  | 23       | não                 |
 | `libs/adapters` — render de e-mail/SMS, redação, webhook    | 22       | não                 |
-| `apps/api` — kernel, serviços, controllers                  | 474      | não                 |
-| `apps/web` — store, telas, normalização de erro, locale     | 226      | não                 |
+| `apps/api` — kernel, serviços, controllers                  | 506      | não                 |
+| `apps/web` — store, telas, normalização de erro, locale     | 241      | não                 |
 | `infra` — validação de config CDK                           | 11       | não                 |
-| **Subtotal `pnpm verify`**                                  | **1004** | **não**             |
+| **Subtotal `pnpm verify`**                                  | **1051** | **não**             |
 | `libs/adapters` — as mesmas suítes contra os serviços reais | 90       | sim                 |
-| `apps/api` — RLS, transações, a view e o trigger            | 63       | sim                 |
-| `apps/api` — fluxo completo mais a matriz de locale         | 103      | sim                 |
-| **Total**                                                   | **1260** |                     |
+| `apps/api` — RLS, transações, a view e o trigger            | 65       | sim                 |
+| `apps/api` — fluxo completo mais a matriz de locale         | 122      | sim                 |
+| **Total**                                                   | **1328** |                     |
 
 Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 94/87/88/93 (linhas/funções/ramos/statements), `apps/web` em 97/95/92/96.
@@ -306,12 +313,15 @@ plane que ainda não existe.
       provada removendo a chamada e vendo os dois cenários de cache quente ficarem
       vermelhos. DEC-036, DEC-037, DEC-054, DEC-055, e
       `docs/specs/entitlements-and-plans.md`.
-- [ ] **Página de usuários.** Admin cria user dentro da account, e a senha é
-      **gerada e mostrada uma vez** — não digitada pelo admin, que é a única
-      senha do sistema que nasceria fraca por construção. Sem convite por e-mail
-      no PoC; o user nasce verificado porque o admin avalizou. Traz
-      `@RequiresRole`, e só esta rota. Seats não são aplicados com um tier só.
-      DEC-076, e `docs/specs/user-management.md`.
+- [x] **Página de usuários.** Listar, criar, mudar role e remover, tudo atrás de
+      `@RequiresRole('admin')` — a primeira e única rota barrada por role, provada
+      apagando o decorator e vendo o 403 virar 200. A senha é **gerada e mostrada
+      uma vez**, e o user nasce verificado porque o admin avalizou (DEC-076).
+      Mudar a role ou remover **mata as sessões da pessoa**: `role` viaja dentro
+      de um token de 15 min que ninguém revoga. Os cinco casos que fabricavam um
+      colega com SQL cru agora o criam pelo endpoint e entram com a senha
+      devolvida — se "nasce verificado" estivesse errado, eles ficariam vermelhos.
+      `docs/specs/user-management.md`.
 - [ ] **Servidores e regiões.** Escopo obrigatório do brief, e a peça que subiu
       da Fase 3. O tenant registra os próprios nós e os agrupa em regiões que
       **ele** nomeia; o usuário final escolhe região e a atribuição do nó é
@@ -356,9 +366,9 @@ plane que ainda não existe.
 
 ```bash
 make up && make check                                # devstack: 19/19
-pnpm --filter @vpn-poc/api test:e2e                  # 84, o fluxo inteiro
-pnpm --filter @vpn-poc/api test:integration          # 54, RLS e formas de SQL
-pnpm --filter @vpn-poc/adapters test:integration     # 74, adapters reais
+pnpm --filter @vpn-poc/api test:e2e                  # 122, o fluxo inteiro
+pnpm --filter @vpn-poc/api test:integration          # 65, RLS e formas de SQL
+pnpm --filter @vpn-poc/adapters test:integration     # 90, adapters reais
 pnpm dev                                             # api :3000, web :5173
 ```
 

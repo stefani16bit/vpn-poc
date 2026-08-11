@@ -1,0 +1,149 @@
+import { useState, type ReactNode } from 'react';
+import { useSelector } from 'react-redux';
+
+import { ASSIGNABLE_ROLES, createUserRequestSchema, type AssignableRole } from '@vpn/contracts';
+
+import { normalizeError } from '@/app/store/api-error.js';
+import type { RootState } from '@/app/store/index.js';
+import { Field } from '@/components/form/field.tsx';
+import { FormError } from '@/components/form/form-error.tsx';
+import { SubmitButton } from '@/components/form/submit-button.tsx';
+import { Loading } from '@/components/layout/loading.tsx';
+import { Nav } from '@/components/layout/nav.tsx';
+import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { Input } from '@/components/ui/input.tsx';
+import {
+	useAccountUsersQuery,
+	useChangeUserRoleMutation,
+	useCreateUserMutation,
+	useRemoveUserMutation,
+} from '@/features/users/api/users.api.js';
+import { TemporaryPasswordDialog } from '@/features/users/components/temporary-password-dialog.tsx';
+import { UserList } from '@/features/users/components/user-list.tsx';
+import { useTranslator } from '@/i18n/locale-context.tsx';
+
+interface Issued {
+	readonly email: string;
+	readonly password: string;
+}
+
+export function UsersPage(): ReactNode {
+	const t = useTranslator();
+	const currentUserId = useSelector((state: RootState) => state.auth.user?.id);
+
+	const [email, setEmail] = useState('');
+	const [role, setRole] = useState<AssignableRole>('member');
+	const [issued, setIssued] = useState<Issued | null>(null);
+	const [fieldError, setFieldError] = useState<string | null>(null);
+
+	const users = useAccountUsersQuery();
+	const [createUser, createState] = useCreateUserMutation();
+	const [changeRole, changeState] = useChangeUserRoleMutation();
+	const [removeUser, removeState] = useRemoveUserMutation();
+
+	const pending = createState.isLoading || changeState.isLoading || removeState.isLoading;
+
+	async function submit(event: React.FormEvent): Promise<void> {
+		event.preventDefault();
+
+		const parsed = createUserRequestSchema.safeParse({ email, role });
+		if (!parsed.success) {
+			setFieldError(parsed.error.issues[0]?.message ?? null);
+			return;
+		}
+
+		setFieldError(null);
+		const result = await createUser(parsed.data);
+		if (!('data' in result) || !result.data) return;
+
+		setIssued({ email: result.data.user.email, password: result.data.temporaryPassword });
+		setEmail('');
+	}
+
+	return (
+		<Card className="w-full max-w-md">
+			<CardHeader>
+				<CardTitle className="text-xl">{t('users.title')}</CardTitle>
+			</CardHeader>
+
+			<CardContent>
+				<p className="text-muted-foreground">{t('users.intro')}</p>
+
+				<FormError
+					error={normalizeError(
+						createState.error ?? changeState.error ?? removeState.error ?? users.error,
+					)}
+				/>
+
+				{changeState.isSuccess ? (
+					<Alert className="mt-4">
+						<AlertDescription>{t('users.roleChanged')}</AlertDescription>
+					</Alert>
+				) : null}
+
+				{removeState.isSuccess ? (
+					<Alert className="mt-4">
+						<AlertDescription>{t('users.removed')}</AlertDescription>
+					</Alert>
+				) : null}
+
+				<form onSubmit={(event) => void submit(event)} className="mt-6 space-y-4" noValidate>
+					<Field label={t('users.emailLabel')} error={fieldError ?? undefined}>
+						{(control) => (
+							<Input
+								{...control}
+								type="email"
+								value={email}
+								onChange={(event) => setEmail(event.target.value)}
+							/>
+						)}
+					</Field>
+
+					<Field label={t('users.roleLabel')}>
+						{(control) => (
+							<select
+								{...control}
+								value={role}
+								onChange={(event) => setRole(event.target.value as AssignableRole)}
+								className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+							>
+								{ASSIGNABLE_ROLES.map((option) => (
+									<option key={option} value={option}>
+										{option === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
+									</option>
+								))}
+							</select>
+						)}
+					</Field>
+
+					<SubmitButton pending={pending}>{t('users.create')}</SubmitButton>
+				</form>
+
+				<div className="mt-8">
+					{users.isLoading ? (
+						<Loading />
+					) : (
+						<UserList
+							users={users.data?.users ?? []}
+							currentUserId={currentUserId}
+							pending={pending}
+							onChangeRole={(id, next) => void changeRole({ id, role: next })}
+							onRemove={(id) => void removeUser(id)}
+						/>
+					)}
+				</div>
+
+				<Nav />
+			</CardContent>
+
+			{issued ? (
+				<TemporaryPasswordDialog
+					email={issued.email}
+					password={issued.password}
+					onDismiss={() => setIssued(null)}
+				/>
+			) : null}
+		</Card>
+	);
+}

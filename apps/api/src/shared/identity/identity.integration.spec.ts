@@ -237,13 +237,56 @@ describe('looking a user up by e-mail', () => {
 describe('inserting a user', () => {
 	it('reports the address as taken instead of raising, which is what makes a double submit safe', async () => {
 		const inserted = await transactions.runAsSystem((tx) =>
-			users.insert(
-				{ accountId: B, email: SHARED_EMAIL, passwordHash: 'x', role: 'member', locale: 'pt-BR' },
+			users.insertMember(
+				{
+					accountId: B,
+					email: SHARED_EMAIL,
+					passwordHash: 'x',
+					role: 'member',
+					locale: 'pt-BR',
+					emailVerifiedAt: NOW,
+				},
 				tx,
 			),
 		);
 
 		expect(inserted).toBeUndefined();
+	});
+
+	it('lets the same address join a second account as a member', async () => {
+		const inserted = await transactions.runAsSystem((tx) =>
+			users.insertMember(
+				{
+					accountId: C,
+					email: SHARED_EMAIL,
+					passwordHash: 'x',
+					role: 'member',
+					locale: 'pt-BR',
+					emailVerifiedAt: NOW,
+				},
+				tx,
+			),
+		);
+
+		expect(inserted?.accountId).toBe(C);
+	});
+
+	it('raises rather than absorbing when a member insert hits an index it does not name', async () => {
+		await expect(
+			transactions.runAsSystem((tx) =>
+				users.insertMember(
+					{
+						accountId: A,
+						email: 'second-owner-of-a@identity.example.com',
+						passwordHash: 'x',
+						role: 'owner',
+						locale: 'pt-BR',
+						emailVerifiedAt: NOW,
+					},
+					tx,
+				),
+			),
+		).rejects.toMatchObject({ code: '23505' });
 	});
 
 	it('refuses to let one address found a second account', async () => {

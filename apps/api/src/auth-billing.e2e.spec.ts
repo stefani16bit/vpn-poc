@@ -1,7 +1,5 @@
 import { MAILPIT_URL } from './e2e.setup.js';
 
-import { randomUUID } from 'node:crypto';
-
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +12,6 @@ import type { MemoryBillingProvider } from '@vpn/testing/fakes';
 import type { createDatabase } from '@vpn-poc/database';
 
 import { createApp } from './bootstrap.js';
-import { AccessTokenService } from './shared/access-control/access-token.service.js';
 import { PeerReconciler } from './shared/devices/peer-reconciler.service.js';
 import { OutboxConsumer } from './shared/outbox/outbox-consumer.js';
 import { OutboxRelay } from './shared/outbox/outbox-relay.js';
@@ -1200,26 +1197,35 @@ describe('billing', () => {
 				.send({ name: 'laptop', publicKey });
 		}
 
-		// There is no endpoint that adds a user to an account yet, so the colleague
-		// is inserted as system and given a token the same service issues.
-		async function colleagueOf(accountId: string, role: 'admin' | 'member') {
+		// Only public endpoints: the admin creates the colleague and the colleague
+		// logs in with the password the response handed back. That makes these five
+		// cases the acceptance test for DEC-076 as well — if an admin-created user
+		// were not born verified, the login below would answer EMAIL_NOT_VERIFIED.
+		async function colleagueOf(adminToken: string, role: 'admin' | 'member') {
 			const email = freshEmail();
-			const [user] = await db`
-				INSERT INTO users (account_id, email, password_hash, role, email_verified_at)
-				VALUES (${accountId}, ${email}, 'x', ${role}, now())
-				RETURNING id
-			`;
-			const userId = (user as { id: string }).id;
 
-			const accessToken = await app.get(AccessTokenService).issue({
-				userId,
-				accountId,
-				role,
-				sessionId: randomUUID(),
-				emailVerified: true,
-			});
+			const created = await request(app.getHttpServer())
+				.post('/users')
+				.set('Authorization', `Bearer ${adminToken}`)
+				.send({ email, role })
+				.expect(201);
 
-			return { userId, email, accessToken };
+			const { user, temporaryPassword } = created.body as {
+				user: { id: string };
+				temporaryPassword: string;
+			};
+
+			const session = await request(app.getHttpServer())
+				.post('/auth/login')
+				.send({ email, password: temporaryPassword })
+				.expect(200);
+
+			return {
+				userId: user.id,
+				email,
+				temporaryPassword,
+				accessToken: (session.body as { accessToken: string }).accessToken,
+			};
 		}
 
 		it('answers 402 when the account never subscribed, which is the gate doing its job', async () => {
@@ -1246,7 +1252,7 @@ describe('billing', () => {
 			expect(response.body.device.publicKey).toBe(PUBLIC_KEY);
 			expect(response.body.device.tunnelAddress).toMatch(/^10\.13\.13\.\d+\/32$/);
 			expect(response.body.device.provisionedAt).toBeNull();
-			expect(response.body.node.publicKey).toBeTruthy();
+			expect(response.body.device.node.publicKey).toBeTruthy();
 		});
 
 		it('never accepts anything shaped like a private key', async () => {
@@ -1325,7 +1331,7 @@ describe('billing', () => {
 		it('shows an admin the devices of the whole account, named by owner', async () => {
 			const owner = await subscribed();
 			await createDevice(owner.accessToken).expect(201);
-			const admin = await colleagueOf(owner.accountId, 'admin');
+			const admin = await colleagueOf(owner.accessToken, 'admin');
 
 			const listed = await request(app.getHttpServer())
 				.get('/devices')
@@ -1339,7 +1345,7 @@ describe('billing', () => {
 		it('shows a member nothing of what a colleague owns', async () => {
 			const owner = await subscribed();
 			await createDevice(owner.accessToken).expect(201);
-			const member = await colleagueOf(owner.accountId, 'member');
+			const member = await colleagueOf(owner.accessToken, 'member');
 
 			const listed = await request(app.getHttpServer())
 				.get('/devices')
@@ -1352,7 +1358,7 @@ describe('billing', () => {
 		it('refuses to revoke a device that belongs to another member', async () => {
 			const owner = await subscribed();
 			const created = await createDevice(owner.accessToken).expect(201);
-			const colleague = await colleagueOf(owner.accountId, 'member');
+			const colleague = await colleagueOf(owner.accessToken, 'member');
 
 			await request(app.getHttpServer())
 				.delete(`/devices/${created.body.device.id}`)
@@ -1366,7 +1372,7 @@ describe('billing', () => {
 		it('lets an admin revoke a device that is not theirs, which is what offboarding needs', async () => {
 			const owner = await subscribed();
 			const created = await createDevice(owner.accessToken).expect(201);
-			const admin = await colleagueOf(owner.accountId, 'admin');
+			const admin = await colleagueOf(owner.accessToken, 'admin');
 
 			await request(app.getHttpServer())
 				.delete(`/devices/${created.body.device.id}`)
@@ -1380,7 +1386,7 @@ describe('billing', () => {
 		it('tells the node to forget a peer an admin revoked', async () => {
 			const owner = await subscribed();
 			const created = await createDevice(owner.accessToken).expect(201);
-			const admin = await colleagueOf(owner.accountId, 'admin');
+			const admin = await colleagueOf(owner.accessToken, 'admin');
 
 			await request(app.getHttpServer())
 				.delete(`/devices/${created.body.device.id}`)
@@ -1465,6 +1471,303 @@ describe('billing', () => {
 				.delete(url)
 				.set('Authorization', `Bearer ${session.accessToken}`)
 				.expect(404);
+		});
+	});
+
+	describe('users', () => {
+		const PUBLIC_KEY = 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=';
+
+		function activation(accountId: string) {
+			const billing = provider();
+			return billing.emit('subscription_activated', accountId, {
+				subscription: billing.seedSubscription(`sub_${accountId}`, accountId),
+			});
+		}
+
+		async function ownerSession() {
+			const session = await subscribedSession();
+			await deliver(activation(session.accountId)).expect(200, { applied: true });
+			return session;
+		}
+
+		function createUser(accessToken: string, body: Record<string, unknown>) {
+			return request(app.getHttpServer())
+				.post('/users')
+				.set('Authorization', `Bearer ${accessToken}`)
+				.send(body);
+		}
+
+		async function member(ownerToken: string, role: 'admin' | 'member' = 'member') {
+			const email = freshEmail();
+			const created = await createUser(ownerToken, { email, role }).expect(201);
+
+			return {
+				email,
+				id: created.body.user.id as string,
+				temporaryPassword: created.body.temporaryPassword as string,
+			};
+		}
+
+		it('lets an owner list the account, and shows the owner in it', async () => {
+			const owner = await ownerSession();
+
+			const listed = await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(200);
+
+			expect(listed.body.users).toHaveLength(1);
+			expect(listed.body.users[0]).toMatchObject({ email: owner.email, role: 'owner' });
+		});
+
+		it('refuses a member, which is the first route barred by role alone', async () => {
+			const owner = await ownerSession();
+			const colleague = await member(owner.accessToken);
+
+			const session = await request(app.getHttpServer())
+				.post('/auth/login')
+				.send({ email: colleague.email, password: colleague.temporaryPassword })
+				.expect(200);
+
+			const denied = await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${session.body.accessToken}`)
+				.expect(403);
+
+			expect(denied.body.code).toBe('FORBIDDEN');
+		});
+
+		it('lets an admin it created reach the page too', async () => {
+			const owner = await ownerSession();
+			const colleague = await member(owner.accessToken, 'admin');
+
+			const session = await request(app.getHttpServer())
+				.post('/auth/login')
+				.send({ email: colleague.email, password: colleague.temporaryPassword })
+				.expect(200);
+
+			await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${session.body.accessToken}`)
+				.expect(200);
+		});
+
+		it('hands back a password that logs in without any verification step', async () => {
+			const owner = await ownerSession();
+			const created = await member(owner.accessToken);
+
+			const session = await request(app.getHttpServer())
+				.post('/auth/login')
+				.send({ email: created.email, password: created.temporaryPassword })
+				.expect(200);
+
+			expect(session.body.user.emailVerified).toBe(true);
+		});
+
+		it('stamps the row as verified, because the admin vouched and no token exists', async () => {
+			const owner = await ownerSession();
+			const created = await member(owner.accessToken);
+
+			const [row] = await db`SELECT email_verified_at FROM users WHERE id = ${created.id}`;
+			expect((row as { email_verified_at: Date | null }).email_verified_at).not.toBeNull();
+		});
+
+		it('never stores the temporary password in the clear', async () => {
+			const owner = await ownerSession();
+			const created = await member(owner.accessToken);
+
+			const [row] = await db`SELECT password_hash FROM users WHERE id = ${created.id}`;
+			expect((row as { password_hash: string }).password_hash).not.toContain(
+				created.temporaryPassword,
+			);
+		});
+
+		it('sends no e-mail at all, because there is no invitation in the PoC', async () => {
+			const owner = await ownerSession();
+			await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
+
+			await member(owner.accessToken);
+
+			expect(await mailpitCount()).toBe(0);
+		});
+
+		it('answers 409 on a duplicate address, by constraint rather than by a read', async () => {
+			const owner = await ownerSession();
+			const created = await member(owner.accessToken);
+
+			const conflict = await createUser(owner.accessToken, {
+				email: created.email,
+				role: 'member',
+			}).expect(409);
+
+			expect(conflict.body.code).toBe('CONFLICT');
+
+			const rows = await db`SELECT id FROM users WHERE email = ${created.email}`;
+			expect(rows).toHaveLength(1);
+		});
+
+		it('refuses to create an owner, and stops at the schema', async () => {
+			const owner = await ownerSession();
+
+			await createUser(owner.accessToken, { email: freshEmail(), role: 'owner' }).expect(400);
+		});
+
+		it('accepts an address that already owns another account, since founding is the limit', async () => {
+			const elsewhere = await subscribedSession();
+			const owner = await ownerSession();
+
+			await createUser(owner.accessToken, { email: elsewhere.email, role: 'member' }).expect(201);
+		});
+
+		it('refuses to change the role of the owner', async () => {
+			const owner = await ownerSession();
+			const [row] = await db`SELECT id FROM users WHERE email = ${owner.email}`;
+
+			await request(app.getHttpServer())
+				.patch(`/users/${String((row as { id: string }).id)}`)
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.send({ role: 'admin' })
+				.expect(403);
+		});
+
+		it('refuses to let an admin change their own role', async () => {
+			const owner = await ownerSession();
+			const admin = await member(owner.accessToken, 'admin');
+
+			const session = await request(app.getHttpServer())
+				.post('/auth/login')
+				.send({ email: admin.email, password: admin.temporaryPassword })
+				.expect(200);
+
+			await request(app.getHttpServer())
+				.patch(`/users/${admin.id}`)
+				.set('Authorization', `Bearer ${session.body.accessToken}`)
+				.send({ role: 'member' })
+				.expect(403);
+		});
+
+		it('kills the sessions of whoever was demoted, rather than waiting for the token', async () => {
+			const owner = await ownerSession();
+			const admin = await member(owner.accessToken, 'admin');
+
+			const session = await request(app.getHttpServer())
+				.post('/auth/login')
+				.send({ email: admin.email, password: admin.temporaryPassword })
+				.expect(200);
+
+			const cookie = (session.headers['set-cookie'] as unknown as string[])[0] ?? '';
+
+			await request(app.getHttpServer())
+				.patch(`/users/${admin.id}`)
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.send({ role: 'member' })
+				.expect(200);
+
+			await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie).expect(401);
+		});
+
+		it('answers 404 for a user of another account, so nothing confirms they exist', async () => {
+			const elsewhere = await ownerSession();
+			const owner = await ownerSession();
+			const stranger = await member(elsewhere.accessToken);
+
+			await request(app.getHttpServer())
+				.delete(`/users/${stranger.id}`)
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(404);
+
+			const rows = await db`SELECT id FROM users WHERE id = ${stranger.id}`;
+			expect(rows).toHaveLength(1);
+		});
+
+		it('removes a user who holds no device', async () => {
+			const owner = await ownerSession();
+			const colleague = await member(owner.accessToken);
+
+			await request(app.getHttpServer())
+				.delete(`/users/${colleague.id}`)
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(204);
+
+			expect(await db`SELECT id FROM users WHERE id = ${colleague.id}`).toHaveLength(0);
+		});
+
+		it('refuses to remove a user with a live device, and the database is what refuses', async () => {
+			const owner = await ownerSession();
+			const colleague = await member(owner.accessToken);
+
+			const session = await request(app.getHttpServer())
+				.post('/auth/login')
+				.send({ email: colleague.email, password: colleague.temporaryPassword })
+				.expect(200);
+
+			await request(app.getHttpServer())
+				.post('/devices')
+				.set('Authorization', `Bearer ${session.body.accessToken}`)
+				.send({ name: 'laptop', publicKey: PUBLIC_KEY })
+				.expect(201);
+
+			const refused = await request(app.getHttpServer())
+				.delete(`/users/${colleague.id}`)
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(409);
+
+			expect(refused.body.code).toBe('CONFLICT');
+			expect(await db`SELECT id FROM users WHERE id = ${colleague.id}`).toHaveLength(1);
+		});
+
+		it('refuses to let an admin remove themselves', async () => {
+			const owner = await ownerSession();
+			const admin = await member(owner.accessToken, 'admin');
+
+			const session = await request(app.getHttpServer())
+				.post('/auth/login')
+				.send({ email: admin.email, password: admin.temporaryPassword })
+				.expect(200);
+
+			await request(app.getHttpServer())
+				.delete(`/users/${admin.id}`)
+				.set('Authorization', `Bearer ${session.body.accessToken}`)
+				.expect(403);
+		});
+
+		it('reports the live device count, which is what explains the refusal above', async () => {
+			const owner = await ownerSession();
+			const colleague = await member(owner.accessToken);
+
+			const session = await request(app.getHttpServer())
+				.post('/auth/login')
+				.send({ email: colleague.email, password: colleague.temporaryPassword })
+				.expect(200);
+
+			await request(app.getHttpServer())
+				.post('/devices')
+				.set('Authorization', `Bearer ${session.body.accessToken}`)
+				.send({ name: 'laptop', publicKey: PUBLIC_KEY })
+				.expect(201);
+
+			const listed = await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(200);
+
+			const found = listed.body.users.find(
+				(user: { id: string }) => user.id === colleague.id,
+			) as unknown as { liveDeviceCount: number };
+			expect(found.liveDeviceCount).toBe(1);
+		});
+
+		it('never lists a user of another account', async () => {
+			const elsewhere = await ownerSession();
+			await member(elsewhere.accessToken);
+			const owner = await ownerSession();
+
+			const listed = await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(200);
+
+			expect(listed.body.users.map((user: { email: string }) => user.email)).toEqual([owner.email]);
 		});
 	});
 });

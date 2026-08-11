@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import { normalizeError } from '@/app/store/api-error.js';
 import { Field } from '@/components/form/field.tsx';
 import { FormError } from '@/components/form/form-error.tsx';
 import { SubmitButton } from '@/components/form/submit-button.tsx';
 import { Loading } from '@/components/layout/loading.tsx';
+import { Nav } from '@/components/layout/nav.tsx';
 import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 import { Input } from '@/components/ui/input.tsx';
@@ -96,11 +96,7 @@ export function KeysPage() {
 					)}
 				</div>
 
-				<p className="mt-6 text-sm">
-					<Link to="/" className="text-primary underline-offset-4 hover:underline">
-						{t('billing.accountTitle')}
-					</Link>
-				</p>
+				<Nav />
 			</CardContent>
 		</Card>
 	);

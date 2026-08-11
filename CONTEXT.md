@@ -201,11 +201,16 @@ _empresa_ contratou, a **role** diz o que _esta pessoa_ pode fazer. O efetivo é
 interseção. Um `owner` num tier sem a feature não a tem; um `member` numa account
 que a tem pode continuar não podendo usá-la.
 
-A role se aplica como **escopo**, não como portão: em `/devices` toda operação é
-sobre o que a pessoa possui, e `admin` ou `owner` alargam para a account inteira.
-Não existe `@RequiresRole` — nenhuma rota é barrada por role sozinha ainda, e um
-guard que responde sim/não antes do handler não sabe expressar "os dois podem,
-com alcances diferentes". DEC-070.
+A role se aplica de duas formas, e a distinção é a decisão. Em `/devices` ela é
+**escopo**: toda operação é sobre o que a pessoa possui, e `admin` ou `owner`
+alargam para a account inteira. Um guard que responde sim/não antes do handler
+não sabe expressar "os dois podem, com alcances diferentes", e é por isso que
+`/devices` não é barrada por role. DEC-070.
+
+Em `/users` ela é **portão**: `@RequiresRole('admin')` recusa um member com 403
+antes do handler, porque ali não há escopo menor que faça sentido — administrar
+quem tem acesso é administrar a account inteira ou nada. Essa é a única rota
+barrada por role, e retroaplicá-la a `/devices` destruiria a distinção acima.
 
 **Capability** — o entitlement que é um liga/desliga. Verificado no request, por
 um guard do kernel, que responde **402** quando falta: o problema não é quem você

@@ -1,5 +1,4 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { Link } from 'react-router-dom';
 
 import { normalizeError } from '@/app/store/api-error.js';
 import { sessionCleared } from '@/app/store/auth-slice.js';
@@ -7,6 +6,7 @@ import type { AppDispatch, RootState } from '@/app/store/index.js';
 import { useLogoutMutation } from '@/app/store/session.api.js';
 import { FormError } from '@/components/form/form-error.tsx';
 import { Loading } from '@/components/layout/loading.tsx';
+import { Nav } from '@/components/layout/nav.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 import {
@@ -73,11 +73,7 @@ export function BillingPage() {
 							onResume={() => void resumeSubscription()}
 						/>
 						<PlanEntitlements tier="pro" />
-						<p className="mt-6 text-sm">
-							<Link to="/keys" className="text-primary underline-offset-4 hover:underline">
-								{t('keys.link')}
-							</Link>
-						</p>
+						<Nav />
 					</>
 				)}
 			</CardContent>

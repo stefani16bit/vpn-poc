@@ -57,24 +57,33 @@ uma.
 
 ```
 Dado    um admin e um agente de controle no ar
-Quando  ele registra um nó com rótulo, região, URL de controle e faixa do túnel
+Quando  ele registra um nó com rótulo, região, endpoint, URL de controle e faixa
 Então   o servidor chama describe() naquela URL
-E       guarda a chave pública e o endpoint que o nó respondeu
+E       guarda a chave pública que o nó respondeu
 E       a resposta é 201
 ```
 
 ```
-Dado    um corpo que informe chave pública ou endpoint
+Dado    um corpo que informe uma chave pública
 Quando  o registro acontece
-Então   os dois valores informados são ignorados
+Então   o valor informado é ignorado
 ```
 
-O formulário não pede nenhum dos dois, e o schema não os aceita — `describe()`
-reporta os dois, então tomá-los do formulário seria o mesmo erro duas vezes. A
-chave é a identidade do nó nas duas pontas e vai para dentro de todo `.conf`;
-aceitar a digitada é aceitar que um erro de digitação vire um `.conf` que nunca
-fecha handshake, e a falha aparece longe, no cliente, sem nada apontando para
-cá.
+**O nó reporta a chave e mais nada.** O CGI `describe` imprime uma linha,
+`publicKey=`, e o `HttpExitNode` completa `endpoint` e `allowedIps` a partir das
+opções do construtor — hoje variáveis de ambiente. Então o endpoint **precisa**
+vir do formulário: não existe outra fonte. Só a chave é reportada, e só ela é
+ignorada quando informada.
+
+A distinção importa porque a chave é a identidade do nó nas duas pontas e vai
+para dentro de todo `.conf`: aceitar a digitada é aceitar que um erro de
+digitação vire um `.conf` que nunca fecha handshake, e a falha aparece longe, no
+cliente, sem nada apontando para cá. O endpoint erra de um jeito mais barato — o
+handshake não sai, e o `tunnel:doctor` mostra isso na primeira execução.
+
+Fazer o nó reportar o próprio endpoint é possível e não é de graça: ele não sabe
+por qual endereço público alguém o alcança, então isso seria configuração no nó
+em vez de configuração aqui. Fica no roadmap, não nesta entrega.
 
 ```
 Dado    uma URL de controle que não responde

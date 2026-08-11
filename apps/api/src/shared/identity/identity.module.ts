@@ -9,6 +9,6 @@ import { SessionRepository } from './repositories/session.repository.js';
 @Module({
 	imports: [DatabaseModule],
 	providers: [IdentityService, AccountRepository, UserRepository, SessionRepository],
-	exports: [IdentityService, AccountRepository, UserRepository],
+	exports: [IdentityService, AccountRepository, UserRepository, SessionRepository],
 })
 export class IdentityModule {}

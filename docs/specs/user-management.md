@@ -1,6 +1,6 @@
 # Gerenciamento de usuários
 
-**Status:** rascunho
+**Status:** entregue
 **Decisões relacionadas:** DEC-034, DEC-035, DEC-037, DEC-039, DEC-043, DEC-051,
 DEC-069, DEC-070, DEC-076
 
@@ -41,9 +41,9 @@ guard `@RequiresRole`; a página de administração; e a substituição de
 **Senha temporária**, já em `CONTEXT.md` §Identidade. **Role**, **Owner** e
 **Seat** já estavam.
 
-O que muda em `CONTEXT.md` quando isto entregar é a frase de §Autorização que
-hoje diz _"Não existe `@RequiresRole`"_ — ela passa a existir, **nesta rota e em
-nenhuma outra**.
+A frase de §Autorização que dizia _"Não existe `@RequiresRole`"_ saiu: o guard
+existe, **nesta rota e em nenhuma outra**, e o glossário agora separa os dois
+usos da role — escopo em `/devices`, portão aqui.
 
 ## Comportamento
 
@@ -224,13 +224,23 @@ senha gerada passa por ele como qualquer outra.
 **Nenhuma migração.** `libs/database/src/schema.ts` já carrega `userRole`,
 `scopedPolicies('users')` e os quatro índices únicos.
 
-Uma correção, e não é cosmética: `UserRepository.insert` faz
-`onConflictDoNothing()` **sem alvo**, o que absorve os quatro índices de uma vez.
-Hoje é benigno porque os dois de owner são parciais e o cadastro não os alcança;
-com uma segunda via de criação, deixa de ser. O alvo passa a ser nomeado —
-`(account_id, email)` — e qualquer outra violação levanta `23505` para o
-`isUniqueViolation` já existente. É o mesmo defeito que a DEC-069 já consertou uma
-vez em devices.
+Uma correção, e não é cosmética: `UserRepository.insert` fazia
+`onConflictDoNothing()` **sem alvo**, o que absorve os quatro índices de uma vez —
+o mesmo defeito que a DEC-069 já consertou uma vez em devices.
+
+O conserto não é um alvo só. O cadastro **depende** de absorver
+`users_owner_email_key`: é assim que ele detecta e-mail repetido e devolve o mesmo
+202 do caso novo (inegociável nº 4). Então cada caminho nomeia o índice que ele
+realmente alcança, no precedente do `device.repository`, que já usa `target` com
+`where` para índice parcial:
+
+| Método         | Alvo                         | Quem usa    |
+| -------------- | ---------------------------- | ----------- |
+| `insert`       | `(email) where role='owner'` | cadastro    |
+| `insertMember` | `(account_id, email)`        | esta página |
+
+O que não foi nomeado levanta `23505` para o `isUniqueViolation` já existente, em
+vez de virar um "não fiz nada" silencioso.
 
 ## Idempotência
 

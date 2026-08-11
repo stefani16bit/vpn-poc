@@ -6,6 +6,7 @@ export const API_MODULES = [
 	'health',
 	'http',
 	'system',
+	'users',
 ] as const;
 
 export type ApiModule = (typeof API_MODULES)[number];
@@ -19,6 +20,7 @@ export const MODULE_BY_ROUTE_PREFIX: ReadonlyArray<readonly [string, ApiModule]>
 	['/devices', 'devices'],
 	['/entitlements', 'entitlements'],
 	['/health', 'health'],
+	['/users', 'users'],
 ];
 
 export function isApiModule(value: unknown): value is ApiModule {
