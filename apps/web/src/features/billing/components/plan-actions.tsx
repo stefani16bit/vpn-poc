@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import type { Cadence, SubscriptionResponse } from '@vpn/contracts';
+import type { Cadence, SubscriptionResponse, UserRole } from '@vpn/contracts';
 
 import { Button } from '@/components/ui/button.tsx';
 import { CancelSubscriptionDialog } from '@/features/billing/components/cancel-subscription-dialog.tsx';
@@ -9,12 +9,14 @@ import { useTranslator } from '@/i18n/locale-context.tsx';
 
 export function PlanActions({
 	subscription,
+	role,
 	pending,
 	onSubscribe,
 	onCancel,
 	onResume,
 }: {
 	subscription: SubscriptionResponse | undefined;
+	role: UserRole | undefined;
 	pending: boolean;
 	onSubscribe: (cadence: Cadence) => void;
 	onCancel: () => void;
@@ -22,6 +24,8 @@ export function PlanActions({
 }): ReactNode {
 	const t = useTranslator();
 	const status = subscription?.status ?? 'none';
+
+	if (role !== 'owner') return null;
 
 	if (status === 'none' || status === 'canceled') {
 		return <SubscribeButtons pending={pending} onSubscribe={onSubscribe} />;

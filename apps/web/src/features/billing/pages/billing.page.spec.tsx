@@ -2,6 +2,8 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { UserRole } from '@vpn/contracts';
+
 import { sessionResolved } from '@/app/store/auth-slice.js';
 import {
 	makeStore,
@@ -22,14 +24,14 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-function signedIn(): TestStore {
+function signedIn(role: UserRole = 'owner'): TestStore {
 	const store = makeStore();
 	store.dispatch(
 		sessionResolved({
 			user: {
 				id: 'acc-1',
 				accountId: 'account-1',
-				role: 'owner' as const,
+				role,
 				email: 'ada@example.com',
 				emailVerified: true,
 				locale: 'en',
@@ -201,5 +203,50 @@ describe('BillingPage', () => {
 
 		expect(await screen.findByRole('alert')).toHaveTextContent('corr-test');
 		expect(screen.getByRole('button', { name: /monthly/i })).toBeInTheDocument();
+	});
+
+	it('offers a member no way to start a subscription', async () => {
+		api.reply({ status: 'none', currentPeriodEnd: null, cancelAtPeriodEnd: false });
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('member') });
+
+		expect(await screen.findByText('No subscription')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /monthly/i })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /yearly/i })).not.toBeInTheDocument();
+	});
+
+	it('shows a member the plan it is on, without the button that ends it', async () => {
+		api.reply({
+			status: 'active',
+			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+			cancelAtPeriodEnd: false,
+		});
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('member') });
+
+		expect(await screen.findByText('Active')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+	});
+
+	it('refuses an admin the same button, because money is not people', async () => {
+		api.reply({
+			status: 'active',
+			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+			cancelAtPeriodEnd: false,
+		});
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('admin') });
+
+		expect(await screen.findByText('Active')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+	});
+
+	it('leaves an admin the way back to resume nothing it did not schedule', async () => {
+		api.reply({
+			status: 'active',
+			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+			cancelAtPeriodEnd: true,
+		});
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('admin') });
+
+		expect(await screen.findByText(/Cancellation is scheduled/)).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument();
 	});
 });

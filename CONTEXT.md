@@ -207,10 +207,17 @@ alargam para a account inteira. Um guard que responde sim/não antes do handler
 não sabe expressar "os dois podem, com alcances diferentes", e é por isso que
 `/devices` não é barrada por role. DEC-070.
 
-Em `/users` ela é **portão**: `@RequiresRole('admin')` recusa um member com 403
-antes do handler, porque ali não há escopo menor que faça sentido — administrar
-quem tem acesso é administrar a account inteira ou nada. Essa é a única rota
-barrada por role, e retroaplicá-la a `/devices` destruiria a distinção acima.
+Em `/users` e em cobrança ela é **portão**: `@RequiresRole` recusa com 403 antes do
+handler, porque ali não há escopo menor que faça sentido — administrar quem tem
+acesso é administrar a account inteira ou nada, e uma assinatura é uma só.
+Retroaplicar o portão a `/devices` destruiria a distinção acima.
+
+São **dois portões, com degraus diferentes**, e a diferença é o assunto e não o
+rank: `/users` pede `admin`, cobrança pede `owner`. Admin gere pessoas, owner gere
+dinheiro — um `admin` que pode desligar gente não desliga o produto, e é esse 403
+para o admin que dá conteúdo à decisão. `GET /billing/subscription` fica de fora
+dos dois: ela alimenta a home da conta, e quem não é owner perde os botões, não a
+página. DEC-079.
 
 **Capability** — o entitlement que é um liga/desliga. Verificado no request, por
 um guard do kernel, que responde **402** quando falta: o problema não é quem você

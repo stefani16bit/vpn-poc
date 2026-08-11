@@ -695,6 +695,50 @@ describe('billing', () => {
 			.send(hook.rawBody);
 	}
 
+	function activation(accountId: string) {
+		const billing = provider();
+		return billing.emit('subscription_activated', accountId, {
+			subscription: billing.seedSubscription(`sub_${accountId}`, accountId),
+		});
+	}
+
+	async function subscribed() {
+		const session = await subscribedSession();
+		await deliver(activation(session.accountId)).expect(200, { applied: true });
+		return session;
+	}
+
+	// Only public endpoints: the admin creates the colleague and the colleague
+	// logs in with the password the response handed back. That makes these five
+	// cases the acceptance test for DEC-076 as well — if an admin-created user
+	// were not born verified, the login below would answer EMAIL_NOT_VERIFIED.
+	async function colleagueOf(adminToken: string, role: 'admin' | 'member') {
+		const email = freshEmail();
+
+		const created = await request(app.getHttpServer())
+			.post('/users')
+			.set('Authorization', `Bearer ${adminToken}`)
+			.send({ email, role })
+			.expect(201);
+
+		const { user, temporaryPassword } = created.body as {
+			user: { id: string };
+			temporaryPassword: string;
+		};
+
+		const session = await request(app.getHttpServer())
+			.post('/auth/login')
+			.send({ email, password: temporaryPassword })
+			.expect(200);
+
+		return {
+			userId: user.id,
+			email,
+			temporaryPassword,
+			accessToken: (session.body as { accessToken: string }).accessToken,
+		};
+	}
+
 	async function statusOf(accessToken: string) {
 		const response = await request(app.getHttpServer())
 			.get('/billing/subscription')
@@ -1085,6 +1129,80 @@ describe('billing', () => {
 		await request(app.getHttpServer()).post('/billing/subscription/resume').expect(401);
 	});
 
+	describe('who may spend the account money', () => {
+		async function accountWith(role: 'admin' | 'member') {
+			const owner = await subscribed();
+			return colleagueOf(owner.accessToken, role);
+		}
+
+		it('refuses a member the checkout', async () => {
+			const colleague = await accountWith('member');
+
+			const denied = await request(app.getHttpServer())
+				.post('/billing/checkout')
+				.set('Authorization', `Bearer ${colleague.accessToken}`)
+				.send({ tier: 'pro', cadence: 'monthly' })
+				.expect(403);
+
+			expect(denied.body.code).toBe('FORBIDDEN');
+		});
+
+		it('refuses a member the cancellation', async () => {
+			const colleague = await accountWith('member');
+
+			const denied = await request(app.getHttpServer())
+				.delete('/billing/subscription')
+				.set('Authorization', `Bearer ${colleague.accessToken}`)
+				.expect(403);
+
+			expect(denied.body.code).toBe('FORBIDDEN');
+		});
+
+		it('refuses a member the resume', async () => {
+			const colleague = await accountWith('member');
+
+			const denied = await request(app.getHttpServer())
+				.post('/billing/subscription/resume')
+				.set('Authorization', `Bearer ${colleague.accessToken}`)
+				.expect(403);
+
+			expect(denied.body.code).toBe('FORBIDDEN');
+		});
+
+		it('refuses an admin the cancellation, which is what separates money from people', async () => {
+			const colleague = await accountWith('admin');
+
+			const denied = await request(app.getHttpServer())
+				.delete('/billing/subscription')
+				.set('Authorization', `Bearer ${colleague.accessToken}`)
+				.expect(403);
+
+			expect(denied.body.code).toBe('FORBIDDEN');
+		});
+
+		it('still shows a member the plan, because that route feeds the account home', async () => {
+			const colleague = await accountWith('member');
+
+			const response = await request(app.getHttpServer())
+				.get('/billing/subscription')
+				.set('Authorization', `Bearer ${colleague.accessToken}`)
+				.expect(200);
+
+			expect(response.body.status).toBe('active');
+		});
+
+		it('leaves the owner in charge of the subscription it pays for', async () => {
+			const owner = await subscribed();
+
+			const cancelled = await request(app.getHttpServer())
+				.delete('/billing/subscription')
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(200);
+
+			expect(cancelled.body.cancelAtPeriodEnd).toBe(true);
+		});
+	});
+
 	describe('entitlements', () => {
 		async function entitlementsOf(accessToken: string) {
 			const response = await request(app.getHttpServer())
@@ -1177,55 +1295,11 @@ describe('billing', () => {
 	describe('devices', () => {
 		const PUBLIC_KEY = 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=';
 
-		function activation(accountId: string) {
-			const billing = provider();
-			return billing.emit('subscription_activated', accountId, {
-				subscription: billing.seedSubscription(`sub_${accountId}`, accountId),
-			});
-		}
-
-		async function subscribed() {
-			const session = await subscribedSession();
-			await deliver(activation(session.accountId)).expect(200, { applied: true });
-			return session;
-		}
-
 		function createDevice(accessToken: string, publicKey = PUBLIC_KEY) {
 			return request(app.getHttpServer())
 				.post('/devices')
 				.set('Authorization', `Bearer ${accessToken}`)
 				.send({ name: 'laptop', publicKey });
-		}
-
-		// Only public endpoints: the admin creates the colleague and the colleague
-		// logs in with the password the response handed back. That makes these five
-		// cases the acceptance test for DEC-076 as well — if an admin-created user
-		// were not born verified, the login below would answer EMAIL_NOT_VERIFIED.
-		async function colleagueOf(adminToken: string, role: 'admin' | 'member') {
-			const email = freshEmail();
-
-			const created = await request(app.getHttpServer())
-				.post('/users')
-				.set('Authorization', `Bearer ${adminToken}`)
-				.send({ email, role })
-				.expect(201);
-
-			const { user, temporaryPassword } = created.body as {
-				user: { id: string };
-				temporaryPassword: string;
-			};
-
-			const session = await request(app.getHttpServer())
-				.post('/auth/login')
-				.send({ email, password: temporaryPassword })
-				.expect(200);
-
-			return {
-				userId: user.id,
-				email,
-				temporaryPassword,
-				accessToken: (session.body as { accessToken: string }).accessToken,
-			};
 		}
 
 		it('answers 402 when the account never subscribed, which is the gate doing its job', async () => {

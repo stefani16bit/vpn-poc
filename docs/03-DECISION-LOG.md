@@ -3187,3 +3187,49 @@ existe para não deixar que virem o mesmo campo.
 Continua valendo o que a DEC-043 diz: com **um** tier não há o que aplicar, e
 meio-aplicado parece aplicado. O contador entra no tipo e no schema agora; a
 aplicação chega quando existir um segundo tier para diferenciar.
+
+---
+
+### DEC-079 — Admin gere pessoas; owner gere dinheiro
+
+**Data:** 2026-08-11 · **Status:** accepted
+
+**Contexto.** `POST /billing/checkout`, `DELETE /billing/subscription` e
+`POST /billing/subscription/resume` traziam só `@UseGuards(AccessTokenGuard)`.
+Qualquer autenticado da account — inclusive um `member` recém-criado — podia
+cancelar a assinatura da empresa. A DEC-070 previu que `@RequiresRole` chegaria
+"com a página de usuários, que é a primeira rota barrada por role e nada mais"; a
+palavra que envelheceu foi **primeira**, lida como **única**, e cobrança nasceu
+sem portão porque ninguém voltou a fazer a pergunta.
+
+**Decisão.** As três rotas que movem dinheiro exigem `owner`. `admin` recebe 403
+junto com `member`.
+
+`GET /billing/subscription` **continua aberta a qualquer autenticado**. Ela
+alimenta a home da conta — endereço, idioma, sair, navegação —, e barrá-la
+deixaria o member sem tela inicial. Ele perde os botões, não a página.
+
+**Rationale.** O corte não é por rank, é por assunto: administrar quem tem acesso
+e comprometer o cartão da empresa são responsabilidades diferentes, e um `admin`
+que pode desligar gente não deveria poder desligar o produto. É exatamente o caso
+do `admin` que separa esta decisão de `/users` — sem ele, "owner" seria só um
+sinônimo mais caro de "admin".
+
+Rejeitado esconder só os botões: o portão é o servidor, e a tela é conveniência.
+Rejeitado também subir o `@UseGuards` para a classe, como faz
+`users.controller.ts` — `POST /billing/webhook` é deliberadamente não autenticado,
+quem o valida é a assinatura do provider, e um guard de classe exigiria token dele.
+Em `billing` os guards ficam **por método**, e isso é a decisão, não o descuido.
+
+Para quem não é owner os controles somem **sem explicação**. Uma mensagem
+gastaria chave de i18n — logo, uma release do submodule — para dizer a alguém algo
+que ele não pode acionar de qualquer forma.
+
+**Consequências.** `CONTEXT.md` §Autorização deixa de descrever `/users` como a
+única rota barrada por role: são **dois portões, com degraus diferentes**. A
+distinção que a DEC-070 defende continua intacta — em `/devices` a role é
+**escopo**, e nada aqui a retroaplica.
+
+Quando a DEC-080 trocar rank por permissão, `@RequiresRole('owner')` aqui vira
+`@RequiresPermission('billing.manage')` e esta decisão fica superada — mas o furo
+não podia esperar por ela.

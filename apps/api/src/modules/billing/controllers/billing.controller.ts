@@ -23,6 +23,8 @@ import { ZodBody } from '../../../shared/validation/zod-body.pipe.js';
 import type { AccessTokenClaims } from '../../../shared/access-control/access-token.service.js';
 import { AccessTokenGuard } from '../../../shared/access-control/access-token.guard.js';
 import { Auth } from '../../../shared/access-control/current-auth.decorator.js';
+import { RequiresRole } from '../../../shared/access-control/require-role.decorator.js';
+import { RoleGuard } from '../../../shared/access-control/role.guard.js';
 import { BillingService } from '../services/billing.service.js';
 
 interface RawBodyRequest extends Request {
@@ -34,7 +36,8 @@ export class BillingController {
 	constructor(private readonly billing: BillingService) {}
 
 	@Post('checkout')
-	@UseGuards(AccessTokenGuard)
+	@UseGuards(AccessTokenGuard, RoleGuard)
+	@RequiresRole('owner')
 	@HttpCode(200)
 	async createCheckout(
 		@Auth() claims: AccessTokenClaims,
@@ -52,7 +55,8 @@ export class BillingController {
 	}
 
 	@Delete('subscription')
-	@UseGuards(AccessTokenGuard)
+	@UseGuards(AccessTokenGuard, RoleGuard)
+	@RequiresRole('owner')
 	@HttpCode(200)
 	async cancel(@Auth() claims: AccessTokenClaims): Promise<SubscriptionResponse> {
 		await this.billing.cancel(claims.accountId);
@@ -60,7 +64,8 @@ export class BillingController {
 	}
 
 	@Post('subscription/resume')
-	@UseGuards(AccessTokenGuard)
+	@UseGuards(AccessTokenGuard, RoleGuard)
+	@RequiresRole('owner')
 	@HttpCode(200)
 	async resume(@Auth() claims: AccessTokenClaims): Promise<SubscriptionResponse> {
 		await this.billing.resume(claims.accountId);
