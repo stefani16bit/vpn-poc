@@ -29,6 +29,11 @@ sai diferente de zero em qualquer passo. Medido: `seenFrom` é o endereço que a
 API alocou, e a revogação mata o acesso em 4s **com o túnel ainda de pé**.
 DEC-075, `docs/specs/tunnel-proof.md`.
 
+O alocador de endereços passou a ler a máscara do CIDR, o que fecha uma dívida
+antiga e desarma uma armadilha nova: o contrato de servidores já aceita
+`tunnelCidr`, então um `/25` tratado como `/24` deixaria de ser teórico assim que
+um tenant registrasse o primeiro nó.
+
 | Suíte                                                       | Testes   | Precisa do devstack |
 | ----------------------------------------------------------- | -------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                | 248      | não                 |
@@ -219,11 +224,22 @@ sem Docker ensina a ignorar suíte vermelha.
       **destino**, de propósito. Ficou como está porque `data-plane.md` documenta
       a linha de MASQUERADE textualmente e a sonda `200 → 000 → 200` dela cita a
       regra exata. DEC-075.
-- [ ] **A faixa do túnel ignora o prefixo do CIDR.** `assignableAddresses` e
-      `isAssignable` usam só os três primeiros octetos, então `10.13.13.0/25`
-      é tratado como `/24` e o alocador distribuiria endereços fora da faixa.
-      Anterior a este trabalho, agora com teste que fixa o comportamento — o
-      teste descreve o que é, não o que deveria ser.
+- [x] ~~**A faixa do túnel ignora o prefixo do CIDR.**~~ O alocador passou a
+      trabalhar em inteiros de 32 bits e a ler a máscara: a faixa vai de
+      `rede + 4` até `broadcast − 1`, então um `/25` para em `.126` em vez de
+      entregar a metade que não é dele, e um `/16` atravessa octetos. Um prefixo
+      sem host algum (`/30`) falha em voz alta em vez de devolver um gerador
+      vazio. `10.13.13.0/24` continua rendendo exatamente os mesmos 251
+      endereços, então nada observável mudou no devstack — o que mudou é que
+      `EXIT_NODE_TUNNEL_CIDR` passou a significar o que diz.
+      `firstFreeHost` virou `firstFreeAddress` e fala em endereço, não em octeto.
+- [ ] **O teto de endereços é do sistema inteiro, não por account.**
+      `live_tunnel_addresses` é deliberadamente cross-account (DEC-069), então os
+      251 endereços de um `/24` são **globais**: `seats 25 × devicesPerUser 5` dá
+      125 devices vivos por account totalmente assinante, ou seja **duas**
+      accounts. Agora dá para levantar por configuração — uma faixa mais larga em
+      `EXIT_NODE_TUNNEL_CIDR` funciona de verdade —, mas o conserto estrutural é
+      o índice por nó da DEC-077, com a página de servidores.
 - [ ] **O intervalo do reconciler é de processo.** Dois workers varreriam em
       paralelo; hoje há um. Quando houver dois, o throttle vira linha travada
       ou chave no cache, não um campo privado.
