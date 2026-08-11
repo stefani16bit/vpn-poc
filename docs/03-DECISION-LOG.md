@@ -3230,6 +3230,13 @@ que ele não pode acionar de qualquer forma.
 distinção que a DEC-070 defende continua intacta — em `/devices` a role é
 **escopo**, e nada aqui a retroaplica.
 
+Nasce `authorization.guard.spec.ts`, que lê a fonte de todo `*.controller.ts` sob
+`modules/` e exige, para cada rota mutante, um decorator de portão ou uma entrada
+numa lista curta de exceções justificadas. Ele também cobra o `@UseGuards`
+correspondente: um `@RequiresRole` sem `RoleGuard` alcançável responde **500**, não 403. Este furo existiu porque a checagem era memória de quem revisa; ela passa a
+ser teste, na mesma forma da asserção "toda tabela de domínio está sob RLS" do
+`check.sh`.
+
 Quando a DEC-080 trocar rank por permissão, `@RequiresRole('owner')` aqui vira
 `@RequiresPermission('billing.manage')` e esta decisão fica superada — mas o furo
 não podia esperar por ela.

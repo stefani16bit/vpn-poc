@@ -219,6 +219,11 @@ para o admin que dá conteúdo à decisão. `GET /billing/subscription` fica de 
 dos dois: ela alimenta a home da conta, e quem não é owner perde os botões, não a
 página. DEC-079.
 
+Nenhuma rota mutante sob `modules/` pode nascer sem essa pergunta:
+`authorization.guard.spec.ts` lê a fonte dos controllers e cobra um decorator de
+portão — ou uma exceção escrita, com o motivo ao lado. Cobrança ficou desprotegida
+porque a checagem era memória de quem revisa.
+
 **Capability** — o entitlement que é um liga/desliga. Verificado no request, por
 um guard do kernel, que responde **402** quando falta: o problema não é quem você
 é, é o que a empresa contratou. Hoje existe **uma**, `vpn_access` — o que assinar
