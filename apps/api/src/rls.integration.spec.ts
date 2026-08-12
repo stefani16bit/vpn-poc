@@ -74,6 +74,14 @@ beforeAll(async () => {
 				insert into devices (account_id, user_id, name, public_key, tunnel_address)
 				values (${id}, ${userIdFor(id)}, 'laptop', ${`pk-${slug}`}, ${`10.13.13.${id === A ? 101 : 102}/32`})
 			`;
+			await tx`
+				insert into role_permissions (account_id, role, permission, granted)
+				values (${id}, 'member', ${`devices.create-${slug}`}, false)
+			`;
+			await tx`
+				insert into user_permissions (account_id, user_id, permission, granted)
+				values (${id}, ${userIdFor(id)}, ${`devices.create-${slug}`}, true)
+			`;
 		}
 	});
 });
@@ -151,6 +159,16 @@ const TABLES = [
 		read: (tx: SystemSql, id: string) =>
 			tx`select id from devices where public_key = ${`pk-rls-${id === A ? 'a' : 'b'}`}`,
 	},
+	{
+		name: 'role_permissions',
+		read: (tx: SystemSql, id: string) =>
+			tx`select id from role_permissions where permission = ${`devices.create-rls-${id === A ? 'a' : 'b'}`}`,
+	},
+	{
+		name: 'user_permissions',
+		read: (tx: SystemSql, id: string) =>
+			tx`select id from user_permissions where permission = ${`devices.create-rls-${id === A ? 'a' : 'b'}`}`,
+	},
 ] as const;
 
 describe.each(TABLES)('$name is isolated by account', ({ read }) => {
@@ -200,7 +218,7 @@ describe('write side', () => {
 });
 
 describe('the policy set itself', () => {
-	it('is exactly the eighteen policies the schema declares', async () => {
+	it('is exactly the twenty-two policies the schema declares', async () => {
 		const rows = await sql`
 			select tablename, policyname from pg_policies
 			where schemaname = 'public' order by tablename, policyname
@@ -217,10 +235,14 @@ describe('the policy set itself', () => {
 			'outbox.outbox_tenant',
 			'refresh_tokens.refresh_tokens_system',
 			'refresh_tokens.refresh_tokens_tenant',
+			'role_permissions.role_permissions_system',
+			'role_permissions.role_permissions_tenant',
 			'session_families.session_families_system',
 			'session_families.session_families_tenant',
 			'subscriptions.subscriptions_system',
 			'subscriptions.subscriptions_tenant',
+			'user_permissions.user_permissions_system',
+			'user_permissions.user_permissions_tenant',
 			'users.users_system',
 			'users.users_tenant',
 			'verification_tokens.verification_tokens_system',

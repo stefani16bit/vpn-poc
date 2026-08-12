@@ -266,6 +266,55 @@ export const devices = pgTable(
 	],
 );
 
+export const rolePermissions = pgTable(
+	'role_permissions',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		accountId: uuid('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		role: userRole('role').notNull(),
+		permission: text('permission').notNull(),
+		granted: boolean('granted').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		unique('role_permissions_account_role_permission_key').on(
+			table.accountId,
+			table.role,
+			table.permission,
+		),
+		...scopedPolicies('role_permissions'),
+	],
+);
+
+export const userPermissions = pgTable(
+	'user_permissions',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		accountId: uuid('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		userId: uuid('user_id').notNull(),
+		permission: text('permission').notNull(),
+		granted: boolean('granted').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		foreignKey({
+			columns: [table.userId, table.accountId],
+			foreignColumns: [users.id, users.accountId],
+			name: 'user_permissions_user_account_fk',
+		}).onDelete('cascade'),
+		unique('user_permissions_account_user_permission_key').on(
+			table.accountId,
+			table.userId,
+			table.permission,
+		),
+		...scopedPolicies('user_permissions'),
+	],
+);
+
 export const liveTunnelAddresses = pgView('live_tunnel_addresses').as((qb) =>
 	qb
 		.select({ tunnelAddress: devices.tunnelAddress })
