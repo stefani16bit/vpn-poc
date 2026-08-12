@@ -237,10 +237,13 @@ role uma vez nunca mais receberia nada.
 A tela não expõe tri-estado: o checkbox mostra o **efetivo**, grava linha só quando
 diverge do padrão, e apaga a linha quando volta a ele.
 
-`owner` sempre tem `permissions.manage`, no resolver e sem consultar linha. Sem
-isso, um owner que remove a própria permissão inutiliza a account, e duas edições
-concorrentes furam qualquer checagem escrita como "ainda sobrou alguém?" — o
-inegociável nº 3. DEC-080.
+**O `owner` tem todas, sempre.** Não é um piso com exceções: o resolver
+curto-circuita nele e as duas camadas de delta não o alcançam. Uma linha escrita
+contra `owner` não tem efeito, a rota que a escreveria recusa com 403, e a tela
+nem desenha a linha dele — um controle que a pessoa vê, mexe, e que não faz o que
+promete é pior que um ausente. Sem essa invariante, um owner que remove a própria
+permissão inutiliza a account, e duas edições concorrentes furam qualquer checagem
+escrita como "ainda sobrou alguém?" — o inegociável nº 3. DEC-080, DEC-081.
 
 **Permissão diz se você pode agir; escopo diz sobre o quê.** É a distinção que
 este glossário existe para preservar. Em `/devices` a role é **escopo**: toda
@@ -259,6 +262,18 @@ esses portões com `@RequiresRole`; a DEC-080 os trocou.
 
 `GET /billing/subscription` fica de fora: ela alimenta a home da conta, e quem não
 pode gerir perde os botões, não a página.
+
+**Antes da permissão vem a assinatura.** `/devices`, `/users` e `/permissions` são
+área de assinante: sem tier a resposta é **402**, e a tela nem aparece no nav.
+`@RequiresSubscription` é a dimensão entitlement no grau mais grosso — a pergunta é
+"a empresa contratou?", não "esta pessoa pode?" —, e por isso o guard dela roda
+**antes** do de permissão: quem não pagou ouve 402, não 403. Reusar
+`@RequiresCapability('vpn_access')` para isso amarraria a página de usuários à
+feature de VPN, que é coincidência do tier único de hoje. DEC-081.
+
+Ficam abertas a quem não assinou exatamente duas: `GET /billing/subscription`, que
+é onde se assina, e `GET /permissions`, de onde o nav é desenhado. Barrar qualquer
+uma das duas deixaria a pessoa sem a porta de entrada.
 
 Nenhuma rota mutante sob `modules/` pode nascer sem essa pergunta:
 `authorization.guard.spec.ts` lê a fonte dos controllers e cobra um decorator de

@@ -1,7 +1,7 @@
 # Permissões por account e por pessoa
 
 **Status:** entregue
-**Decisões relacionadas:** DEC-080, supera DEC-079 · compõe com DEC-070, DEC-036, DEC-055
+**Decisões relacionadas:** DEC-080, DEC-081, supera DEC-079 · compõe com DEC-070, DEC-036, DEC-055
 
 ## Problema
 
@@ -115,10 +115,31 @@ E       tirar por pessoa vence conceder por role
 ```
 
 ```
-Dado    uma account que removeu permissions.manage da role owner
-Quando  o owner abre a tela de permissões
-Então   ele continua entrando
-E       o resolver concede permissions.manage ao owner sem consultar linha
+Dado    uma account com linhas escritas contra a role owner
+Quando  o conjunto efetivo do dono é resolvido
+Então   ele tem todas as permissões
+E       as duas camadas de delta não o alcançam
+```
+
+```
+Dado    um owner autenticado
+Quando  ele chama PUT /permissions/roles/owner
+Então   a resposta é 403
+E       GET /permissions/grants descreve admin e member, nunca owner
+```
+
+```
+Dado    uma account sem assinatura
+Quando  alguém chama GET /users ou GET /permissions/grants
+Então   a resposta é 402, não 403 — o problema é o plano, não a pessoa
+E       GET /permissions e GET /billing/subscription continuam 200
+```
+
+```
+Dado    uma account que perde o tier por past_due
+Quando  o mesmo admin repete a chamada que respondia 200
+Então   a resposta passa a 402
+E       o nav some com dispositivos, usuários e permissões
 ```
 
 ```

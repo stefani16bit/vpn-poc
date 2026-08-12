@@ -3314,3 +3314,67 @@ argumento que pôs `logout` em `app/store/`: três features precisam dele.
 A resposta de concessões carrega o e-mail de cada pessoa. Sem isso a tela de
 permissões teria de ler a API de usuários, e feature não importa feature — o lint
 de fronteira recusa, e estava certo.
+
+---
+
+### DEC-081 — O dono não é editável, e as telas de assinante exigem assinatura
+
+**Data:** 2026-08-12 · **Status:** accepted
+
+**Contexto.** Duas coisas apareceram quando a tela da DEC-080 ficou de pé.
+
+A tela desenhava as três roles, e a do `owner` vinha com tudo marcado e **um**
+checkbox desabilitado. O resto parecia editável e não era: a DEC-080 já dava ao
+dono um piso de `permissions.manage`, mas nada impedia de tirar `billing.manage`
+dele — e um dono sem `billing.manage` é uma account que ninguém pode mais cobrar.
+
+E `/users` e `/permissions` atendiam conta que nunca pagou. Só `/devices`
+respondia 402. Dava para abrir a lista de usuários, criar gente e editar
+concessões sem assinatura nenhuma.
+
+**Decisão.** Duas, e elas não se misturam.
+
+**O `owner` tem todas as permissões, sempre.** `effectivePermissions` curto-circuita
+nele e as duas camadas de delta não o alcançam. `PUT /permissions/roles/owner` e o
+`PUT` por pessoa contra o dono respondem **403**, e `GET /permissions/grants` não
+descreve mais a role dele — a tela mostra duas, não três.
+
+**`/devices`, `/users` e `/permissions` exigem tier.** Entra
+`@RequiresSubscription()` + `SubscriptionGuard`, **402** quando `tier === null`,
+rodando antes do `PermissionGuard`. Na web as três somem do nav e as rotas
+redirecionam para a home.
+
+**Rationale.** Um piso com exceções é a formulação errada de "não se mexe nisto":
+ele convida a mexer e recusa só na última linha. Invariante é mais barata de
+entender e mais barata de provar — a tela não precisa saber quais permissões do
+dono são intocáveis, porque nenhuma é editável, e por isso a linha some em vez de
+ficar cinza. É a mesma escolha que a DEC-079 fez com `PlanActions`: o controle
+some, não fica desabilitado.
+
+Rejeitado reusar `@RequiresCapability('vpn_access')` como marcador de "assinou".
+Ele hoje coincide com isso porque só existe um tier, mas administrar usuários não é
+acesso à VPN, e no dia em que existir um tier sem `vpn_access` a página de usuários
+quebraria por um motivo que ninguém conseguiria ler no código. O guard novo diz o
+que a regra é.
+
+`GET /permissions` e `GET /billing/subscription` continuam abertas, e é deliberado:
+uma alimenta o nav, a outra é onde se assina. Barrar as duas trancaria a conta fora
+da própria porta de entrada.
+
+**Consequências.** `authorization.guard.spec.ts` passa a separar duas listas.
+`@RequiresSubscription` **não** conta como portão para a asserção "toda rota mutante
+pergunta quem está chamando" — ele responde o que a empresa contratou, e aceitá-lo
+ali deixaria uma rota mutante passar sem nunca perguntar quem chama. Ele entra só na
+asserção de fiação, que cobra o `@UseGuards` correspondente.
+
+Em `UsersController` o decorator está na **classe**, não em cada método: as quatro
+rotas precisam dele, e uma rota nova ali passa a nascer fechada. Em
+`PermissionsController` fica por método, porque `GET /permissions` tem de continuar
+aberta.
+
+A web ganha `GET /entitlements` — que existia no servidor e ninguém consumia —, o
+hook `useSubscriptionStatus` e o wrapper `RequireSubscription`. O hook tem três
+estados e não dois: enquanto a resposta não voltou ele diz `unknown`, e o wrapper
+espera. Com booleano, "ainda não sei" e "não assinou" seriam o mesmo valor, e uma
+conta pagante seria expulsa da própria página no primeiro render — o mesmo defeito
+que o `auth-slice` evita com `unknown`.
