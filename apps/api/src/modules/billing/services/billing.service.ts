@@ -5,6 +5,7 @@ import type { Env } from '@vpn-poc/env';
 import {
 	resolveTier,
 	type Cadence,
+	type InvoiceListResponse,
 	type SubscriptionResponse,
 	type SubscriptionStatusView,
 	type TierId,
@@ -12,8 +13,11 @@ import {
 import {
 	BILLING_PROVIDER,
 	CLOCK,
+	OBJECT_STORAGE,
 	type IBillingProvider,
 	type IClock,
+	type IObjectStorage,
+	type Invoice,
 	type NormalizedBillingEvent,
 } from '@vpn/ports';
 
@@ -27,6 +31,7 @@ import {
 	type ModuleLogger,
 	contextLogger,
 } from '../../../shared/http/module-logger.js';
+import { InvoiceRepository } from '../../../shared/subscriptions/invoice.repository.js';
 import { SubscriptionRepository } from '../../../shared/subscriptions/subscription.repository.js';
 import { BillingEventRepository } from '../repositories/billing-event.repository.js';
 
@@ -59,9 +64,11 @@ export class BillingService {
 	constructor(
 		@Inject(MODULE_LOGGER) logger: ModuleLogger,
 		@Inject(BILLING_PROVIDER) private readonly billing: IBillingProvider,
+		@Inject(OBJECT_STORAGE) private readonly storage: IObjectStorage,
 		private readonly users: UserRepository,
 		@Inject(ENV) private readonly env: Env,
 		private readonly subscriptions: SubscriptionRepository,
+		private readonly invoices: InvoiceRepository,
 		private readonly events: BillingEventRepository,
 		private readonly outbox: OutboxRepository,
 		private readonly transactions: TransactionRunner,
@@ -147,7 +154,7 @@ export class BillingService {
 
 			let change: TierChange = 'none';
 
-			if (event.kind !== 'payment_failed') {
+			if (event.kind !== 'payment_failed' && event.kind !== 'invoice_paid') {
 				const before = await this.subscriptions.findByAccount(event.accountId, executor);
 
 				const stored = await this.subscriptions.upsert(
@@ -158,6 +165,8 @@ export class BillingService {
 				);
 
 				change = stored ? tierChange(before?.status ?? 'none', event.subscription.status) : 'none';
+			} else {
+				await this.#projectInvoice(event.accountId, event.invoice, event.occurredAt, executor);
 			}
 
 			await this.#enqueueNotification(event, change, executor);
@@ -177,11 +186,62 @@ export class BillingService {
 		return true;
 	}
 
+	async listInvoices(accountId: string): Promise<InvoiceListResponse> {
+		const stored = await this.invoices.listByAccount(accountId);
+
+		return {
+			invoices: stored.map((invoice) => ({
+				id: invoice.id,
+				number: invoice.number,
+				status: invoice.status,
+				amountCents: invoice.amountCents,
+				currency: invoice.currency,
+				issuedAt: invoice.issuedAt.toISOString(),
+				archived: invoice.pdfKey !== null,
+			})),
+		};
+	}
+
+	// The bytes travel through here rather than through a signed URL: the
+	// permission is answered once per request, and no link outlives the check.
+	async invoicePdf(accountId: string, id: string): Promise<Uint8Array> {
+		const invoice = await this.invoices.findById(accountId, id);
+		if (!invoice?.pdfKey) throw new AppError('NOT_FOUND', 'no archived invoice with that id');
+
+		const stored = await this.storage.get(invoice.pdfKey);
+		if (!stored) throw new AppError('NOT_FOUND', 'no archived invoice with that id');
+
+		return stored.body;
+	}
+
+	async #projectInvoice(
+		accountId: string,
+		invoice: Invoice,
+		occurredAt: Date,
+		executor: Executor,
+	): Promise<void> {
+		const invoiceId = await this.invoices.upsert(accountId, invoice, occurredAt, executor);
+		if (!invoiceId) return;
+
+		await this.outbox.enqueue(
+			accountId,
+			{
+				kind: 'billing.invoice_archive',
+				accountId,
+				invoiceId,
+				externalInvoiceId: invoice.externalId,
+			},
+			executor,
+		);
+	}
+
 	async #enqueueNotification(
 		event: NormalizedBillingEvent,
 		change: TierChange,
 		executor: Executor,
 	): Promise<void> {
+		if (event.kind === 'invoice_paid') return;
+
 		if (event.kind === 'payment_failed') {
 			await this.outbox.enqueue(
 				event.accountId,

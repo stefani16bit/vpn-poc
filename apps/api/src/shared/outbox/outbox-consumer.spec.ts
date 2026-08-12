@@ -6,6 +6,7 @@ import type { TransactionRunner } from '../database/transaction-runner.js';
 import { OutboxConsumer } from './outbox-consumer.js';
 import type { DeviceProvisioner } from '../devices/device-provisioner.service.js';
 import type { NotificationDispatcher } from '../notifications/notification-dispatcher.js';
+import type { InvoiceArchiver } from '../subscriptions/invoice-archiver.service.js';
 
 type Mock = ReturnType<typeof vi.fn>;
 
@@ -17,6 +18,7 @@ describe('OutboxConsumer', () => {
 	let queue: MemoryJobQueue;
 	let dispatcher: { send: Mock };
 	let provisioner: { provision: Mock; revoke: Mock };
+	let archiver: { archive: Mock };
 	let transactions: { runAsSystem: Mock; runInAccount: Mock };
 	let consumer: OutboxConsumer;
 
@@ -27,6 +29,7 @@ describe('OutboxConsumer', () => {
 			provision: vi.fn().mockResolvedValue(undefined),
 			revoke: vi.fn().mockResolvedValue(undefined),
 		};
+		archiver = { archive: vi.fn().mockResolvedValue(undefined) };
 		transactions = {
 			runAsSystem: vi.fn((work: () => Promise<unknown>) => work()),
 			runInAccount: vi.fn((_accountId: string, work: () => Promise<unknown>) => work()),
@@ -35,6 +38,7 @@ describe('OutboxConsumer', () => {
 			queue,
 			dispatcher as unknown as NotificationDispatcher,
 			provisioner as unknown as DeviceProvisioner,
+			archiver as unknown as InvoiceArchiver,
 			transactions as unknown as TransactionRunner,
 		);
 	});
@@ -125,6 +129,7 @@ describe('OutboxConsumer routing', () => {
 	let queue: MemoryJobQueue;
 	let dispatcher: { send: Mock };
 	let provisioner: { provision: Mock; revoke: Mock };
+	let archiver: { archive: Mock };
 	let consumer: OutboxConsumer;
 
 	beforeEach(() => {
@@ -134,10 +139,12 @@ describe('OutboxConsumer routing', () => {
 			provision: vi.fn().mockResolvedValue(undefined),
 			revoke: vi.fn().mockResolvedValue(undefined),
 		};
+		archiver = { archive: vi.fn().mockResolvedValue(undefined) };
 		consumer = new OutboxConsumer(
 			queue,
 			dispatcher as unknown as NotificationDispatcher,
 			provisioner as unknown as DeviceProvisioner,
+			archiver as unknown as InvoiceArchiver,
 			{
 				runInAccount: vi.fn((_accountId: string, work: () => Promise<unknown>) => work()),
 			} as unknown as TransactionRunner,
@@ -165,6 +172,26 @@ describe('OutboxConsumer routing', () => {
 		await consumer.runOnce();
 
 		expect(provisioner.revoke).toHaveBeenCalledWith('pk-1');
+		expect(dispatcher.send).not.toHaveBeenCalled();
+	});
+
+	it('archives an invoice without sending anyone an e-mail', async () => {
+		await queue.enqueue({
+			name: 'billing.invoice_archive',
+			data: {
+				accountId: 'acc-1',
+				message: {
+					kind: 'billing.invoice_archive',
+					accountId: 'acc-1',
+					invoiceId: 'inv-1',
+					externalInvoiceId: 'in_1',
+				},
+			},
+		});
+
+		await consumer.runOnce();
+
+		expect(archiver.archive).toHaveBeenCalledWith('acc-1', 'inv-1', 'in_1');
 		expect(dispatcher.send).not.toHaveBeenCalled();
 	});
 

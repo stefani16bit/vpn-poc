@@ -1,6 +1,7 @@
 import type {
 	CreateCheckoutRequest,
 	CreateCheckoutResponse,
+	InvoiceListResponse,
 	SubscriptionResponse,
 } from '@vpn/contracts';
 
@@ -12,6 +13,20 @@ export const billingApi = api.injectEndpoints({
 		subscription: builder.query<SubscriptionResponse, void>({
 			query: () => 'billing/subscription',
 			providesTags: ['Subscription'],
+		}),
+
+		invoices: builder.query<InvoiceListResponse, void>({
+			query: () => 'billing/invoices',
+			providesTags: ['Invoices'],
+		}),
+
+		// responseHandler is the whole reason this is not a plain query: the
+		// default parses JSON, and a PDF is not that.
+		invoicePdf: builder.mutation<Blob, string>({
+			query: (id) => ({
+				url: `billing/invoices/${id}/pdf`,
+				responseHandler: (response) => response.blob(),
+			}),
 		}),
 
 		createCheckout: builder.mutation<CreateCheckoutResponse, CreateCheckoutRequest>({
@@ -32,6 +47,8 @@ export const billingApi = api.injectEndpoints({
 
 export const {
 	useSubscriptionQuery,
+	useInvoicesQuery,
+	useInvoicePdfMutation,
 	useCreateCheckoutMutation,
 	useCancelSubscriptionMutation,
 	useResumeSubscriptionMutation,

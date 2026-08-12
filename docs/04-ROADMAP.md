@@ -111,6 +111,13 @@ sem Docker ensina a ignorar suíte vermelha.
 
 - [ ] `verification_tokens` e `refresh_tokens` não têm expurgo. Crescem para
       sempre. É um job, e é o primeiro candidato à `WorkersStack`.
+- [ ] `invoices` e os PDFs em S3 não têm retenção. É deliberado — recibo não some
+      quando a assinatura acaba —, mas "para sempre" não é política: falta
+      decidir por quanto tempo, e quem responde por isso é a área fiscal, não o
+      código. A exclusão de conta já leva os dois junto, por cascade. DEC-083.
+- [ ] O histórico de faturas começa quando começamos a ouvir o webhook. Uma conta
+      que já cobrava antes disso tem a tela vazia até a próxima cobrança. O
+      backfill pelo provider é trabalho próprio, e a tabela já o comporta.
 - [ ] Rate limit é por endereço de e-mail, não por IP. Um atacante com uma lista
       de endereços não é limitado por nada.
 - [ ] Nenhum 429 traz `Retry-After`, e o cliente não tem como saber quanto

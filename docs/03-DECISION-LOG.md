@@ -3467,3 +3467,60 @@ primitivo do seletor de idioma. Na lista de membros, o link que alternava
 `admin ↔ member` sem mostrar o valor corrente vira o mesmo `Select` — um controle
 que não diz em que estado está não é mais barato, é só mais quieto.
 
+---
+
+### DEC-083 — A fatura é projeção, e o PDF é nosso
+
+**Data:** 2026-08-12 · **Status:** accepted
+
+**Contexto.** Quem paga não tinha como ver o que já pagou. A tela de conta mostra
+o estado de agora e nada do que veio antes, e a única testemunha do histórico era
+o painel do provider — que nem todo mundo que precisa da informação acessa, e que
+some no dia em que trocarmos de provider.
+
+**Decisão.** Uma tabela `invoices`, projetada pelo webhook, atrás de
+`billing.manage`. O PDF é buscado por um job do worker e arquivado em
+`IObjectStorage` na **chegada do evento**, e servido **pela nossa API**.
+
+**Rationale.** Projeção e não leitura ao vivo pela mesma razão que
+`subscriptions` é projeção: uma tela que consulta o provider em tempo de request
+herda a latência e a disponibilidade dele, e perde a história inteira numa troca.
+A tabela acumula em vez de sobrescrever porque histórico é o produto aqui.
+
+Arquivar na chegada e não no primeiro download é o ponto da feature. A URL do
+provider expira, e a fatura que ninguém abriu antes da troca de provider é
+justamente a que se perderia — a que ninguém abriu é a que mais precisa do
+arquivo, porque ninguém vai notar que sumiu.
+
+**O evento do provider continua virando exatamente um `NormalizedBillingEvent`.**
+`invoice.payment_failed` já existia como `payment_failed` e move o e-mail de
+dunning; ele foi **estendido** com a fatura em vez de ganhar uma variante irmã.
+Emitir dois eventos normalizados a partir de um evento do provider colidiria com
+o único `(source, external_event_id)` de `billing_events` — o mecanismo de
+idempotência recusaria o segundo, e a fatura ou o e-mail se perderia conforme a
+ordem. O que entra novo é só `invoice_paid`.
+
+O PDF é streamado pela API e não entregue como URL assinada. `signedUrl` existe na
+porta e seria menos trabalho para o servidor, mas um link assinado é credencial ao
+portador: vale para qualquer um que o tenha até expirar, fora de qualquer checagem
+nossa. Streamar mantém `billing.manage` conferida em toda requisição, que é a
+mesma regra da DEC-082 aplicada a um byte em vez de a um botão.
+
+**As duas rotas não pedem `@RequiresSubscription`.** Quem cancelou é exatamente
+quem mais precisa dos recibos, e o guard responderia 402 justo para ele. É a mesma
+exceção, pelo mesmo tipo de argumento, que já deixa `GET /billing/subscription` de
+fora (DEC-081).
+
+**Consequências.** `IObjectStorage` ganha o primeiro consumidor de produto — ele
+existia, com suíte e dois adapters, e nenhuma feature o usava. Nada de infra nova:
+`STORAGE_DRIVER=s3` já aponta para o localstack e o bucket já nasce no `ready.d`.
+
+A suíte de conformidade de billing **não** roda contra o Stripe (DEC-060): ela
+abre por `createCheckout`, que o localstripe não tem. As asserções novas cobrem o
+fake, e o lado Stripe é fixado à mão nas fixtures de `invoice.paid` — nas duas
+versões de API, acacia e dahlia, porque a metadata da subscription mudou de lugar
+(DEC-057).
+
+Backfill do que aconteceu antes de ouvirmos fica **de fora**, deliberadamente. A
+história começa quando começamos a ouvir; a tabela comporta o passado, e puxá-lo é
+trabalho próprio com o seu próprio custo de paginação e limite do provider.

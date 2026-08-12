@@ -5,16 +5,19 @@ import {
 	Get,
 	Headers,
 	HttpCode,
+	Param,
 	Post,
 	Req,
+	Res,
 	UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 import {
 	createCheckoutRequestSchema,
 	type CreateCheckoutRequest,
 	type CreateCheckoutResponse,
+	type InvoiceListResponse,
 	type SubscriptionResponse,
 } from '@vpn/contracts';
 
@@ -52,6 +55,31 @@ export class BillingController {
 	@UseGuards(AccessTokenGuard)
 	async subscription(@Auth() claims: AccessTokenClaims): Promise<SubscriptionResponse> {
 		return this.billing.currentSubscription(claims.accountId);
+	}
+
+	// No @RequiresSubscription on either of these: whoever cancelled is exactly
+	// who needs the receipts, and the guard would answer 402 to them. Same
+	// exception, same reason, as GET /billing/subscription.
+	@Get('invoices')
+	@UseGuards(AccessTokenGuard, PermissionGuard)
+	@RequiresPermission('billing.manage')
+	async invoices(@Auth() claims: AccessTokenClaims): Promise<InvoiceListResponse> {
+		return this.billing.listInvoices(claims.accountId);
+	}
+
+	@Get('invoices/:id/pdf')
+	@UseGuards(AccessTokenGuard, PermissionGuard)
+	@RequiresPermission('billing.manage')
+	async invoicePdf(
+		@Auth() claims: AccessTokenClaims,
+		@Param('id') id: string,
+		@Res() response: Response,
+	): Promise<void> {
+		const pdf = await this.billing.invoicePdf(claims.accountId, id);
+
+		response.setHeader('content-type', 'application/pdf');
+		response.setHeader('content-disposition', `attachment; filename="invoice-${id}.pdf"`);
+		response.send(Buffer.from(pdf));
 	}
 
 	@Delete('subscription')

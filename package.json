@@ -9,8 +9,10 @@
   "scripts": {
     "dev": "concurrently -n infra,apps -c blue,green \"pnpm dev:infra\" \"pnpm dev:apps\"",
     "dev:infra": "sh devstack/dev.sh up",
+    "dev:infra:reset": "sh devstack/dev.sh reset",
     "dev:apps": "pm2-runtime start ecosystem.config.cjs",
     "dev:logs": "pm2 logs",
+    "dev:stripe": "stripe listen --forward-to 127.0.0.1:3000/billing/webhook",
     "logs:trace": "node scripts/logs-trace.mjs",
     "devstack:check": "sh devstack/check.sh",
     "build": "pnpm -r run build",

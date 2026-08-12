@@ -1530,6 +1530,132 @@ describe('billing', () => {
 		});
 	});
 
+	describe('invoices', () => {
+		function paidInvoice(accountId: string, externalId = `in_${accountId}`) {
+			const billing = provider();
+			return billing.emit('invoice_paid', accountId, {
+				invoice: billing.seedInvoice(externalId, accountId, 'paid'),
+			});
+		}
+
+		function invoicesOf(accessToken: string) {
+			return request(app.getHttpServer())
+				.get('/billing/invoices')
+				.set('Authorization', `Bearer ${accessToken}`);
+		}
+
+		it('projects a paid invoice and archives the document exactly once', async () => {
+			const owner = await subscribed();
+
+			const hook = paidInvoice(owner.accountId);
+			await deliver(hook).expect(200, { applied: true });
+			await deliver(hook).expect(200, { applied: false });
+
+			await app.get(OutboxRelay).runOnce();
+			await app.get(OutboxConsumer).runOnce();
+
+			const listed = await invoicesOf(owner.accessToken).expect(200);
+
+			expect(listed.body.invoices).toHaveLength(1);
+			expect(listed.body.invoices[0]).toMatchObject({
+				status: 'paid',
+				amountCents: 4900,
+				currency: 'brl',
+				archived: true,
+			});
+		});
+
+		it('serves the document from our own API, as a PDF', async () => {
+			const owner = await subscribed();
+			await deliver(paidInvoice(owner.accountId)).expect(200, { applied: true });
+			await app.get(OutboxRelay).runOnce();
+			await app.get(OutboxConsumer).runOnce();
+
+			const [invoice] = (await invoicesOf(owner.accessToken).expect(200)).body.invoices;
+
+			const pdf = await request(app.getHttpServer())
+				.get(`/billing/invoices/${invoice.id}/pdf`)
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(200)
+				.expect('content-type', /application\/pdf/);
+
+			expect(pdf.body.length).toBeGreaterThan(0);
+		});
+
+		it('records a failed payment without emitting a second event', async () => {
+			const owner = await subscribed();
+			const billing = provider();
+
+			await deliver(
+				billing.emit('payment_failed', owner.accountId, {
+					invoice: billing.seedInvoice(`in_failed_${owner.accountId}`, owner.accountId, 'failed'),
+				}),
+			).expect(200, { applied: true });
+
+			const listed = await invoicesOf(owner.accessToken).expect(200);
+
+			expect(listed.body.invoices).toHaveLength(1);
+			expect(listed.body.invoices[0].status).toBe('failed');
+			expect(await db`SELECT count(*)::int AS count FROM billing_events`).toEqual([{ count: 2 }]);
+		});
+
+		it('refuses the history to whoever cannot manage the money', async () => {
+			const owner = await subscribed();
+			const admin = await colleagueOf(owner.accessToken, 'admin');
+
+			await invoicesOf(admin.accessToken).expect(403);
+		});
+
+		// Whoever cancelled is exactly who needs the receipts, so the subscription
+		// guard deliberately does not stand in front of this one.
+		it('keeps answering after the account loses its tier', async () => {
+			const owner = await subscribed();
+			await deliver(paidInvoice(owner.accountId)).expect(200, { applied: true });
+
+			const billing = provider();
+			await deliver(
+				billing.emit('subscription_canceled', owner.accountId, {
+					subscription: billing.seedSubscription(
+						`sub_${owner.accountId}`,
+						owner.accountId,
+						'canceled',
+					),
+				}),
+			).expect(200, { applied: true });
+
+			const listed = await invoicesOf(owner.accessToken).expect(200);
+			expect(listed.body.invoices).toHaveLength(1);
+		});
+
+		it('hides an invoice of another account behind the same not found', async () => {
+			const first = await subscribed();
+			await deliver(paidInvoice(first.accountId)).expect(200, { applied: true });
+			await app.get(OutboxRelay).runOnce();
+			await app.get(OutboxConsumer).runOnce();
+			const [invoice] = (await invoicesOf(first.accessToken).expect(200)).body.invoices;
+
+			const other = await subscribed();
+
+			await request(app.getHttpServer())
+				.get(`/billing/invoices/${invoice.id}/pdf`)
+				.set('Authorization', `Bearer ${other.accessToken}`)
+				.expect(404);
+		});
+
+		it('answers not found while the document has not been archived yet', async () => {
+			const owner = await subscribed();
+			await deliver(paidInvoice(owner.accountId)).expect(200, { applied: true });
+
+			const [invoice] = (await invoicesOf(owner.accessToken).expect(200)).body.invoices;
+			expect(invoice.archived).toBe(false);
+
+			await request(app.getHttpServer())
+				.get(`/billing/invoices/${invoice.id}/pdf`)
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(404);
+		});
+	});
+
 	describe('what an account without a subscription may reach', () => {
 		it('refuses the users page with 402, not 403: the plan is the problem', async () => {
 			const session = await subscribedSession();

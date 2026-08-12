@@ -36,6 +36,13 @@
       "when": 1786474685623,
       "tag": "0004_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786548891353,
+      "tag": "0005_invoices",
+      "breakpoints": true
     }
   ]
 }

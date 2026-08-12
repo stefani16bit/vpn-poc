@@ -38,6 +38,12 @@ export type OutboxMessage =
 			readonly accountId: string;
 			readonly requestedAt: string;
 	  }
+	| {
+			readonly kind: 'billing.invoice_archive';
+			readonly accountId: string;
+			readonly invoiceId: string;
+			readonly externalInvoiceId: string;
+	  }
 	| { readonly kind: 'device.provision'; readonly deviceId: string }
 	| { readonly kind: 'device.revoke'; readonly publicKey: string };
 
@@ -57,6 +63,7 @@ const BILLING_KINDS: readonly OutboxKind[] = [
 	'billing.access_revoked',
 	'billing.cancellation_scheduled',
 	'billing.subscription_resumed',
+	'billing.invoice_archive',
 ];
 
 export const DEVICE_KINDS: readonly OutboxKind[] = ['device.provision', 'device.revoke'];

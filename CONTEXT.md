@@ -171,6 +171,19 @@ dele.
 **Subscription** — a projeção local do estado no provider, uma por account. É uma
 projeção, não a verdade: o provider é a autoridade, e o webhook sobrescreve.
 
+**Invoice** — a cobrança como o provider a emitiu. Projeção pela mesma razão que a
+`Subscription` é, e com o mesmo dono da verdade. Duas situações interessam —
+**paga** e **falha** —, e elas vêm do evento, não de um cálculo nosso. Enquanto a
+subscription é uma linha por account, sobrescrita, a fatura **acumula**: é
+histórico, e nada a apaga. Um cancelamento não leva junto o recibo do que já foi
+pago, e é por isso que a tela de faturas continua aberta a quem perdeu o tier.
+
+O **arquivo** da fatura é o PDF do provider copiado para o nosso storage, na
+chegada do evento e não no primeiro download. A URL do provider expira, e uma
+fatura que ninguém abriu antes de uma troca de provider deixaria de existir. Ele
+sai pela nossa API, com a permissão conferida a cada requisição, em vez de virar
+URL assinada — um link assinado vale para quem o tiver, até expirar. DEC-083.
+
 **Tier** — o nível do produto. É ele que determina os entitlements. Hoje existe
 **um**, `pro`, e é o único comprável. `TIER_IDS` mora em `@vpn/contracts`.
 

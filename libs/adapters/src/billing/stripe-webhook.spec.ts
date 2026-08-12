@@ -38,10 +38,17 @@ const DAHLIA_SUBSCRIPTION = {
 	},
 };
 
+const ISSUED_AT = 1786299000;
+
 const ACACIA_INVOICE = {
 	id: 'in_1',
 	object: 'invoice',
 	customer: 'cus_1',
+	number: 'ACC-0001',
+	currency: 'brl',
+	amount_due: 4900,
+	amount_paid: 4900,
+	created: ISSUED_AT,
 	subscription_details: { metadata: { account_id: ACCOUNT } },
 };
 
@@ -49,6 +56,11 @@ const DAHLIA_INVOICE = {
 	id: 'in_1',
 	object: 'invoice',
 	customer: 'cus_1',
+	number: 'ACC-0001',
+	currency: 'brl',
+	amount_due: 4900,
+	amount_paid: 4900,
+	created: ISSUED_AT,
 	parent: { subscription_details: { metadata: { account_id: ACCOUNT } } },
 };
 
@@ -103,6 +115,54 @@ describe('parseWebhookEvent across API versions', () => {
 	it('ignores an invoice belonging to no subscription of ours', () => {
 		const parsed = provider.parseWebhookEvent(
 			event('invoice.payment_failed', { id: 'in_1', object: 'invoice', customer: 'cus_1' }),
+		);
+
+		expect(parsed).toBeNull();
+	});
+
+	it('carries the invoice on a failed payment, in either shape', () => {
+		for (const invoice of [ACACIA_INVOICE, DAHLIA_INVOICE]) {
+			const parsed = provider.parseWebhookEvent(event('invoice.payment_failed', invoice));
+
+			expect(parsed).toMatchObject({
+				kind: 'payment_failed',
+				invoice: {
+					externalId: 'in_1',
+					number: 'ACC-0001',
+					status: 'failed',
+					amountCents: 4900,
+					currency: 'brl',
+					issuedAt: new Date(ISSUED_AT * 1000),
+				},
+			});
+		}
+	});
+
+	it('normalises a paid invoice, in either shape', () => {
+		for (const invoice of [ACACIA_INVOICE, DAHLIA_INVOICE]) {
+			const parsed = provider.parseWebhookEvent(event('invoice.paid', invoice));
+
+			expect(parsed).toMatchObject({
+				kind: 'invoice_paid',
+				accountId: ACCOUNT,
+				invoice: { externalId: 'in_1', status: 'paid', amountCents: 4900 },
+			});
+		}
+	});
+
+	// A failed charge has amount_paid at zero, and a statement line reading R$ 0
+	// would say the opposite of what happened.
+	it('reads the amount from what was paid, or from what was due when it was not', () => {
+		const failed = provider.parseWebhookEvent(
+			event('invoice.payment_failed', { ...ACACIA_INVOICE, amount_paid: 0 }),
+		);
+
+		expect(failed).toMatchObject({ invoice: { amountCents: 4900 } });
+	});
+
+	it('ignores a paid invoice belonging to no subscription of ours', () => {
+		const parsed = provider.parseWebhookEvent(
+			event('invoice.paid', { id: 'in_1', object: 'invoice', customer: 'cus_1' }),
 		);
 
 		expect(parsed).toBeNull();

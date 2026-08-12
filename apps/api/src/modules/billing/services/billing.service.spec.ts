@@ -2,13 +2,20 @@ import { pino } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '@vpn-poc/env';
-import type { IBillingProvider, NormalizedBillingEvent, Subscription } from '@vpn/ports';
+import type {
+	IBillingProvider,
+	IObjectStorage,
+	Invoice,
+	NormalizedBillingEvent,
+	Subscription,
+} from '@vpn/ports';
 import { FixedClock } from '@vpn/testing/fakes';
 
 import { AppError } from '../../../shared/errors/app-error.js';
 import type { ModuleLogger } from '../../../shared/http/module-logger.js';
 import type { TransactionRunner } from '../../../shared/database/transaction-runner.js';
 import type { BillingEventRepository } from '../repositories/billing-event.repository.js';
+import type { InvoiceRepository } from '../../../shared/subscriptions/invoice.repository.js';
 import type {
 	StoredSubscription,
 	SubscriptionRepository,
@@ -59,6 +66,18 @@ function subscription(overrides: Partial<Subscription> = {}): Subscription {
 	} as Subscription;
 }
 
+function invoice(overrides: Partial<Invoice> = {}): Invoice {
+	return {
+		externalId: 'in_1',
+		number: 'ACC-0001',
+		status: 'failed',
+		amountCents: 4900,
+		currency: 'brl',
+		issuedAt: OCCURRED_AT,
+		...overrides,
+	};
+}
+
 describe('BillingService', () => {
 	let billing: {
 		createCheckout: ReturnType<typeof vi.fn>;
@@ -73,6 +92,13 @@ describe('BillingService', () => {
 		setCancelAtPeriodEnd: ReturnType<typeof vi.fn>;
 		upsert: ReturnType<typeof vi.fn>;
 	};
+	let invoices: {
+		listByAccount: ReturnType<typeof vi.fn>;
+		findById: ReturnType<typeof vi.fn>;
+		upsert: ReturnType<typeof vi.fn>;
+		setPdfKey: ReturnType<typeof vi.fn>;
+	};
+	let storage: { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
 	let events: { claim: ReturnType<typeof vi.fn> };
 	let outbox: { enqueue: ReturnType<typeof vi.fn> };
 	let transactions: {
@@ -96,6 +122,13 @@ describe('BillingService', () => {
 			setCancelAtPeriodEnd: vi.fn().mockResolvedValue(undefined),
 			upsert: vi.fn().mockResolvedValue(true),
 		};
+		invoices = {
+			listByAccount: vi.fn().mockResolvedValue([]),
+			findById: vi.fn().mockResolvedValue(undefined),
+			upsert: vi.fn().mockResolvedValue('invoice-1'),
+			setPdfKey: vi.fn().mockResolvedValue(undefined),
+		};
+		storage = { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) };
 		events = { claim: vi.fn().mockResolvedValue(true) };
 		outbox = { enqueue: vi.fn().mockResolvedValue(undefined) };
 
@@ -112,9 +145,11 @@ describe('BillingService', () => {
 		service = new BillingService(
 			recordingLogger(),
 			billing as unknown as IBillingProvider,
+			storage as unknown as IObjectStorage,
 			identity as unknown as UserRepository,
 			env,
 			subscriptions as unknown as SubscriptionRepository,
+			invoices as unknown as InvoiceRepository,
 			events as unknown as BillingEventRepository,
 			outbox as unknown as OutboxRepository,
 			transactions as unknown as TransactionRunner,
@@ -156,9 +191,11 @@ describe('BillingService', () => {
 			const withoutYearly = new BillingService(
 				recordingLogger(),
 				billing as unknown as IBillingProvider,
+				storage as unknown as IObjectStorage,
 				identity as unknown as UserRepository,
 				{ ...env, STRIPE_PRICE_ID_YEARLY: undefined } as Env,
 				subscriptions as unknown as SubscriptionRepository,
+				invoices as unknown as InvoiceRepository,
 				events as unknown as BillingEventRepository,
 				outbox as unknown as OutboxRepository,
 				transactions as unknown as TransactionRunner,
@@ -169,6 +206,77 @@ describe('BillingService', () => {
 			await expect(withoutYearly.createCheckout('acc-1', 'pro', 'yearly')).rejects.toBeInstanceOf(
 				AppError,
 			);
+		});
+	});
+
+	describe('invoices', () => {
+		const stored = {
+			id: 'inv-1',
+			externalId: 'in_1',
+			number: 'ACC-0001',
+			status: 'paid' as const,
+			amountCents: 4900,
+			currency: 'brl',
+			issuedAt: OCCURRED_AT,
+			pdfKey: 'invoices/acc-1/in_1.pdf',
+		};
+
+		it('sends the issue date over the wire as an ISO string', async () => {
+			invoices.listByAccount.mockResolvedValue([stored]);
+
+			const listed = await service.listInvoices('acc-1');
+
+			expect(listed.invoices[0]).toMatchObject({
+				id: 'inv-1',
+				status: 'paid',
+				amountCents: 4900,
+				issuedAt: OCCURRED_AT.toISOString(),
+			});
+		});
+
+		it('says whether the document is there, so the screen offers no dead download', async () => {
+			invoices.listByAccount.mockResolvedValue([stored, { ...stored, id: 'inv-2', pdfKey: null }]);
+
+			const listed = await service.listInvoices('acc-1');
+
+			expect(listed.invoices.map((entry) => entry.archived)).toEqual([true, false]);
+		});
+
+		it('never carries the storage key, which is ours and not the browser business', async () => {
+			invoices.listByAccount.mockResolvedValue([stored]);
+
+			const [first] = (await service.listInvoices('acc-1')).invoices;
+
+			expect(JSON.stringify(first)).not.toContain('invoices/acc-1');
+		});
+
+		it('hands back the archived bytes', async () => {
+			const body = new TextEncoder().encode('%PDF');
+			invoices.findById.mockResolvedValue(stored);
+			storage.get.mockResolvedValue({ body, contentType: 'application/pdf' });
+
+			expect(await service.invoicePdf('acc-1', 'inv-1')).toBe(body);
+			expect(storage.get).toHaveBeenCalledWith('invoices/acc-1/in_1.pdf');
+		});
+
+		it('answers not found for an invoice of another account, by the same path', async () => {
+			invoices.findById.mockResolvedValue(undefined);
+
+			await expect(service.invoicePdf('acc-1', 'inv-9')).rejects.toBeInstanceOf(AppError);
+			expect(storage.get).not.toHaveBeenCalled();
+		});
+
+		it('answers not found while the document has not been archived yet', async () => {
+			invoices.findById.mockResolvedValue({ ...stored, pdfKey: null });
+
+			await expect(service.invoicePdf('acc-1', 'inv-1')).rejects.toBeInstanceOf(AppError);
+		});
+
+		it('answers not found when the row points at an object that is gone', async () => {
+			invoices.findById.mockResolvedValue(stored);
+			storage.get.mockResolvedValue(null);
+
+			await expect(service.invoicePdf('acc-1', 'inv-1')).rejects.toBeInstanceOf(AppError);
 		});
 	});
 
@@ -446,6 +554,7 @@ describe('BillingService', () => {
 				accountId: 'acc-1',
 				externalEventId: 'evt-2',
 				externalCustomerId: 'cus_1',
+				invoice: invoice(),
 			} satisfies NormalizedBillingEvent);
 
 			await service.handleWebhook('{}', 'sig');
@@ -456,6 +565,73 @@ describe('BillingService', () => {
 				EXECUTOR,
 			);
 			expect(subscriptions.upsert).not.toHaveBeenCalled();
+		});
+
+		it('projects the invoice a failed payment carries, without a second event', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'payment_failed',
+				accountId: 'acc-1',
+				externalEventId: 'evt-2',
+				externalCustomerId: 'cus_1',
+				invoice: invoice({ status: 'failed' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(invoices.upsert).toHaveBeenCalledWith(
+				'acc-1',
+				expect.objectContaining({ externalId: 'in_1', status: 'failed' }),
+				OCCURRED_AT,
+				EXECUTOR,
+			);
+			expect(events.claim).toHaveBeenCalledTimes(1);
+		});
+
+		it('projects a paid invoice and asks for the document, without mailing anyone', async () => {
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'invoice_paid',
+				accountId: 'acc-1',
+				externalEventId: 'evt-3',
+				externalCustomerId: 'cus_1',
+				invoice: invoice({ status: 'paid' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(invoices.upsert).toHaveBeenCalled();
+			expect(subscriptions.upsert).not.toHaveBeenCalled();
+			expect(outbox.enqueue).toHaveBeenCalledWith(
+				'acc-1',
+				{
+					kind: 'billing.invoice_archive',
+					accountId: 'acc-1',
+					invoiceId: 'invoice-1',
+					externalInvoiceId: 'in_1',
+				},
+				EXECUTOR,
+			);
+			expect(outbox.enqueue).toHaveBeenCalledTimes(1);
+		});
+
+		// The upsert answers with nothing when its monotonic guard refused the
+		// write, and a job for a row this event did not touch would archive a
+		// document against a stale invoice.
+		it('asks for no document when a late redelivery changed nothing', async () => {
+			invoices.upsert.mockResolvedValue(undefined);
+			billing.parseWebhookEvent.mockReturnValue({
+				occurredAt: OCCURRED_AT,
+				kind: 'invoice_paid',
+				accountId: 'acc-1',
+				externalEventId: 'evt-4',
+				externalCustomerId: 'cus_1',
+				invoice: invoice({ status: 'paid' }),
+			} satisfies NormalizedBillingEvent);
+
+			await service.handleWebhook('{}', 'sig');
+
+			expect(outbox.enqueue).not.toHaveBeenCalled();
 		});
 
 		it('stores and queues on a cancellation, carrying the period end as a string', async () => {
@@ -646,6 +822,7 @@ describe('BillingService', () => {
 				accountId: 'acc-1',
 				externalEventId: 'evt-7',
 				externalCustomerId: 'cus_1',
+				invoice: invoice(),
 			} satisfies NormalizedBillingEvent);
 
 			await service.handleWebhook('{}', 'sig');
@@ -688,6 +865,7 @@ describe('BillingService', () => {
 				accountId: 'acc-1',
 				externalEventId: 'evt-5',
 				externalCustomerId: 'cus_1',
+				invoice: invoice(),
 			} satisfies NormalizedBillingEvent);
 
 			await service.handleWebhook('{}', 'sig');
@@ -723,6 +901,7 @@ describe('BillingService', () => {
 				accountId: 'acc-1',
 				externalEventId: 'evt-13',
 				externalCustomerId: 'cus_1',
+				invoice: invoice(),
 			},
 		];
 

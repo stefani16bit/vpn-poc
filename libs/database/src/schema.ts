@@ -185,6 +185,33 @@ export const subscriptions = pgTable(
 	],
 );
 
+export const invoiceStatus = pgEnum('invoice_status', ['paid', 'failed']);
+
+export const invoices = pgTable(
+	'invoices',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		accountId: uuid('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		externalId: text('external_id').notNull(),
+		number: text('number'),
+		status: invoiceStatus('status').notNull(),
+		amountCents: integer('amount_cents').notNull(),
+		currency: text('currency').notNull(),
+		issuedAt: timestamp('issued_at', { withTimezone: true }).notNull(),
+		pdfKey: text('pdf_key'),
+		lastEventAt: timestamp('last_event_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		uniqueIndex('invoices_account_external_id_key').on(table.accountId, table.externalId),
+		index('invoices_account_issued_at_idx').on(table.accountId, table.issuedAt.desc()),
+		...scopedPolicies('invoices'),
+	],
+);
+
 export const billingEvents = pgTable(
 	'billing_events',
 	{

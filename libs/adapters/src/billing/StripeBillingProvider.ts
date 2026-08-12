@@ -4,6 +4,8 @@ import type {
 	CheckoutRequest,
 	CheckoutSession,
 	IBillingProvider,
+	Invoice as PortInvoice,
+	InvoiceStatus,
 	NormalizedBillingEvent,
 	Subscription,
 	SubscriptionStatus,
@@ -140,6 +142,21 @@ export class StripeBillingProvider implements IBillingProvider {
 					occurredAt,
 					accountId,
 					externalCustomerId: String(invoice.customer ?? ''),
+					invoice: toInvoice(invoice, 'failed', occurredAt),
+				};
+			}
+
+			case 'invoice.paid': {
+				const invoice = event.data.object as Stripe.Invoice;
+				const accountId = accountIdOf(subscriptionMetadataOf(invoice));
+				if (!accountId) return null;
+				return {
+					kind: 'invoice_paid',
+					externalEventId: event.id,
+					occurredAt,
+					accountId,
+					externalCustomerId: String(invoice.customer ?? ''),
+					invoice: toInvoice(invoice, 'paid', occurredAt),
 				};
 			}
 
@@ -147,6 +164,29 @@ export class StripeBillingProvider implements IBillingProvider {
 				return null;
 		}
 	}
+
+	async fetchInvoicePdf(externalInvoiceId: string): Promise<Uint8Array | null> {
+		const invoice = await this.#stripe.invoices.retrieve(externalInvoiceId).catch(() => null);
+		if (!invoice?.invoice_pdf) return null;
+
+		const response = await fetch(invoice.invoice_pdf);
+		if (!response.ok) return null;
+
+		return new Uint8Array(await response.arrayBuffer());
+	}
+}
+
+function toInvoice(invoice: Stripe.Invoice, status: InvoiceStatus, occurredAt: Date): PortInvoice {
+	const seconds = secondsAt(invoice, 'created');
+
+	return {
+		externalId: String(invoice.id ?? ''),
+		number: invoice.number ?? null,
+		status,
+		amountCents: status === 'paid' ? (invoice.amount_paid ?? 0) : (invoice.amount_due ?? 0),
+		currency: invoice.currency,
+		issuedAt: seconds === null ? occurredAt : new Date(seconds * 1000),
+	};
 }
 
 function accountIdOf(metadata: Stripe.Metadata | null | undefined): string | null {

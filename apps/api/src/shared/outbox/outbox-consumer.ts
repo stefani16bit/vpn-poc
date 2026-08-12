@@ -5,6 +5,7 @@ import { JOB_QUEUE, type IJobQueue } from '@vpn/ports';
 import { TransactionRunner } from '../database/transaction-runner.js';
 import { DeviceProvisioner } from '../devices/device-provisioner.service.js';
 import { NotificationDispatcher } from '../notifications/notification-dispatcher.js';
+import { InvoiceArchiver } from '../subscriptions/invoice-archiver.service.js';
 import { parseOutboxJob, type OutboxMessage } from './outbox-message.js';
 
 export interface ConsumerReport {
@@ -19,6 +20,7 @@ export class OutboxConsumer {
 		@Inject(JOB_QUEUE) private readonly queue: IJobQueue,
 		private readonly dispatcher: NotificationDispatcher,
 		private readonly provisioner: DeviceProvisioner,
+		private readonly archiver: InvoiceArchiver,
 		private readonly transactions: TransactionRunner,
 	) {}
 
@@ -36,7 +38,9 @@ export class OutboxConsumer {
 			}
 
 			try {
-				await this.transactions.runInAccount(parsed.accountId, () => this.#apply(parsed.message));
+				await this.transactions.runInAccount(parsed.accountId, () =>
+					this.#apply(parsed.accountId, parsed.message),
+				);
 			} catch (error) {
 				failed.push({ name: job.name, error });
 				continue;
@@ -48,12 +52,14 @@ export class OutboxConsumer {
 		return { received: received.length, unknown, failed };
 	}
 
-	async #apply(message: OutboxMessage): Promise<void> {
+	async #apply(accountId: string, message: OutboxMessage): Promise<void> {
 		switch (message.kind) {
 			case 'device.provision':
 				return this.provisioner.provision(message.deviceId);
 			case 'device.revoke':
 				return this.provisioner.revoke(message.publicKey);
+			case 'billing.invoice_archive':
+				return this.archiver.archive(accountId, message.invoiceId, message.externalInvoiceId);
 			default:
 				return this.dispatcher.send(message);
 		}
