@@ -212,6 +212,13 @@ contratou continua sem poder.
 que nenhum código confere é enfeite, e o teste que lê os controllers é o que cobra
 o outro lado.
 
+**Atribuir uma chave** — criar um device em nome de outra pessoa da account.
+`devices.assign`, e não um detalhe de `devices.create`, porque a chave privada
+nasce no navegador de **quem preenche o formulário**: quem atribui fica com a
+chave, e o que aparece no inventário é o nome do colega. Sem a separação, o padrão
+de `member` — que é `devices.create` sozinho — daria a qualquer um acesso à VPN
+gravado no nome de outro e descontado do `devicesPerUser` dele.
+
 **Role permission** — a concessão: quais permissões uma role tem **nesta account**.
 É linha, sob RLS, e é o que deixa uma empresa liberar o member a gerar a própria
 chave enquanto a vizinha não libera, sem deploy e sem `if` por cliente.
@@ -246,12 +253,24 @@ permissão inutiliza a account, e duas edições concorrentes furam qualquer che
 escrita como "ainda sobrou alguém?" — o inegociável nº 3. DEC-080, DEC-081.
 
 **Permissão diz se você pode agir; escopo diz sobre o quê.** É a distinção que
-este glossário existe para preservar. Em `/devices` a role é **escopo**: toda
-operação é sobre o que a pessoa possui, e `admin` ou `owner` alargam para a account
-inteira. Um guard que responde sim/não antes do handler não sabe expressar "os dois
-podem, com alcances diferentes" — para decidir ele teria que ler a linha, e ler a
-linha é trabalho do serviço. Por isso `/devices` não é barrada por role, e
-retroaplicar um portão ali destruiria a distinção. DEC-070.
+este glossário existe para preservar, e ela sobrevive inteira — o que mudou foi
+**quem alarga**. Em `/devices` toda operação é sobre o que a pessoa possui, e
+`devices.readAll` e `devices.revokeAll` alargam para a account inteira. Um guard
+que responde sim/não antes do handler não sabe expressar "os dois podem, com
+alcances diferentes" — para decidir ele teria que ler a linha, e ler a linha é
+trabalho do serviço. Por isso `GET /devices` e `DELETE /devices/:id` continuam sem
+portão: a permissão vira **filtro**, não recusa, e quem não a tem enxerga as
+próprias chaves em vez de levar 403. Retroaplicar um portão ali destruiria a
+distinção. DEC-070, superada pela DEC-082.
+
+São duas e não uma porque ler e cortar são poderes diferentes: `devices.readAll`
+dá o inventário a quem audita, e `devices.revokeAll` é o que derruba o túnel de
+alguém no meio do expediente.
+
+A consequência de o alcance ser permissão e não rank é que `DELETE /devices/:id`
+sem `devices.revokeAll` responde **404**, não 403: o `UPDATE ... WHERE user_id =
+$eu` não casa e a linha alheia some do mundo de quem chamou. Dizer 403 ali
+confirmaria que o id existe.
 
 Em `/users`, em cobrança e no `POST /devices` a permissão é **portão**:
 `@RequiresPermission` recusa com 403 antes do handler, porque ali não há escopo
@@ -260,8 +279,17 @@ padrão dá `billing.manage` só ao owner, e um `admin` leva 403 na cobrança �
 separação passou a ser **dado da account** em vez de rank do enum. A DEC-079 abriu
 esses portões com `@RequiresRole`; a DEC-080 os trocou.
 
-`GET /billing/subscription` fica de fora: ela alimenta a home da conta, e quem não
-pode gerir perde os botões, não a página.
+`GET /billing/subscription` fica de fora do portão, mas quem não pode gerir perde
+a **seção** de assinatura na home — estado, botões e tudo. O que a empresa
+contratou (`PlanEntitlements`) fica: é informação de quem usa o produto, não de
+quem paga por ele. Uma seção que só sabe dizer "ativa até tal dia" para quem não
+pode fazer nada a respeito é ruído com aparência de controle.
+
+**A tela mostra o que a concessão permite fazer.** Não é gentileza de UI, é a
+mesma regra do `owner` não editável: um controle que a pessoa vê, clica e leva 403
+é pior que um ausente. Toda rota de área logada nasce atrás de
+`RequirePermission`, todo controle mutante atrás de `useHasPermission`, e a tela
+que sobraria vazia some do nav em vez de virar um beco. DEC-082.
 
 **Antes da permissão vem a assinatura.** `/devices`, `/users` e `/permissions` são
 área de assinante: sem tier a resposta é **402**, e a tela nem aparece no nav.

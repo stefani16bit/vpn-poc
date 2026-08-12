@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { CreateDeviceRequest } from '@vpn/contracts';
+import type { CreateDeviceRequest, Permission } from '@vpn/contracts';
 import { FixedClock } from '@vpn/testing/fakes';
 import type { Env } from '@vpn-poc/env';
 
@@ -14,11 +14,13 @@ import type { ExitNodeDirectory } from '../../../shared/devices/exit-node-direct
 import type { UserRepository } from '../../../shared/identity/repositories/user.repository.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import type { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
+import type { PermissionService } from '../../../shared/permissions/permission.service.js';
 import { DevicesService } from './devices.service.js';
 
 const CIDR = '10.13.13.0/24';
 const ACCOUNT = 'account-1';
 const USER = 'user-1';
+const COLLEAGUE = 'user-2';
 const OWNER_EMAIL = 'owner@example.com';
 const REQUEST: CreateDeviceRequest = {
 	name: 'laptop',
@@ -58,10 +60,14 @@ function service({
 	taken = new Set<string>(),
 	claim,
 	revoked,
+	granted = [],
+	members = [{ id: USER, email: OWNER_EMAIL }],
 }: {
 	taken?: ReadonlySet<string>;
 	claim?: (values: NewDevice) => Promise<StoredDevice | undefined>;
 	revoked?: StoredDevice | undefined;
+	granted?: readonly Permission[];
+	members?: readonly { id: string; email: string }[];
 } = {}) {
 	const claimAddress = vi.fn(claim ?? ((values: NewDevice) => Promise.resolve(stored(values))));
 	const revoke = vi.fn(() => Promise.resolve(revoked));
@@ -73,8 +79,10 @@ function service({
 		revoke,
 	} as unknown as DeviceRepository;
 
+	const listByAccount = vi.fn(() => Promise.resolve(members));
 	const users = {
-		findById: () => Promise.resolve({ id: USER, email: OWNER_EMAIL }),
+		findById: (id: string) => Promise.resolve(members.find((member) => member.id === id)),
+		listByAccount,
 	} as unknown as UserRepository;
 
 	const enqueue = vi.fn(() => Promise.resolve());
@@ -89,18 +97,29 @@ function service({
 			}),
 	} as unknown as ExitNodeDirectory;
 
-	const subject = new DevicesService(devices, users, outbox, directory, new FixedClock(), {
-		EXIT_NODE_TUNNEL_CIDR: CIDR,
-	} as Env);
+	const has = vi.fn((_account: string, _user: string, _role: string, permission: Permission) =>
+		Promise.resolve(granted.includes(permission)),
+	);
+	const permissions = { has } as unknown as PermissionService;
 
-	return { subject, claimAddress, enqueue, listLive, revoke };
+	const subject = new DevicesService(
+		devices,
+		users,
+		outbox,
+		directory,
+		permissions,
+		new FixedClock(),
+		{ EXIT_NODE_TUNNEL_CIDR: CIDR } as Env,
+	);
+
+	return { subject, claimAddress, enqueue, listLive, listByAccount, revoke };
 }
 
 describe('DevicesService.create', () => {
 	it('claims once when the range is empty', async () => {
 		const { subject, claimAddress } = service();
 
-		const created = await subject.create(ACCOUNT, USER, REQUEST);
+		const created = await subject.create(claims(), REQUEST);
 
 		expect(claimAddress).toHaveBeenCalledTimes(1);
 		expect(created.device.tunnelAddress).toBe('10.13.13.4/32');
@@ -112,7 +131,7 @@ describe('DevicesService.create', () => {
 		);
 		const { subject, claimAddress } = service({ taken });
 
-		const created = await subject.create(ACCOUNT, USER, REQUEST);
+		const created = await subject.create(claims(), REQUEST);
 
 		expect(claimAddress).toHaveBeenCalledTimes(1);
 		expect(created.device.tunnelAddress).toBe('10.13.13.201/32');
@@ -125,9 +144,7 @@ describe('DevicesService.create', () => {
 		taken.delete('10.13.13.9/32');
 		const { subject } = service({ taken });
 
-		expect((await subject.create(ACCOUNT, USER, REQUEST)).device.tunnelAddress).toBe(
-			'10.13.13.9/32',
-		);
+		expect((await subject.create(claims(), REQUEST)).device.tunnelAddress).toBe('10.13.13.9/32');
 	});
 
 	it('tries the next address when the hint lost a race, because the index decides', async () => {
@@ -139,7 +156,7 @@ describe('DevicesService.create', () => {
 			},
 		});
 
-		const created = await subject.create(ACCOUNT, USER, REQUEST);
+		const created = await subject.create(claims(), REQUEST);
 
 		expect(claimAddress).toHaveBeenCalledTimes(2);
 		expect(created.device.tunnelAddress).toBe('10.13.13.5/32');
@@ -148,7 +165,7 @@ describe('DevicesService.create', () => {
 	it('names the public key when that is the index that refused', async () => {
 		const { subject, claimAddress } = service({ claim: () => Promise.reject(duplicateKey()) });
 
-		await expect(subject.create(ACCOUNT, USER, REQUEST)).rejects.toThrow(
+		await expect(subject.create(claims(), REQUEST)).rejects.toThrow(
 			new AppError('CONFLICT', 'this public key already belongs to a live device'),
 		);
 		expect(claimAddress).toHaveBeenCalledTimes(1);
@@ -157,25 +174,96 @@ describe('DevicesService.create', () => {
 	it('does not turn an unrelated failure into a conflict', async () => {
 		const { subject } = service({ claim: () => Promise.reject(new Error('connection lost')) });
 
-		await expect(subject.create(ACCOUNT, USER, REQUEST)).rejects.toThrow('connection lost');
+		await expect(subject.create(claims(), REQUEST)).rejects.toThrow('connection lost');
 	});
 
 	it('reports the range as full only after trying all of it', async () => {
 		const { subject, claimAddress } = service({ claim: () => Promise.resolve(undefined) });
 
-		await expect(subject.create(ACCOUNT, USER, REQUEST)).rejects.toThrow('no free address left');
+		await expect(subject.create(claims(), REQUEST)).rejects.toThrow('no free address left');
 		expect(claimAddress).toHaveBeenCalledTimes(251);
 	});
 
 	it('writes the provisioning intention next to the row', async () => {
 		const { subject, enqueue } = service();
 
-		await subject.create(ACCOUNT, USER, REQUEST);
+		await subject.create(claims(), REQUEST);
 
 		expect(enqueue).toHaveBeenCalledWith(ACCOUNT, {
 			kind: 'device.provision',
 			deviceId: 'device-10.13.13.4/32',
 		});
+	});
+
+	it('reads an absent owner as "for me", so the common case asks for nothing extra', async () => {
+		const { subject, claimAddress } = service();
+
+		await subject.create(claims(), REQUEST);
+
+		expect(claimAddress).toHaveBeenCalledWith(expect.objectContaining({ userId: USER }));
+	});
+
+	it('refuses to put a key in somebody else name without devices.assign', async () => {
+		const { subject, claimAddress } = service({
+			granted: ['devices.create'],
+			members: [
+				{ id: USER, email: OWNER_EMAIL },
+				{ id: COLLEAGUE, email: 'bruno@example.com' },
+			],
+		});
+
+		await expect(subject.create(claims(), { ...REQUEST, userId: COLLEAGUE })).rejects.toThrow(
+			new AppError('FORBIDDEN', 'assigning a device to another user needs devices.assign'),
+		);
+		expect(claimAddress).not.toHaveBeenCalled();
+	});
+
+	it('lets the holder of devices.assign choose the owner', async () => {
+		const { subject, claimAddress } = service({
+			granted: ['devices.create', 'devices.assign'],
+			members: [
+				{ id: USER, email: OWNER_EMAIL },
+				{ id: COLLEAGUE, email: 'bruno@example.com' },
+			],
+		});
+
+		const created = await subject.create(claims(), { ...REQUEST, userId: COLLEAGUE });
+
+		expect(claimAddress).toHaveBeenCalledWith(expect.objectContaining({ userId: COLLEAGUE }));
+		expect(created.device.userEmail).toBe('bruno@example.com');
+	});
+
+	it('does not ask for devices.assign when the chosen owner is the caller', async () => {
+		const { subject, claimAddress } = service();
+
+		await subject.create(claims(), { ...REQUEST, userId: USER });
+
+		expect(claimAddress).toHaveBeenCalledWith(expect.objectContaining({ userId: USER }));
+	});
+});
+
+describe('DevicesService.assignees', () => {
+	it('answers with the id and the address of everyone in the account', async () => {
+		const { subject } = service({
+			members: [
+				{ id: USER, email: OWNER_EMAIL },
+				{ id: COLLEAGUE, email: 'bruno@example.com' },
+			],
+		});
+
+		expect(await subject.assignees(ACCOUNT)).toEqual({
+			users: [
+				{ id: USER, email: OWNER_EMAIL },
+				{ id: COLLEAGUE, email: 'bruno@example.com' },
+			],
+		});
+	});
+
+	it('carries nothing the picker does not need', async () => {
+		const { subject } = service();
+		const [first] = (await subject.assignees(ACCOUNT)).users;
+
+		expect(Object.keys(first ?? {}).sort()).toEqual(['email', 'id']);
 	});
 });
 
@@ -196,20 +284,28 @@ describe('DevicesService.revoke', () => {
 		expect(revoke).toHaveBeenCalledWith(LIVE.id, { ownedBy: USER }, expect.any(Date));
 	});
 
-	it('lets an admin reach the whole account, because offboarding is not self-service', async () => {
-		const { subject, revoke } = service({ revoked: LIVE });
+	it('reaches the whole account with devices.revokeAll, because offboarding is not self-service', async () => {
+		const { subject, revoke } = service({ revoked: LIVE, granted: ['devices.revokeAll'] });
 
 		await subject.revoke(claims({ role: 'admin', userId: 'someone-else' }), LIVE.id);
 
 		expect(revoke).toHaveBeenCalledWith(LIVE.id, { wholeAccount: true }, expect.any(Date));
 	});
 
-	it('lets an owner reach it too', async () => {
-		const { subject, revoke } = service({ revoked: LIVE });
+	it('narrows back to ownership for an admin whose account took devices.revokeAll away', async () => {
+		const { subject, revoke } = service({ revoked: LIVE, granted: ['devices.readAll'] });
 
-		await subject.revoke(claims({ role: 'owner', userId: 'someone-else' }), LIVE.id);
+		await subject.revoke(claims({ role: 'admin' }), LIVE.id);
 
-		expect(revoke).toHaveBeenCalledWith(LIVE.id, { wholeAccount: true }, expect.any(Date));
+		expect(revoke).toHaveBeenCalledWith(LIVE.id, { ownedBy: USER }, expect.any(Date));
+	});
+
+	it('does not let seeing every key imply cutting one off', async () => {
+		const { subject, revoke } = service({ revoked: LIVE, granted: ['devices.readAll'] });
+
+		await subject.revoke(claims({ role: 'member' }), LIVE.id);
+
+		expect(revoke).toHaveBeenCalledWith(LIVE.id, { ownedBy: USER }, expect.any(Date));
 	});
 
 	it('tells the node to forget the key once the row stops counting', async () => {
@@ -234,7 +330,7 @@ describe('DevicesService.revoke', () => {
 });
 
 describe('DevicesService.list', () => {
-	it('shows a member only what they own', async () => {
+	it('shows only what the caller owns when nothing widened the reach', async () => {
 		const { subject, listLive } = service();
 
 		await subject.list(claims());
@@ -242,19 +338,27 @@ describe('DevicesService.list', () => {
 		expect(listLive).toHaveBeenCalledWith({ ownedBy: USER });
 	});
 
-	it('shows an admin the whole account, which is what offboarding needs to see', async () => {
-		const { subject, listLive } = service();
+	it('shows the whole account with devices.readAll, which is what an audit needs to see', async () => {
+		const { subject, listLive } = service({ granted: ['devices.readAll'] });
 
-		await subject.list(claims({ role: 'admin' }));
+		await subject.list(claims());
 
 		expect(listLive).toHaveBeenCalledWith({ wholeAccount: true });
 	});
 
-	it('shows an owner the whole account too', async () => {
-		const { subject, listLive } = service();
+	it('narrows back for an admin whose account took devices.readAll away', async () => {
+		const { subject, listLive } = service({ granted: ['devices.create'] });
 
-		await subject.list(claims({ role: 'owner' }));
+		await subject.list(claims({ role: 'admin' }));
 
-		expect(listLive).toHaveBeenCalledWith({ wholeAccount: true });
+		expect(listLive).toHaveBeenCalledWith({ ownedBy: USER });
+	});
+
+	it('does not let cutting a key off imply seeing every key', async () => {
+		const { subject, listLive } = service({ granted: ['devices.revokeAll'] });
+
+		await subject.list(claims());
+
+		expect(listLive).toHaveBeenCalledWith({ ownedBy: USER });
 	});
 });

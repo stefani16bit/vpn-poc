@@ -1,7 +1,7 @@
 # Permissões por account e por pessoa
 
 **Status:** entregue
-**Decisões relacionadas:** DEC-080, DEC-081, supera DEC-079 · compõe com DEC-070, DEC-036, DEC-055
+**Decisões relacionadas:** DEC-080, DEC-081, DEC-082, supera DEC-079 · compõe com DEC-036, DEC-055
 
 ## Problema
 
@@ -36,8 +36,10 @@ dos dois.
 - **Roles criadas pelo cliente.** `owner|admin|member` seguem sendo um enum. O que
   vira dado é a permissão. O schema fica aditivo: `role` vira FK para uma tabela
   depois, sem tocar em `role_permissions`.
-- **Permissão como escopo.** `GET /devices` e `DELETE /devices/:id` continuam
-  resolvidos por posse (DEC-070). Um portão ali destruiria a distinção.
+- **Portão em `GET /devices` e `DELETE /devices/:id`.** As duas continuam sem
+  decorator: a posse é o padrão e a permissão **alarga** o alcance, como filtro e
+  não como recusa (DEC-070, e depois DEC-082). Um portão ali destruiria a
+  distinção que o glossário existe para preservar.
 - **Herança entre roles.** Não há "admin herda member". Cada role tem o seu
   conjunto, e o mapa de padrões escreve os três por extenso.
 - **Permissão por recurso.** `devices.create` é "pode criar dispositivo", nunca
@@ -59,15 +61,27 @@ O conjunto fechado:
 | `users.update`       | `PATCH /users/:id`                                                          |
 | `users.delete`       | `DELETE /users/:id`                                                         |
 | `devices.create`     | `POST /devices`                                                             |
+| `devices.assign`     | `POST /devices` com `userId` de outra pessoa, `GET /devices/assignees`      |
+| `devices.readAll`    | `GET /devices` — alarga o filtro, não é portão                              |
+| `devices.revokeAll`  | `DELETE /devices/:id` — alarga o filtro, não é portão                       |
 | `permissions.manage` | as rotas que editam concessões                                              |
+
+As três de dispositivo também formam `DEVICE_PERMISSIONS`, que é o que a web
+consulta para decidir se `/keys` tem alguma razão de existir para esta pessoa. Um
+teste cobra que todo `devices.*` do conjunto fechado está lá — permissão nova não
+pode deixar o nav para trás em silêncio.
 
 Padrões (`DEFAULT_ROLE_PERMISSIONS`):
 
-| Role     | Padrão                                                         |
-| -------- | -------------------------------------------------------------- |
-| `owner`  | todas                                                          |
-| `admin`  | `users.*` e `devices.create` — gere pessoas, não gere dinheiro |
-| `member` | `devices.create`                                               |
+| Role     | Padrão                                                             |
+| -------- | ------------------------------------------------------------------ |
+| `owner`  | todas                                                              |
+| `admin`  | `users.*` e `devices.*` — gere pessoas e chaves, não gere dinheiro |
+| `member` | `devices.create`                                                   |
+
+O padrão de `admin` é exatamente o que `hasAtLeastRole(role, 'admin')` concedia
+antes da DEC-082: a troca é de mecanismo, não de política, e nenhuma account muda
+de comportamento.
 
 ## Comportamento
 
@@ -167,6 +181,78 @@ Dado    uma linha em role_permissions com uma permissão que já não existe no 
 Quando  o resolver monta o conjunto efetivo
 Então   o valor desconhecido é ignorado
 E       renomear uma permissão não derruba a account que a tinha
+```
+
+### Alcance em `/devices` (DEC-082)
+
+```
+Dado    um member sem devices.readAll, com uma chave própria numa account com outras
+Quando  ele chama GET /devices
+Então   a resposta é 200 e traz só a chave dele
+E       não é 403: a permissão ali é filtro, não portão
+```
+
+```
+Dado    o mesmo member, agora com role_permissions (member, devices.readAll, true)
+Quando  ele repete GET /devices
+Então   a resposta traz as chaves da account inteira
+```
+
+```
+Dado    um admin cuja account tirou devices.revokeAll da role
+Quando  ele chama DELETE /devices/:id contra a chave de outra pessoa
+Então   a resposta é 404, não 403
+E       dizer 403 confirmaria que o id existe
+```
+
+```
+Dado    um member com devices.create e sem devices.assign
+Quando  ele chama POST /devices com userId de um colega
+Então   a resposta é 403 com código FORBIDDEN
+E       a mesma chamada sem userId responde 201
+```
+
+```
+Dado    um admin com devices.assign
+Quando  ele chama POST /devices com o userId de um colega
+Então   o device criado pertence ao colega
+E       GET /devices/assignees respondia 200 com a lista de onde ele escolheu
+```
+
+```
+Dado    um member sem devices.assign
+Quando  ele chama GET /devices/assignees
+Então   a resposta é 403
+E       a lista de colegas não é um dado que qualquer um lê
+```
+
+### O que a tela mostra (DEC-082)
+
+```
+Dado    alguém com users.read e sem users.create
+Quando  ele abre /users
+Então   a lista aparece e o formulário de criar não
+E       o mesmo vale para users.update e users.delete, botão a botão
+```
+
+```
+Dado    alguém sem nenhuma das DEVICE_PERMISSIONS
+Quando  ele olha o nav ou digita /keys
+Então   o link não existe e a rota redireciona para /
+```
+
+```
+Dado    alguém com billing.manage cuja resposta de GET /permissions ainda não voltou
+Quando  ele digita /users
+Então   a tela espera em vez de redirecionar
+E       "ainda não sei" não é "não pode"
+```
+
+```
+Dado    alguém sem billing.manage
+Quando  ele abre /
+Então   a seção de assinatura não aparece
+E       o que o plano inclui continua aparecendo
 ```
 
 ## Portas afetadas

@@ -882,6 +882,7 @@ describe('billing', () => {
 		const billing = provider();
 		const hook = billing.emit('payment_failed', session.accountId, {
 			externalCustomerId: 'cus_e2e',
+			invoice: billing.seedInvoice(`in_${session.accountId}`, session.accountId, 'failed'),
 		});
 
 		await request(app.getHttpServer())
@@ -1205,6 +1206,7 @@ describe('billing', () => {
 
 	describe('permissions', () => {
 		const PUBLIC_KEY = 'GJvAqPYlHR3nOMxdI0qc1lPzZLDkP+FCoAKzMEwPUXA=';
+		const SECOND_PUBLIC_KEY = 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=';
 
 		function grantsOf(accessToken: string) {
 			return request(app.getHttpServer())
@@ -1416,6 +1418,116 @@ describe('billing', () => {
 
 			expect(denied.body.code).toBe('FORBIDDEN');
 		});
+
+		function listDevices(accessToken: string) {
+			return request(app.getHttpServer())
+				.get('/devices')
+				.set('Authorization', `Bearer ${accessToken}`);
+		}
+
+		it('shows a member only the keys that are theirs, and never a 403', async () => {
+			const owner = await subscribed();
+			const colleague = await colleagueOf(owner.accessToken, 'member');
+
+			await createDevice(owner.accessToken).expect(201);
+			await createDevice(colleague.accessToken, SECOND_PUBLIC_KEY).expect(201);
+
+			const mine = await listDevices(colleague.accessToken).expect(200);
+
+			expect(mine.body.devices).toHaveLength(1);
+			expect(mine.body.devices[0].publicKey).toBe(SECOND_PUBLIC_KEY);
+		});
+
+		it('widens the same list to the account once devices.readAll is granted', async () => {
+			const owner = await subscribed();
+			const colleague = await colleagueOf(owner.accessToken, 'member');
+
+			await createDevice(owner.accessToken).expect(201);
+			await createDevice(colleague.accessToken, SECOND_PUBLIC_KEY).expect(201);
+
+			await setRoleGrant(owner.accessToken, 'member', {
+				permission: 'devices.readAll',
+				granted: true,
+			}).expect(200);
+
+			const everything = await listDevices(colleague.accessToken).expect(200);
+
+			expect(everything.body.devices).toHaveLength(2);
+		});
+
+		it('narrows an admin back to their own keys when the tenant takes devices.readAll away', async () => {
+			const owner = await subscribed();
+			const admin = await colleagueOf(owner.accessToken, 'admin');
+
+			await createDevice(owner.accessToken).expect(201);
+			expect((await listDevices(admin.accessToken).expect(200)).body.devices).toHaveLength(1);
+
+			await setRoleGrant(owner.accessToken, 'admin', {
+				permission: 'devices.readAll',
+				granted: false,
+			}).expect(200);
+
+			expect((await listDevices(admin.accessToken).expect(200)).body.devices).toHaveLength(0);
+		});
+
+		it('answers 404 and not 403 when revoking a key the caller cannot reach', async () => {
+			const owner = await subscribed();
+			const colleague = await colleagueOf(owner.accessToken, 'member');
+			const created = await createDevice(owner.accessToken).expect(201);
+
+			const denied = await request(app.getHttpServer())
+				.delete(`/devices/${created.body.device.id}`)
+				.set('Authorization', `Bearer ${colleague.accessToken}`)
+				.expect(404);
+
+			expect(denied.body.code).toBe('NOT_FOUND');
+		});
+
+		it('refuses to put a key in somebody else name without devices.assign', async () => {
+			const owner = await subscribed();
+			const ana = await colleagueOf(owner.accessToken, 'member');
+			const bruno = await colleagueOf(owner.accessToken, 'member');
+
+			const denied = await request(app.getHttpServer())
+				.post('/devices')
+				.set('Authorization', `Bearer ${ana.accessToken}`)
+				.send({ name: 'laptop', publicKey: PUBLIC_KEY, userId: bruno.userId })
+				.expect(403);
+
+			expect(denied.body.code).toBe('FORBIDDEN');
+		});
+
+		it('lets an admin generate a key that belongs to a colleague', async () => {
+			const owner = await subscribed();
+			const admin = await colleagueOf(owner.accessToken, 'admin');
+			const colleague = await colleagueOf(owner.accessToken, 'member');
+
+			const assignees = await request(app.getHttpServer())
+				.get('/devices/assignees')
+				.set('Authorization', `Bearer ${admin.accessToken}`)
+				.expect(200);
+			expect(assignees.body.users.map((user: { id: string }) => user.id)).toContain(
+				colleague.userId,
+			);
+
+			const created = await request(app.getHttpServer())
+				.post('/devices')
+				.set('Authorization', `Bearer ${admin.accessToken}`)
+				.send({ name: 'laptop', publicKey: PUBLIC_KEY, userId: colleague.userId })
+				.expect(201);
+
+			expect(created.body.device.userEmail).toBe(colleague.email);
+		});
+
+		it('keeps the roster of colleagues behind devices.assign', async () => {
+			const owner = await subscribed();
+			const colleague = await colleagueOf(owner.accessToken, 'member');
+
+			await request(app.getHttpServer())
+				.get('/devices/assignees')
+				.set('Authorization', `Bearer ${colleague.accessToken}`)
+				.expect(403);
+		});
 	});
 
 	describe('what an account without a subscription may reach', () => {
@@ -1556,6 +1668,7 @@ describe('billing', () => {
 
 			const hook = provider().emit('payment_failed', session.accountId, {
 				externalCustomerId: 'cus_e2e',
+				invoice: provider().seedInvoice(`in_${session.accountId}`, session.accountId, 'failed'),
 			});
 			await deliver(hook).expect(200, { applied: true });
 

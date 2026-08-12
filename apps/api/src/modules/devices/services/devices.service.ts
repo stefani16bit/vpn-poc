@@ -1,12 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import type { CreateDeviceRequest, Device, DeviceWithNode, ExitNodeView } from '@vpn/contracts';
+import type {
+	CreateDeviceRequest,
+	Device,
+	DeviceAssigneeListResponse,
+	DeviceWithNode,
+	ExitNodeView,
+	Permission,
+} from '@vpn/contracts';
 import { CLOCK, type IClock } from '@vpn/ports';
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 
 import type { AccessTokenClaims } from '../../../shared/access-control/access-token.service.js';
-import { hasAtLeastRole } from '../../../shared/access-control/roles.js';
 import { isUniqueViolation } from '../../../shared/database/pg-errors.js';
 import {
 	DeviceRepository,
@@ -20,6 +26,7 @@ import { UserRepository } from '../../../shared/identity/repositories/user.repos
 import { assignableAddresses, firstFreeAddress } from '../../../shared/devices/tunnel-address.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
+import { PermissionService } from '../../../shared/permissions/permission.service.js';
 
 const LIVE_PUBLIC_KEY_INDEX = 'devices_live_public_key_key';
 
@@ -34,24 +41,34 @@ export class DevicesService {
 		private readonly users: UserRepository,
 		private readonly outbox: OutboxRepository,
 		private readonly directory: ExitNodeDirectory,
+		private readonly permissions: PermissionService,
 		@Inject(CLOCK) private readonly clock: IClock,
 		@Inject(ENV) private readonly env: Env,
 	) {}
 
 	async list(claims: AccessTokenClaims): Promise<{ devices: DeviceWithNode[] }> {
 		const [stored, node] = await Promise.all([
-			this.devices.listLive(scopeFor(claims)),
+			this.devices.listLive(await this.#scope(claims, 'devices.readAll')),
 			this.#node(),
 		]);
 
 		return { devices: stored.map((device) => ({ ...toView(device), node })) };
 	}
 
-	async create(
-		accountId: string,
-		userId: string,
-		request: CreateDeviceRequest,
-	): Promise<DeviceView> {
+	async assignees(accountId: string): Promise<DeviceAssigneeListResponse> {
+		const members = await this.users.listByAccount(accountId);
+
+		return { users: members.map((member) => ({ id: member.id, email: member.email })) };
+	}
+
+	async create(claims: AccessTokenClaims, request: CreateDeviceRequest): Promise<DeviceView> {
+		const { accountId } = claims;
+		const userId = request.userId ?? claims.userId;
+
+		if (userId !== claims.userId && !(await this.#may(claims, 'devices.assign'))) {
+			throw new AppError('FORBIDDEN', 'assigning a device to another user needs devices.assign');
+		}
+
 		const cidr = this.env.EXIT_NODE_TUNNEL_CIDR;
 		const [node, taken, owner] = await Promise.all([
 			this.#node(),
@@ -81,13 +98,24 @@ export class DevicesService {
 	}
 
 	async revoke(claims: AccessTokenClaims, deviceId: string): Promise<void> {
-		const revoked = await this.devices.revoke(deviceId, scopeFor(claims), this.clock.now());
+		const scope = await this.#scope(claims, 'devices.revokeAll');
+		const revoked = await this.devices.revoke(deviceId, scope, this.clock.now());
 		if (!revoked) throw new AppError('NOT_FOUND', 'no live device with that id');
 
 		await this.outbox.enqueue(claims.accountId, {
 			kind: 'device.revoke',
 			publicKey: revoked.publicKey,
 		});
+	}
+
+	async #scope(claims: AccessTokenClaims, permission: Permission): Promise<DeviceScope> {
+		return (await this.#may(claims, permission))
+			? { wholeAccount: true }
+			: { ownedBy: claims.userId };
+	}
+
+	#may(claims: AccessTokenClaims, permission: Permission): Promise<boolean> {
+		return this.permissions.has(claims.accountId, claims.userId, claims.role, permission);
 	}
 
 	async #claim(device: NewDevice): Promise<StoredDevice | undefined> {
@@ -111,10 +139,6 @@ export class DevicesService {
 			allowedIps: [...description.allowedIps],
 		};
 	}
-}
-
-function scopeFor(claims: AccessTokenClaims): DeviceScope {
-	return hasAtLeastRole(claims.role, 'admin') ? { wholeAccount: true } : { ownedBy: claims.userId };
 }
 
 function toView(device: OwnedDevice): Device {

@@ -2636,7 +2636,7 @@ dito aqui e no roadmap.
 
 ### DEC-070 — Posse é o escopo padrão; a role só alarga
 
-**Data:** 2026-08-10 · **Status:** accepted
+**Data:** 2026-08-10 · **Status:** superseded by DEC-082
 
 **Contexto.** O `CONTEXT.md` diz há tempo que autorização tem duas dimensões que
 compõem: o entitlement diz o que a _empresa_ contratou, a role diz o que _esta
@@ -3378,3 +3378,92 @@ estados e não dois: enquanto a resposta não voltou ele diz `unknown`, e o wrap
 espera. Com booleano, "ainda não sei" e "não assinou" seriam o mesmo valor, e uma
 conta pagante seria expulsa da própria página no primeiro render — o mesmo defeito
 que o `auth-slice` evita com `unknown`.
+
+---
+
+### DEC-082 — Quem alarga o escopo é a permissão, e o controle que não serve some
+
+**Data:** 2026-08-12 · **Status:** accepted · **Supersedes:** DEC-070
+
+**Contexto.** Duas coisas, e elas se encontraram no mesmo lugar.
+
+A DEC-080 tirou rank de cena em toda parte, menos numa: `scopeFor` em
+`devices.service.ts` continuava perguntando `hasAtLeastRole(claims.role, 'admin')`
+para decidir se a listagem é da conta inteira ou só do que a pessoa possui. Era o
+**último** chamador de `roles.ts`. E a pergunta que ele responde é exatamente a
+que a DEC-080 disse que rank não sabe responder: "esta empresa deixa esta pessoa
+ver a chave dos outros?" não é uma questão de quem é mais forte.
+
+A outra é que a tela nunca acompanhou. A camada existia — `GET /permissions`,
+`useHasPermission`, `RequireSubscription` — e tinha **três** chamadores em toda a
+`apps/web`. Quem tinha só `users.read` via o formulário de criar usuário, o botão
+de trocar papel e o de remover; quem não podia gerir cobrança via a seção de
+assinatura inteira, sem os botões. A DEC-081 já tinha nomeado o defeito e
+corrigido metade dos lugares.
+
+**Decisão.** Três, e elas se sustentam juntas.
+
+**O alcance em `/devices` é permissão.** `devices.readAll` alarga a listagem,
+`devices.revokeAll` alarga a revogação, e `scopeFor` vira uma consulta ao
+`PermissionService`. `roles.ts` e `hasAtLeastRole` são **deletados**.
+
+**Atribuir uma chave é `devices.assign`.** `createDeviceRequestSchema` ganha um
+`userId` opcional; ausente significa "para mim". A rota mantém
+`@RequiresPermission('devices.create')` e o serviço recusa com 403 quando o alvo
+difere de quem chama e falta `devices.assign`.
+
+**A tela mostra o que a concessão permite fazer.** Toda rota da área logada nasce
+atrás de `RequirePermission`, todo controle mutante atrás de `useHasPermission`, e
+a tela que sobraria vazia some do nav.
+
+**Rationale.** Duas permissões de alcance e não uma porque ler e cortar são
+poderes diferentes — `devices.readAll` serve quem audita, `devices.revokeAll`
+derruba o túnel de alguém no meio do expediente —, e o conjunto fechado é barato:
+o que custa é descobrir depois que a única permissão que existe é grossa demais
+para o cliente que reclamou.
+
+`devices.assign` separada de `devices.create` porque **a chave privada nasce no
+navegador de quem preenche o formulário**. Bundlada, o padrão de `member` — que é
+`devices.create` sozinho — daria a qualquer um acesso à VPN gravado no nome de um
+colega e descontado do `devicesPerUser` dele. É um caminho de escalada com
+aparência de conveniência.
+
+O padrão de `admin` recebe as três novas, então **nenhuma account muda de
+comportamento**: o que `hasAtLeastRole(role, 'admin')` concedia é exatamente o que
+`DEFAULT_ROLE_PERMISSIONS.admin` passa a conceder. A migração é de mecanismo, não
+de política.
+
+`GET /devices` e `DELETE /devices/:id` continuam **sem portão**, e isso é o
+coração da DEC-070 sobrevivendo à sua própria superação: a permissão ali é filtro,
+não recusa. Quem não tem `devices.readAll` vê as próprias chaves em vez de levar 403. Por isso `authorization.guard.spec.ts` continua sem cobrar decorator nessas
+duas — e por isso `DELETE` sem `devices.revokeAll` responde **404**: o `UPDATE`
+não casa, e dizer 403 confirmaria que o id existe.
+
+Rejeitado esconder `/keys` só de quem não pode criar. A pergunta certa é "esta
+pessoa tem alguma razão para abrir esta tela?", e ela tem quatro respostas
+possíveis — daí `DEVICE_PERMISSIONS` em `@vpn/contracts`, com um teste que cobra
+que todo `devices.*` do conjunto fechado está lá. `components/` não pode importar
+de `features/`, então a lista não podia morar na feature de chaves; e no contrato
+ela fica ao lado da fonte que a define.
+
+**Consequências.** `RequirePermission` precisa de um hook de **três** estados
+(`usePermissionStatus`), não do `useHasPermission` existente. `useHasPermission` é
+fail-closed — devolve `false` enquanto a resposta não voltou —, o que é correto
+para esconder um botão e errado para redirecionar uma rota: quem pode seria
+expulso da própria página no primeiro render. É o mesmo defeito que a DEC-081
+evitou em `useSubscriptionStatus`, aparecendo pela terceira vez.
+
+`GET /devices/assignees` existe em vez de a tela de chaves ler `GET /users`.
+Feature não importa feature, o lint de fronteira recusa, e é a mesma razão pela
+qual a resposta de concessões carrega o e-mail de cada pessoa (DEC-080). Ela pede
+`devices.assign`, não `users.read`: quem atribui não precisa administrar gente.
+
+A seção de assinatura some para quem não tem `billing.manage`, mas
+`PlanEntitlements` fica. O que a empresa contratou é informação de quem usa o
+produto; o estado da cobrança, de quem paga por ele.
+
+O seletor de papel deixa de ser o único `<select>` nativo do app e passa ao mesmo
+primitivo do seletor de idioma. Na lista de membros, o link que alternava
+`admin ↔ member` sem mostrar o valor corrente vira o mesmo `Select` — um controle
+que não diz em que estado está não é mais barato, é só mais quieto.
+

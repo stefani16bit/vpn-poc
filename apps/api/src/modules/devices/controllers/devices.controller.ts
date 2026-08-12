@@ -4,6 +4,7 @@ import {
 	createDeviceRequestSchema,
 	type CreateDeviceRequest,
 	type CreateDeviceResponse,
+	type DeviceAssigneeListResponse,
 	type DeviceListResponse,
 } from '@vpn/contracts';
 
@@ -28,6 +29,13 @@ export class DevicesController {
 		return this.devices.list(claims);
 	}
 
+	@Get('assignees')
+	@RequiresCapability('vpn_access')
+	@RequiresPermission('devices.assign')
+	async assignees(@Auth() claims: AccessTokenClaims): Promise<DeviceAssigneeListResponse> {
+		return this.devices.assignees(claims.accountId);
+	}
+
 	@Post()
 	@HttpCode(201)
 	@RequiresCapability('vpn_access')
@@ -36,7 +44,7 @@ export class DevicesController {
 		@Auth() claims: AccessTokenClaims,
 		@Body(new ZodBody(createDeviceRequestSchema)) body: CreateDeviceRequest,
 	): Promise<CreateDeviceResponse> {
-		return this.devices.create(claims.accountId, claims.userId, body);
+		return this.devices.create(claims, body);
 	}
 
 	@Delete(':id')
