@@ -23,7 +23,7 @@ export const authApi = api.injectEndpoints({
 
 		login: builder.mutation<SessionResponse, LoginRequest>({
 			query: (body) => ({ url: 'auth/login', method: 'POST', body }),
-			invalidatesTags: ['Session', 'Subscription'],
+			invalidatesTags: ['Session', 'Subscription', 'Entitlements'],
 		}),
 
 		register: builder.mutation<AcknowledgedResponse, RegisterRequest>({

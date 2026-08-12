@@ -25,11 +25,14 @@ import type { AccessTokenClaims } from '../../../shared/access-control/access-to
 import { Auth } from '../../../shared/access-control/current-auth.decorator.js';
 import { PermissionGuard } from '../../../shared/access-control/permission.guard.js';
 import { RequiresPermission } from '../../../shared/access-control/require-permission.decorator.js';
+import { RequiresSubscription } from '../../../shared/access-control/require-subscription.decorator.js';
+import { SubscriptionGuard } from '../../../shared/access-control/subscription.guard.js';
 import { ZodBody } from '../../../shared/validation/zod-body.pipe.js';
 import { UsersService } from '../services/users.service.js';
 
 @Controller('users')
-@UseGuards(AccessTokenGuard, PermissionGuard)
+@UseGuards(AccessTokenGuard, SubscriptionGuard, PermissionGuard)
+@RequiresSubscription()
 export class UsersController {
 	constructor(private readonly users: UsersService) {}
 

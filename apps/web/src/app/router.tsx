@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 
+import { RequireSubscription } from '@/app/access/require-subscription.tsx';
 import { RequireAuth } from '@/features/auth/components/require-auth.tsx';
 import { ForgotPasswordPage } from '@/features/auth/pages/forgot-password.page.tsx';
 import { LoginPage } from '@/features/auth/pages/login.page.tsx';
@@ -37,7 +38,9 @@ export function Router() {
 				path="/keys"
 				element={
 					<RequireAuth>
-						<KeysPage />
+						<RequireSubscription>
+							<KeysPage />
+						</RequireSubscription>
 					</RequireAuth>
 				}
 			/>
@@ -46,7 +49,9 @@ export function Router() {
 				path="/users"
 				element={
 					<RequireAuth>
-						<UsersPage />
+						<RequireSubscription>
+							<UsersPage />
+						</RequireSubscription>
 					</RequireAuth>
 				}
 			/>
@@ -55,7 +60,9 @@ export function Router() {
 				path="/permissions"
 				element={
 					<RequireAuth>
-						<PermissionsPage />
+						<RequireSubscription>
+							<PermissionsPage />
+						</RequireSubscription>
 					</RequireAuth>
 				}
 			/>

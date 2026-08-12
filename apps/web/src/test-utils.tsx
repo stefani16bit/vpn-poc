@@ -6,10 +6,13 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
 
 import {
+	ENTITLEMENTS,
 	PERMISSIONS,
+	UNSUBSCRIBED_ENTITLEMENTS,
 	type AnyErrorCode,
 	type Permission,
 	type SupportedLocale,
+	type TierId,
 } from '@vpn/contracts';
 
 import { api } from '@/app/store/api.js';
@@ -80,6 +83,7 @@ export interface ApiStub {
 	reply(body: unknown, status?: number): void;
 	fail(code: AnyErrorCode, status: number): void;
 	grant(...permissions: Permission[]): void;
+	subscribe(tier: TierId | null): void;
 	lastRequest(): RecordedRequest | undefined;
 }
 
@@ -120,14 +124,16 @@ export function stubSlowApi(body: unknown = { acknowledged: true }, status = 200
 	return { requests, aborted, release: () => open() };
 }
 
-// Every authenticated screen asks what the caller may do, so the stub answers
-// that one by route instead of by turn. The default is everything: a test that
-// is not about authorization should not have to opt into being allowed.
+// Every authenticated screen asks what the caller may do and what the company
+// bought, so the stub answers those two by route instead of by turn. The
+// defaults are everything and subscribed: a test that is not about
+// authorization or billing should not have to opt into being allowed.
 export function stubApi(): ApiStub {
 	const requests: RecordedRequest[] = [];
 	let nextStatus = 200;
 	let nextBody: unknown = {};
 	let granted: readonly Permission[] = PERMISSIONS;
+	let tier: TierId | null = 'pro';
 
 	const stub: ApiStub = {
 		requests,
@@ -137,6 +143,9 @@ export function stubApi(): ApiStub {
 		},
 		grant(...permissions) {
 			granted = permissions;
+		},
+		subscribe(next) {
+			tier = next;
 		},
 		// normalizeError only trusts a body carrying a string correlationId, which
 		// the API's exception filter always sends; omitting it here would make
@@ -162,8 +171,22 @@ export function stubApi(): ApiStub {
 			headers: request.headers,
 		});
 
-		if (request.method === 'GET' && new URL(request.url).pathname.endsWith('/permissions')) {
+		const path = new URL(request.url).pathname;
+
+		if (request.method === 'GET' && path.endsWith('/permissions')) {
 			return new Response(JSON.stringify({ permissions: granted }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' },
+			});
+		}
+
+		if (request.method === 'GET' && path.endsWith('/entitlements')) {
+			const body = {
+				tier,
+				entitlements: tier === null ? UNSUBSCRIBED_ENTITLEMENTS : ENTITLEMENTS[tier],
+			};
+
+			return new Response(JSON.stringify(body), {
 				status: 200,
 				headers: { 'content-type': 'application/json' },
 			});

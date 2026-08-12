@@ -1295,8 +1295,22 @@ describe('billing', () => {
 		});
 
 		it('checks what the company bought before what the person may do', async () => {
-			const session = await subscribedSession();
-			const colleague = await colleagueOf(session.accessToken, 'member');
+			const owner = await subscribed();
+			const colleague = await colleagueOf(owner.accessToken, 'member');
+			await setRoleGrant(owner.accessToken, 'member', {
+				permission: 'devices.create',
+				granted: false,
+			}).expect(200);
+
+			const billing = provider();
+			await deliver(
+				billing.emit('subscription_updated', owner.accountId, {
+					subscription: {
+						...billing.seedSubscription(`sub_${owner.accountId}`, owner.accountId),
+						status: 'past_due',
+					},
+				}),
+			).expect(200, { applied: true });
 
 			const denied = await createDevice(colleague.accessToken).expect(402);
 			expect(denied.body.code).toBe('PAYMENT_REQUIRED');
@@ -1310,20 +1324,6 @@ describe('billing', () => {
 				.get('/permissions/grants')
 				.set('Authorization', `Bearer ${admin.accessToken}`)
 				.expect(403);
-
-			await request(app.getHttpServer())
-				.get('/permissions/grants')
-				.set('Authorization', `Bearer ${owner.accessToken}`)
-				.expect(200);
-		});
-
-		it('never lets the owner revoke its own way back in', async () => {
-			const owner = await subscribed();
-
-			await setRoleGrant(owner.accessToken, 'owner', {
-				permission: 'permissions.manage',
-				granted: false,
-			}).expect(200);
 
 			await request(app.getHttpServer())
 				.get('/permissions/grants')
@@ -1375,6 +1375,112 @@ describe('billing', () => {
 				permission: 'devices.create',
 				granted: true,
 			}).expect(404);
+		});
+
+		it('never describes the owner, because none of it can be edited', async () => {
+			const owner = await subscribed();
+
+			const overview = await request(app.getHttpServer())
+				.get('/permissions/grants')
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(200);
+
+			expect(overview.body.roles.map((entry: { role: string }) => entry.role)).toEqual([
+				'admin',
+				'member',
+			]);
+		});
+
+		it('refuses to write a grant against the owner role', async () => {
+			const owner = await subscribed();
+
+			const denied = await setRoleGrant(owner.accessToken, 'owner', {
+				permission: 'billing.manage',
+				granted: false,
+			}).expect(403);
+
+			expect(denied.body.code).toBe('FORBIDDEN');
+		});
+
+		it('refuses an exception against the owner in person', async () => {
+			const owner = await subscribed();
+			const me = await request(app.getHttpServer())
+				.get('/auth/me')
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(200);
+
+			const denied = await setUserGrant(owner.accessToken, me.body.id as string, {
+				permission: 'billing.manage',
+				granted: false,
+			}).expect(403);
+
+			expect(denied.body.code).toBe('FORBIDDEN');
+		});
+	});
+
+	describe('what an account without a subscription may reach', () => {
+		it('refuses the users page with 402, not 403: the plan is the problem', async () => {
+			const session = await subscribedSession();
+
+			const denied = await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(402);
+
+			expect(denied.body.code).toBe('PAYMENT_REQUIRED');
+		});
+
+		it('refuses the permissions screen the same way', async () => {
+			const session = await subscribedSession();
+
+			await request(app.getHttpServer())
+				.get('/permissions/grants')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(402);
+		});
+
+		it('still answers what the caller may do, because the nav is drawn from it', async () => {
+			const session = await subscribedSession();
+
+			const mine = await request(app.getHttpServer())
+				.get('/permissions')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(200);
+
+			expect(mine.body.permissions).toContain('billing.manage');
+		});
+
+		it('still shows the plan, because that page is where a subscription starts', async () => {
+			const session = await subscribedSession();
+
+			await request(app.getHttpServer())
+				.get('/billing/subscription')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(200);
+		});
+
+		it('closes the users page again when the account loses the tier', async () => {
+			const session = await subscribed();
+
+			await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(200);
+
+			const billing = provider();
+			await deliver(
+				billing.emit('subscription_updated', session.accountId, {
+					subscription: {
+						...billing.seedSubscription(`sub_${session.accountId}`, session.accountId),
+						status: 'past_due',
+					},
+				}),
+			).expect(200, { applied: true });
+
+			await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.expect(402);
 		});
 	});
 

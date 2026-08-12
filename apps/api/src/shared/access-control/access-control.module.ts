@@ -6,15 +6,23 @@ import { AccessTokenGuard } from './access-token.guard.js';
 import { AccessTokenService } from './access-token.service.js';
 import { CapabilityGuard } from './capability.guard.js';
 import { PermissionGuard } from './permission.guard.js';
+import { SubscriptionGuard } from './subscription.guard.js';
 
 @Module({
 	imports: [EntitlementsModule, PermissionsModule],
-	providers: [AccessTokenService, AccessTokenGuard, CapabilityGuard, PermissionGuard],
+	providers: [
+		AccessTokenService,
+		AccessTokenGuard,
+		CapabilityGuard,
+		PermissionGuard,
+		SubscriptionGuard,
+	],
 	exports: [
 		AccessTokenService,
 		AccessTokenGuard,
 		CapabilityGuard,
 		PermissionGuard,
+		SubscriptionGuard,
 		EntitlementsModule,
 		PermissionsModule,
 	],

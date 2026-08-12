@@ -13,6 +13,8 @@ import type { AccessTokenClaims } from '../../../shared/access-control/access-to
 import { Auth } from '../../../shared/access-control/current-auth.decorator.js';
 import { PermissionGuard } from '../../../shared/access-control/permission.guard.js';
 import { RequiresPermission } from '../../../shared/access-control/require-permission.decorator.js';
+import { RequiresSubscription } from '../../../shared/access-control/require-subscription.decorator.js';
+import { SubscriptionGuard } from '../../../shared/access-control/subscription.guard.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import { PermissionService } from '../../../shared/permissions/permission.service.js';
 import { ZodBody } from '../../../shared/validation/zod-body.pipe.js';
@@ -34,14 +36,16 @@ export class PermissionsController {
 	}
 
 	@Get('grants')
-	@UseGuards(AccessTokenGuard, PermissionGuard)
+	@UseGuards(AccessTokenGuard, SubscriptionGuard, PermissionGuard)
+	@RequiresSubscription()
 	@RequiresPermission('permissions.manage')
 	async grants(@Auth() claims: AccessTokenClaims): Promise<RoleGrantsResponse> {
 		return this.admin.overview(claims.accountId);
 	}
 
 	@Put('roles/:role')
-	@UseGuards(AccessTokenGuard, PermissionGuard)
+	@UseGuards(AccessTokenGuard, SubscriptionGuard, PermissionGuard)
+	@RequiresSubscription()
 	@RequiresPermission('permissions.manage')
 	@HttpCode(200)
 	async setRoleGrant(
@@ -56,7 +60,8 @@ export class PermissionsController {
 	}
 
 	@Put('users/:id')
-	@UseGuards(AccessTokenGuard, PermissionGuard)
+	@UseGuards(AccessTokenGuard, SubscriptionGuard, PermissionGuard)
+	@RequiresSubscription()
 	@RequiresPermission('permissions.manage')
 	@HttpCode(200)
 	async setUserGrant(

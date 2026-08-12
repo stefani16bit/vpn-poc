@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Permission } from '@vpn/contracts';
@@ -68,10 +68,22 @@ describe('Nav', () => {
 	});
 
 	it('offers nothing gated when there is no session yet, and never asks', async () => {
-		renderWithProviders(<Nav />, { locale: 'en', route: '/' });
+		renderWithProviders(<Nav />, { locale: 'en', route: '/keys' });
 
-		expect(await screen.findByRole('link', { name: /devices and keys/i })).toBeInTheDocument();
+		expect(await screen.findByRole('link', { name: 'Your account' })).toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: /devices and keys/i })).not.toBeInTheDocument();
 		expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
 		expect(api.requests).toEqual([]);
+	});
+
+	it('hides every subscriber-only page while the account has no plan', async () => {
+		api.subscribe(null);
+		render(['users.read', 'permissions.manage', 'devices.create'], '/keys');
+
+		expect(await screen.findByRole('link', { name: 'Your account' })).toBeInTheDocument();
+		await waitFor(() => expect(api.requests.length).toBeGreaterThan(1));
+		expect(screen.queryByRole('link', { name: /devices and keys/i })).not.toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: 'Permissions' })).not.toBeInTheDocument();
 	});
 });

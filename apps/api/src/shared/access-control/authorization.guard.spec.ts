@@ -14,6 +14,10 @@ const GATES = [
 	{ decorator: '@RequiresPermission(', guard: 'PermissionGuard' },
 ] as const;
 
+// @RequiresSubscription answers "did the company buy this", not "who is calling",
+// so it is wired like the others but never counts as a gate on its own.
+const WIRED = [...GATES, { decorator: '@RequiresSubscription(', guard: 'SubscriptionGuard' }];
+
 interface Exemption {
 	readonly controller: string;
 	readonly routes: 'all' | readonly string[];
@@ -112,11 +116,18 @@ function exemptionFor(route: Route): Exemption | undefined {
 	);
 }
 
+function present(route: Route, entries: readonly { decorator: string; guard: string }[]): string[] {
+	return entries
+		.filter(
+			(entry) =>
+				route.decorators.includes(entry.decorator) ||
+				route.classDecorators.includes(entry.decorator),
+		)
+		.map((entry) => entry.guard);
+}
+
 function gatesOn(route: Route): string[] {
-	return GATES.filter(
-		(gate) =>
-			route.decorators.includes(gate.decorator) || route.classDecorators.includes(gate.decorator),
-	).map((gate) => gate.guard);
+	return present(route, GATES);
 }
 
 describe('authorization of every route under modules/', () => {
@@ -124,7 +135,7 @@ describe('authorization of every route under modules/', () => {
 		.filter((route) => MUTATING.includes(route.verb))
 		.filter((route) => !exemptionFor(route));
 
-	const gated = routes.filter((route) => gatesOn(route).length > 0);
+	const wired = routes.filter((route) => present(route, WIRED).length > 0);
 
 	it('reads more than one controller', () => {
 		expect(controllers.length).toBeGreaterThan(1);
@@ -141,12 +152,12 @@ describe('authorization of every route under modules/', () => {
 		).not.toEqual([]);
 	});
 
-	it.each(gated)('$label wires the guard its gate needs', (route) => {
+	it.each(wired)('$label wires every guard it asks for', (route) => {
 		const wiring = `${route.classDecorators}\n${route.decorators}`;
-		for (const guard of gatesOn(route)) {
+		for (const guard of present(route, WIRED)) {
 			expect(
 				wiring,
-				`${route.controller} ${route.route} gates without @UseGuards(${guard}), which answers 500 instead of 403`,
+				`${route.controller} ${route.route} asks for ${guard} without @UseGuards(${guard}), which answers 500 instead of refusing`,
 			).toContain(guard);
 		}
 	});

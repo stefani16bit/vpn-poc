@@ -20,12 +20,12 @@ export const billingApi = api.injectEndpoints({
 
 		cancelSubscription: builder.mutation<SubscriptionResponse, void>({
 			query: () => ({ url: 'billing/subscription', method: 'DELETE' }),
-			invalidatesTags: ['Subscription'],
+			invalidatesTags: ['Subscription', 'Entitlements'],
 		}),
 
 		resumeSubscription: builder.mutation<SubscriptionResponse, void>({
 			query: () => ({ url: 'billing/subscription/resume', method: 'POST' }),
-			invalidatesTags: ['Subscription'],
+			invalidatesTags: ['Subscription', 'Entitlements'],
 		}),
 	}),
 });
