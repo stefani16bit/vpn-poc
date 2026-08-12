@@ -3192,7 +3192,7 @@ aplicação chega quando existir um segundo tier para diferenciar.
 
 ### DEC-079 — Admin gere pessoas; owner gere dinheiro
 
-**Data:** 2026-08-11 · **Status:** accepted
+**Data:** 2026-08-11 · **Status:** superseded by DEC-080
 
 **Contexto.** `POST /billing/checkout`, `DELETE /billing/subscription` e
 `POST /billing/subscription/resume` traziam só `@UseGuards(AccessTokenGuard)`.
@@ -3240,3 +3240,77 @@ ser teste, na mesma forma da asserção "toda tabela de domínio está sob RLS" 
 Quando a DEC-080 trocar rank por permissão, `@RequiresRole('owner')` aqui vira
 `@RequiresPermission('billing.manage')` e esta decisão fica superada — mas o furo
 não podia esperar por ela.
+
+---
+
+### DEC-080 — Permissão é dado do tenant e desce até a pessoa; rank sai de cena
+
+**Data:** 2026-08-11 · **Status:** accepted
+
+**Contexto.** A DEC-079 fechou um furo real com a ferramenta que existia, e ao
+fazê-lo deixou o problema à mostra: dois portões — `admin` em `/users`, `owner` em
+cobrança — cuja diferença é o **assunto**, não a força. `hasAtLeastRole` responde
+"quem é mais forte"; a pergunta do produto é "**esta empresa** deixa **esta
+pessoa** fazer isto". Não existe ordenação em que "member gera chave, admin não
+gere cobrança" caiba, e num produto whitelabel a resposta muda por cliente — o que
+rank não sabe expressar de jeito nenhum, porque rank é código e a resposta é dado.
+
+**Decisão.** Uma **permissão** nomeada por rota mutante, conjunto **fechado** em
+`@vpn/contracts`, aplicada por `@RequiresPermission` + `PermissionGuard` (403).
+`@RequiresRole` e `RoleGuard` **saem**. Resolução em três camadas:
+
+1. `DEFAULT_ROLE_PERMISSIONS[role]` — mapa em código, versionado como `ENTITLEMENTS`.
+2. `role_permissions` — delta por account.
+3. `user_permissions` — delta por pessoa, por cima do resultado.
+
+**Rationale.** Delta nas duas camadas, e não substituição, por duas razões que só
+aparecem quando se tenta escrever o caso motivador. O conjunto **vazio** precisa
+ser expressável: "aqui member não gera a própria chave" é exatamente ele, já que
+`devices.create` é todo o padrão de member — e por substituição o vazio seria zero
+linhas, indistinguível de "nunca customizou". E uma permissão acrescentada ao mapa
+depois tem que alcançar quem já customizou; por substituição, o tenant que mexeu na
+role uma vez nunca mais receberia nada. As duas tabelas ficam com a mesma forma
+porque são a mesma ideia em alturas diferentes.
+
+`permission` é `text` e não `pgEnum`: o conjunto fechado mora no pacote (DEC-036) e
+um enum no banco custaria uma migração por permissão. A integridade é
+`permissionSchema` na escrita e o resolver ignorando o desconhecido na leitura, o
+que faz renomear uma permissão degradar em vez de derrubar a account que a tinha.
+
+Os **nomes** seguem o vocabulário do domínio, não o da UI: `users.*` e não
+`members.*`, porque `member` já é uma role e a colisão leria como "criar members";
+`devices.*` e não `keys.*`, porque o contrato é compartilhado com API, web e
+clientes nativos, e ali a palavra é device desde a DEC-070.
+
+**As roles continuam sendo o enum** `owner|admin|member`. O que virou dado é a
+permissão. Isso mantém intactos os dois índices parciais de owner em `users`, o
+claim `rol` e o `hasAtLeastRole` que a DEC-070 usa para **escopo** — e deixa o
+schema aditivo para roles por tenant, se o dia chegar: `role` vira FK sem tocar em
+`role_permissions`.
+
+**Consequências.** `permissions.manage` existe porque a tela que edita concessões
+precisa de portão, e editar o que uma role pode é mais poderoso que trocar a role
+de alguém. Com ela vem uma invariante: **o owner sempre a tem, no resolver, sem
+consultar linha**. A alternativa era recusar a escrita que deixaria a account sem
+ninguém — um `if (sobrou alguém)` que duas edições concorrentes furam, exatamente o
+que o inegociável nº 3 proíbe.
+
+`PermissionService` cacheia as **concessões cruas da account**, não o conjunto
+resolvido de cada pessoa: uma entrada por account faz editar uma role invalidar
+todo mundo com um `delete` só. Mesma razão pela qual o cache de entitlement guarda
+o tier e não os entitlements (DEC-054). E ele ramifica em `hasScope()`, porque
+guard roda antes do interceptor (DEC-055).
+
+Em `/devices` os dois guards convivem, nesta ordem: `CapabilityGuard` antes de
+`PermissionGuard`, para que **402 venha antes de 403** — o que a empresa não
+comprou é uma resposta diferente do que a pessoa não pode.
+
+A web lê `GET /permissions` por requisição, nunca do token: a role muda por ação
+nossa e a rotação de família a propaga, mas tirar uma concessão não dispara rotação
+nenhuma, e um JWT de 15 minutos serviria permissão revogada por esse tempo
+(DEC-037). `useHasPermission` mora em `app/access/`, não numa feature, pelo mesmo
+argumento que pôs `logout` em `app/store/`: três features precisam dele.
+
+A resposta de concessões carrega o e-mail de cada pessoa. Sem isso a tela de
+permissões teria de ler a API de usuários, e feature não importa feature — o lint
+de fronteira recusa, e estava certo.

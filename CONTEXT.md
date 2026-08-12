@@ -26,10 +26,14 @@ torna obrigatória em vez de decorativa. Esse índice é `(account_id, email)`, 
 só é única dentro de uma. É também o que obriga o login a saber de qual account
 está falando **antes** de procurar o e-mail.
 
-**Role** — o que esta pessoa pode fazer dentro da account: `owner`, `admin` ou
+**Role** — a que grupo esta pessoa pertence dentro da account: `owner`, `admin` ou
 `member`. Uma coluna em `users`, não uma tabela: um usuário pertence a uma
-account só, então `memberships` teria exatamente uma linha por usuário. É a
-segunda dimensão de autorização, e compõe com a primeira — ver **Entitlement**.
+account só, então `memberships` teria exatamente uma linha por usuário.
+
+A role **não é** o que a pessoa pode fazer — é o endereço onde essa resposta é
+procurada. Quem responde é a **permissão**, que é dado da account e desce até a
+pessoa; a role é a chave por onde a concessão é lida. Ver **Permission** e
+DEC-080.
 
 **Owner** — o user que criou a account. É a role de quem se registrou, e é
 **uma por account**: um índice único parcial em `(account_id) where role =
@@ -196,28 +200,65 @@ período fecha e o status vira `canceled`, o caminho de volta é assinar de novo
 mapa versionado em código, em `@vpn/contracts`, compartilhado com todo cliente
 (DEC-036).
 
-Autorização tem **duas dimensões e elas compõem**: o entitlement diz o que a
-_empresa_ contratou, a **role** diz o que _esta pessoa_ pode fazer. O efetivo é a
-interseção. Um `owner` num tier sem a feature não a tem; um `member` numa account
-que a tem pode continuar não podendo usá-la.
+Autorização tem **três dimensões e elas compõem**, cada uma com a sua recusa: o
+**entitlement** diz o que a _empresa_ contratou (**402**), a **permissão** diz o
+que _esta pessoa_ pode fazer nesta account (**403**), e o **escopo** diz sobre
+_quais linhas_ (um filtro, não uma recusa). O efetivo é a interseção. Um `owner`
+num tier sem a feature não a tem; quem tem a permissão numa account que não
+contratou continua sem poder.
 
-A role se aplica de duas formas, e a distinção é a decisão. Em `/devices` ela é
-**escopo**: toda operação é sobre o que a pessoa possui, e `admin` ou `owner`
-alargam para a account inteira. Um guard que responde sim/não antes do handler
-não sabe expressar "os dois podem, com alcances diferentes", e é por isso que
-`/devices` não é barrada por role. DEC-070.
+**Permission** — uma ação nomeada: `billing.manage`, `users.create`,
+`devices.create`. O conjunto é **fechado** e mora em `@vpn/contracts` — permissão
+que nenhum código confere é enfeite, e o teste que lê os controllers é o que cobra
+o outro lado.
 
-Em `/users` e em cobrança ela é **portão**: `@RequiresRole` recusa com 403 antes do
-handler, porque ali não há escopo menor que faça sentido — administrar quem tem
-acesso é administrar a account inteira ou nada, e uma assinatura é uma só.
-Retroaplicar o portão a `/devices` destruiria a distinção acima.
+**Role permission** — a concessão: quais permissões uma role tem **nesta account**.
+É linha, sob RLS, e é o que deixa uma empresa liberar o member a gerar a própria
+chave enquanto a vizinha não libera, sem deploy e sem `if` por cliente.
 
-São **dois portões, com degraus diferentes**, e a diferença é o assunto e não o
-rank: `/users` pede `admin`, cobrança pede `owner`. Admin gere pessoas, owner gere
-dinheiro — um `admin` que pode desligar gente não desliga o produto, e é esse 403
-para o admin que dá conteúdo à decisão. `GET /billing/subscription` fica de fora
-dos dois: ela alimenta a home da conta, e quem não é owner perde os botões, não a
-página. DEC-079.
+**User permission** — o desvio por pessoa, por cima da concessão da role:
+`granted` soma, o contrário subtrai. É o que responde "a Ana pode e o Bruno não",
+os dois `member` na mesma empresa.
+
+A resolução tem três camadas, e as duas de baixo são **delta** sobre a de cima. O
+padrão da role é um mapa em código (`DEFAULT_ROLE_PERMISSIONS`, versionado como
+`ENTITLEMENTS`, DEC-036); `role_permissions` soma e subtrai por account; e
+`user_permissions` soma e subtrai por pessoa, por cima do resultado. As duas
+tabelas têm a mesma forma e a mesma coluna `granted`, porque são a mesma ideia
+aplicada em alturas diferentes.
+
+Delta e não substituição, por duas razões. O conjunto **vazio** precisa ser
+expressável — "aqui member não gera a própria chave" é exatamente ele, já que
+`devices.create` é todo o padrão de member —, e por substituição o vazio seria zero
+linhas, indistinguível de "nunca customizou". E uma permissão acrescentada ao mapa
+depois tem que alcançar quem já customizou: por substituição, o tenant que mexeu na
+role uma vez nunca mais receberia nada.
+
+A tela não expõe tri-estado: o checkbox mostra o **efetivo**, grava linha só quando
+diverge do padrão, e apaga a linha quando volta a ele.
+
+`owner` sempre tem `permissions.manage`, no resolver e sem consultar linha. Sem
+isso, um owner que remove a própria permissão inutiliza a account, e duas edições
+concorrentes furam qualquer checagem escrita como "ainda sobrou alguém?" — o
+inegociável nº 3. DEC-080.
+
+**Permissão diz se você pode agir; escopo diz sobre o quê.** É a distinção que
+este glossário existe para preservar. Em `/devices` a role é **escopo**: toda
+operação é sobre o que a pessoa possui, e `admin` ou `owner` alargam para a account
+inteira. Um guard que responde sim/não antes do handler não sabe expressar "os dois
+podem, com alcances diferentes" — para decidir ele teria que ler a linha, e ler a
+linha é trabalho do serviço. Por isso `/devices` não é barrada por role, e
+retroaplicar um portão ali destruiria a distinção. DEC-070.
+
+Em `/users`, em cobrança e no `POST /devices` a permissão é **portão**:
+`@RequiresPermission` recusa com 403 antes do handler, porque ali não há escopo
+menor que faça sentido. Dinheiro e gente continuam sendo assuntos separados — o
+padrão dá `billing.manage` só ao owner, e um `admin` leva 403 na cobrança —, mas a
+separação passou a ser **dado da account** em vez de rank do enum. A DEC-079 abriu
+esses portões com `@RequiresRole`; a DEC-080 os trocou.
+
+`GET /billing/subscription` fica de fora: ela alimenta a home da conta, e quem não
+pode gerir perde os botões, não a página.
 
 Nenhuma rota mutante sob `modules/` pode nascer sem essa pergunta:
 `authorization.guard.spec.ts` lê a fonte dos controllers e cobra um decorator de
@@ -240,17 +281,21 @@ Ler um entitlement é uniforme; **aplicar não é**. São quatro momentos difere
 — request, escrita, provisionamento de peer e medição contínua — e um decorator
 só resolve o primeiro. Ver `docs/specs/entitlements-and-plans.md`.
 
-**Entitlements não estão no access token.** O JWT vive 15 minutos e não é
-revogável, mas um `payment_failed` muda o que a account pode fazer _agora_. São
-lidos por requisição a partir da subscription, com cache, e o webhook invalida.
-`accountId` e `role` **estão** no token: mudam por ação nossa, e a rotação de
-família já é o mecanismo de propagação. DEC-037.
+**Entitlements e permissões não estão no access token.** O JWT vive 15 minutos e
+não é revogável, mas um `payment_failed` muda o que a account pode fazer _agora_, e
+uma concessão que um admin tirou não pode valer por mais um quarto de hora — tirar
+permissão não dispara rotação de família nenhuma. Os dois são lidos por requisição,
+com cache. `accountId` e `role` **estão** no token: mudam por ação nossa, e a
+rotação de família já é o mecanismo de propagação. DEC-037, DEC-080.
 
-O que o cache guarda é o **tier**, não os entitlements: o mapa é código, então
-publicar um mapa novo vale na hora em vez de esperar o TTL de cada account. A
-entrada é `{ owner: accountId, namespace: 'entitlements' }` — a primeira do
-sistema cujo `owner` é de verdade uma account — e o webhook a apaga **depois** do
-commit. DEC-054, DEC-055.
+O que o cache guarda é a **entrada**, não a resposta: o **tier** e não os
+entitlements, as **concessões cruas da account** e não o conjunto resolvido de cada
+pessoa. O mapa é código, então publicar um mapa novo vale na hora em vez de esperar
+o TTL de cada account — e uma entrada por account faz editar a concessão de uma
+role invalidar todo mundo com um `delete` só, em vez de varrer os users afetados.
+As entradas são `{ owner: accountId, namespace: 'entitlements' }` e
+`{ owner: accountId, namespace: 'permissions' }`, e o webhook apaga a primeira
+**depois** do commit. DEC-054, DEC-055.
 
 ## Rede
 
