@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-import { useHasPermission } from '@/app/access/use-has-permission.js';
+import { DEVICE_PERMISSIONS } from '@vpn/contracts';
+
+import { usePermissionStatus, useHasPermission } from '@/app/access/use-has-permission.js';
 import { useSubscriptionStatus } from '@/app/access/use-subscription-status.js';
 import { useTranslator } from '@/i18n/locale-context.tsx';
 
@@ -9,12 +11,13 @@ export function Nav(): ReactNode {
 	const t = useTranslator();
 	const { pathname } = useLocation();
 	const subscribed = useSubscriptionStatus() === 'subscribed';
+	const canUseKeys = usePermissionStatus(DEVICE_PERMISSIONS) === 'allowed';
 	const canReadUsers = useHasPermission('users.read');
 	const canManagePermissions = useHasPermission('permissions.manage');
 
 	const elsewhere = [
 		{ to: '/', label: t('billing.accountTitle') },
-		...(subscribed ? [{ to: '/keys', label: t('keys.link') }] : []),
+		...(subscribed && canUseKeys ? [{ to: '/keys', label: t('keys.link') }] : []),
 		...(subscribed && canReadUsers ? [{ to: '/users', label: t('users.link') }] : []),
 		...(subscribed && canManagePermissions
 			? [{ to: '/permissions', label: t('permissions.link') }]

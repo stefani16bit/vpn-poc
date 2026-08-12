@@ -5,9 +5,21 @@ import type { Permission } from '@vpn/contracts';
 import { useMyPermissionsQuery } from '@/app/access/permissions.api.js';
 import type { RootState } from '@/app/store/index.js';
 
-export function useHasPermission(permission: Permission): boolean {
-	const authenticated = useSelector((state: RootState) => state.auth.status === 'authenticated');
-	const { data } = useMyPermissionsQuery(undefined, { skip: !authenticated });
+export type PermissionStatus = 'unknown' | 'allowed' | 'denied';
 
-	return data?.permissions?.includes(permission) ?? false;
+export function usePermissionStatus(anyOf: readonly Permission[]): PermissionStatus {
+	const authenticated = useSelector((state: RootState) => state.auth.status === 'authenticated');
+	const { data, isError } = useMyPermissionsQuery(undefined, { skip: !authenticated });
+
+	if (!authenticated) return 'denied';
+	if (isError) return 'denied';
+	if (!data) return 'unknown';
+
+	const held = data.permissions ?? [];
+
+	return anyOf.some((permission) => held.includes(permission)) ? 'allowed' : 'denied';
+}
+
+export function useHasPermission(permission: Permission): boolean {
+	return usePermissionStatus([permission]) === 'allowed';
 }

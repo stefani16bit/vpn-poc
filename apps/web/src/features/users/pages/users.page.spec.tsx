@@ -2,6 +2,8 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Permission } from '@vpn/contracts';
+
 import { sessionResolved } from '@/app/store/auth-slice.js';
 import {
 	makeStore,
@@ -52,7 +54,9 @@ function signedIn(role: 'owner' | 'admin' | 'member' = 'owner'): TestStore {
 	return store;
 }
 
-function render(role: 'owner' | 'admin' | 'member' = 'owner') {
+function render(role: 'owner' | 'admin' | 'member' = 'owner', granted?: Permission[]) {
+	if (granted) api.grant(...granted);
+
 	return renderWithProviders(<UsersPage />, { locale: 'en', store: signedIn(role) });
 }
 
@@ -148,7 +152,8 @@ describe('UsersPage', () => {
 
 		await screen.findByText('member@example.com');
 		api.reply({ user: accountUser({ role: 'admin' }) });
-		await userEvent.click(screen.getByRole('button', { name: /change role/i }));
+
+		await userEvent.click(screen.getByRole('button', { name: /role of member@example.com/i }));
 
 		await waitFor(() => {
 			const patched = api.requests.find((request) => request.method === 'PATCH');
@@ -187,5 +192,55 @@ describe('UsersPage', () => {
 		render();
 
 		expect(await screen.findByRole('link', { name: /devices and keys/i })).toBeInTheDocument();
+	});
+
+	describe('what the grant allows', () => {
+		it('leaves the list to whoever may only read it, and takes the form away', async () => {
+			api.reply({ users: [accountUser()] });
+			render('admin', ['users.read']);
+
+			expect(await screen.findByText('member@example.com')).toBeInTheDocument();
+			expect(screen.queryByLabelText('E-mail')).not.toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: /create user/i })).not.toBeInTheDocument();
+		});
+
+		it('draws the form for whoever may create', async () => {
+			api.reply({ users: [] });
+			render('admin', ['users.read', 'users.create']);
+
+			expect(await screen.findByLabelText('E-mail')).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /create user/i })).toBeInTheDocument();
+		});
+
+		it('takes away the role picker from whoever may not change one', async () => {
+			api.reply({ users: [accountUser()] });
+			render('admin', ['users.read', 'users.delete']);
+
+			expect(await screen.findByRole('button', { name: /^remove$/i })).toBeInTheDocument();
+			expect(
+				screen.queryByRole('button', { name: /role of member@example.com/i }),
+			).not.toBeInTheDocument();
+		});
+
+		it('takes away removal from whoever may not remove', async () => {
+			api.reply({ users: [accountUser()] });
+			render('admin', ['users.read', 'users.update']);
+
+			expect(
+				await screen.findByRole('button', { name: /role of member@example.com/i }),
+			).toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument();
+		});
+
+		it('leaves a plain list when the grant allows neither, rather than dead controls', async () => {
+			api.reply({ users: [accountUser()] });
+			render('admin', ['users.read']);
+
+			expect(await screen.findByText('member@example.com')).toBeInTheDocument();
+			expect(
+				screen.queryByRole('button', { name: /role of member@example.com/i }),
+			).not.toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument();
+		});
 	});
 });

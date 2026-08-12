@@ -205,32 +205,40 @@ describe('BillingPage', () => {
 		expect(screen.getByRole('button', { name: /monthly/i })).toBeInTheDocument();
 	});
 
-	it('offers no way to start a subscription without billing.manage', async () => {
+	// DEC-082: the whole section goes, not just the buttons. A state nobody can
+	// act on is not information, and it never explains why the buttons are gone.
+	it('takes the subscription section away from whoever cannot manage it', async () => {
 		api.reply({ status: 'none', currentPeriodEnd: null, cancelAtPeriodEnd: false });
 		api.grant('devices.create');
 		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('member') });
 
-		expect(await screen.findByText('No subscription')).toBeInTheDocument();
 		await waitFor(() => expect(api.requests.length).toBeGreaterThan(1));
+		expect(screen.queryByText('Subscription')).not.toBeInTheDocument();
+		expect(screen.queryByText('No subscription')).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /monthly/i })).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /yearly/i })).not.toBeInTheDocument();
 	});
 
-	it('shows the plan it is on, without the button that ends it', async () => {
-		api.reply({
-			status: 'active',
-			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
-			cancelAtPeriodEnd: false,
-		});
+	it('keeps what the plan includes, which is about using the product', async () => {
+		api.reply({ status: 'active', currentPeriodEnd: null, cancelAtPeriodEnd: false });
 		api.grant('devices.create');
 		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('member') });
 
-		expect(await screen.findByText('Active')).toBeInTheDocument();
-		await waitFor(() => expect(api.requests.length).toBeGreaterThan(1));
-		expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+		expect(await screen.findByText('The plan includes')).toBeInTheDocument();
+		expect(screen.queryByText('Active')).not.toBeInTheDocument();
 	});
 
-	it('refuses an admin the same button, because the default keeps money from people', async () => {
+	it('never asks about the subscription it is not going to draw', async () => {
+		api.grant('devices.create');
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('member') });
+
+		await waitFor(() => expect(api.requests.length).toBeGreaterThan(1));
+		expect(api.requests.some((request) => request.url.endsWith('/billing/subscription'))).toBe(
+			false,
+		);
+	});
+
+	it('hides the same section from an admin, because the default keeps money from people', async () => {
 		api.reply({
 			status: 'active',
 			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
@@ -239,8 +247,8 @@ describe('BillingPage', () => {
 		api.grant('users.read', 'users.create', 'users.update', 'users.delete', 'devices.create');
 		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('admin') });
 
-		expect(await screen.findByText('Active')).toBeInTheDocument();
 		await waitFor(() => expect(api.requests.length).toBeGreaterThan(1));
+		expect(screen.queryByText('Subscription')).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
 	});
 

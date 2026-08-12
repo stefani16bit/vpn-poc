@@ -60,6 +60,19 @@ describe('Nav', () => {
 		expect(screen.queryByRole('link', { name: 'Permissions' })).not.toBeInTheDocument();
 	});
 
+	it('hides the keys page from whoever can do nothing with a key', async () => {
+		render(['users.read']);
+
+		expect(await screen.findByRole('link', { name: 'Users' })).toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: /devices and keys/i })).not.toBeInTheDocument();
+	});
+
+	it('offers the keys page to whoever only audits them, since the list is the point', async () => {
+		render(['devices.readAll']);
+
+		expect(await screen.findByRole('link', { name: /devices and keys/i })).toBeInTheDocument();
+	});
+
 	it('leaves out the page it is already on', async () => {
 		render(['users.read'], '/keys');
 

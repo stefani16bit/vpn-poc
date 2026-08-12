@@ -7,10 +7,14 @@ import { useLocale } from '@/i18n/locale-context.tsx';
 
 export function DeviceList({
 	devices,
+	currentUserId,
+	canRevokeAny,
 	pending,
 	onRevoke,
 }: {
 	devices: readonly Device[];
+	currentUserId: string | undefined;
+	canRevokeAny: boolean;
 	pending: boolean;
 	onRevoke: (id: string) => void;
 }): ReactNode {
@@ -26,11 +30,13 @@ export function DeviceList({
 				<li key={device.id} className="grid gap-1 rounded-md border p-3">
 					<div className="flex items-center justify-between gap-4">
 						<span className="font-medium">{device.name}</span>
-						<RevokeDeviceDialog
-							name={device.name}
-							pending={pending}
-							onConfirm={() => onRevoke(device.id)}
-						/>
+						{canRevokeAny || device.userId === currentUserId ? (
+							<RevokeDeviceDialog
+								name={device.name}
+								pending={pending}
+								onConfirm={() => onRevoke(device.id)}
+							/>
+						) : null}
 					</div>
 
 					{shared ? (

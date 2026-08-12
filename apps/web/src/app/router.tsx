@@ -1,5 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 
+import { DEVICE_PERMISSIONS } from '@vpn/contracts';
+
+import { RequirePermission } from '@/app/access/require-permission.tsx';
 import { RequireSubscription } from '@/app/access/require-subscription.tsx';
 import { RequireAuth } from '@/features/auth/components/require-auth.tsx';
 import { ForgotPasswordPage } from '@/features/auth/pages/forgot-password.page.tsx';
@@ -39,7 +42,9 @@ export function Router() {
 				element={
 					<RequireAuth>
 						<RequireSubscription>
-							<KeysPage />
+							<RequirePermission anyOf={DEVICE_PERMISSIONS}>
+								<KeysPage />
+							</RequirePermission>
 						</RequireSubscription>
 					</RequireAuth>
 				}
@@ -50,7 +55,9 @@ export function Router() {
 				element={
 					<RequireAuth>
 						<RequireSubscription>
-							<UsersPage />
+							<RequirePermission anyOf={['users.read']}>
+								<UsersPage />
+							</RequirePermission>
 						</RequireSubscription>
 					</RequireAuth>
 				}
@@ -61,7 +68,9 @@ export function Router() {
 				element={
 					<RequireAuth>
 						<RequireSubscription>
-							<PermissionsPage />
+							<RequirePermission anyOf={['permissions.manage']}>
+								<PermissionsPage />
+							</RequirePermission>
 						</RequireSubscription>
 					</RequireAuth>
 				}

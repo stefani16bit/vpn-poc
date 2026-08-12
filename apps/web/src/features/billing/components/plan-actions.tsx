@@ -2,8 +2,6 @@ import type { ReactNode } from 'react';
 
 import type { Cadence, SubscriptionResponse } from '@vpn/contracts';
 
-import { useHasPermission } from '@/app/access/use-has-permission.js';
-
 import { Button } from '@/components/ui/button.tsx';
 import { CancelSubscriptionDialog } from '@/features/billing/components/cancel-subscription-dialog.tsx';
 import { SubscribeButtons } from '@/features/billing/components/subscribe-buttons.tsx';
@@ -23,10 +21,7 @@ export function PlanActions({
 	onResume: () => void;
 }): ReactNode {
 	const t = useTranslator();
-	const canManage = useHasPermission('billing.manage');
 	const status = subscription?.status ?? 'none';
-
-	if (!canManage) return null;
 
 	if (status === 'none' || status === 'canceled') {
 		return <SubscribeButtons pending={pending} onSubscribe={onSubscribe} />;

@@ -1,5 +1,6 @@
 import { useDispatch, useSelector } from 'react-redux';
 
+import { useHasPermission } from '@/app/access/use-has-permission.js';
 import { normalizeError } from '@/app/store/api-error.js';
 import { sessionCleared } from '@/app/store/auth-slice.js';
 import type { AppDispatch, RootState } from '@/app/store/index.js';
@@ -25,8 +26,9 @@ export function BillingPage() {
 	const t = useTranslator();
 	const dispatch = useDispatch<AppDispatch>();
 	const user = useSelector((state: RootState) => state.auth.user);
+	const canManageBilling = useHasPermission('billing.manage');
 
-	const subscription = useSubscriptionQuery();
+	const subscription = useSubscriptionQuery(undefined, { skip: !canManageBilling });
 	const checkout = useStartCheckout();
 	const [cancelSubscription, cancelState] = useCancelSubscriptionMutation();
 	const [resumeSubscription, resumeState] = useResumeSubscriptionMutation();
@@ -54,28 +56,33 @@ export function BillingPage() {
 
 				<LanguagePicker />
 
-				<h2 className="mt-8 mb-3 text-lg font-medium">{t('billing.subscriptionTitle')}</h2>
-
-				<FormError
-					error={normalizeError(checkout.error ?? cancelState.error ?? resumeState.error)}
-				/>
-
-				{subscription.isLoading ? (
-					<Loading />
-				) : (
+				{canManageBilling ? (
 					<>
-						<SubscriptionStatus subscription={subscription.data} />
-						<PlanActions
-							subscription={subscription.data}
-							pending={checkout.pending || cancelState.isLoading || resumeState.isLoading}
-							onSubscribe={(cadence) => void checkout.start(cadence)}
-							onCancel={() => void cancelSubscription()}
-							onResume={() => void resumeSubscription()}
+						<h2 className="mt-8 mb-3 text-lg font-medium">{t('billing.subscriptionTitle')}</h2>
+
+						<FormError
+							error={normalizeError(checkout.error ?? cancelState.error ?? resumeState.error)}
 						/>
-						<PlanEntitlements tier="pro" />
-						<Nav />
+
+						{subscription.isLoading ? (
+							<Loading />
+						) : (
+							<>
+								<SubscriptionStatus subscription={subscription.data} />
+								<PlanActions
+									subscription={subscription.data}
+									pending={checkout.pending || cancelState.isLoading || resumeState.isLoading}
+									onSubscribe={(cadence) => void checkout.start(cadence)}
+									onCancel={() => void cancelSubscription()}
+									onResume={() => void resumeSubscription()}
+								/>
+							</>
+						)}
 					</>
-				)}
+				) : null}
+
+				<PlanEntitlements tier="pro" />
+				<Nav />
 			</CardContent>
 		</Card>
 	);

@@ -14,12 +14,16 @@ const ROLE_LABEL = {
 export function UserList({
 	users,
 	currentUserId,
+	canChangeRole,
+	canRemove,
 	pending,
 	onChangeRole,
 	onRemove,
 }: {
 	users: readonly AccountUser[];
 	currentUserId: string | undefined;
+	canChangeRole: boolean;
+	canRemove: boolean;
 	pending: boolean;
 	onChangeRole: (id: string, role: AssignableRole) => void;
 	onRemove: (id: string) => void;
@@ -33,6 +37,7 @@ export function UserList({
 			{users.map((user) => {
 				const isSelf = user.id === currentUserId;
 				const isOwner = user.role === 'owner';
+				const editable = !isOwner && !isSelf;
 				const nextRole: AssignableRole = user.role === 'admin' ? 'member' : 'admin';
 
 				return (
@@ -47,24 +52,28 @@ export function UserList({
 							{t('users.liveDevices', { count: user.liveDeviceCount })}
 						</p>
 
-						{isOwner || isSelf ? null : (
+						{editable ? (
 							<div className="mt-3 flex gap-2">
-								<button
-									type="button"
-									disabled={pending}
-									onClick={() => onChangeRole(user.id, nextRole)}
-									className="text-sm text-primary underline-offset-4 hover:underline disabled:opacity-50"
-								>
-									{t('users.changeRole')}
-								</button>
+								{canChangeRole ? (
+									<button
+										type="button"
+										disabled={pending}
+										onClick={() => onChangeRole(user.id, nextRole)}
+										className="text-sm text-primary underline-offset-4 hover:underline disabled:opacity-50"
+									>
+										{t('users.roleOf', { email: user.email })}
+									</button>
+								) : null}
 
-								<RemoveUserDialog
-									email={user.email}
-									pending={pending}
-									onConfirm={() => onRemove(user.id)}
-								/>
+								{canRemove ? (
+									<RemoveUserDialog
+										email={user.email}
+										pending={pending}
+										onConfirm={() => onRemove(user.id)}
+									/>
+								) : null}
 							</div>
-						)}
+						) : null}
 					</li>
 				);
 			})}

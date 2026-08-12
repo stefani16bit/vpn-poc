@@ -1,4 +1,9 @@
-import type { CreateDeviceRequest, CreateDeviceResponse, DeviceListResponse } from '@vpn/contracts';
+import type {
+	CreateDeviceRequest,
+	CreateDeviceResponse,
+	DeviceAssigneeListResponse,
+	DeviceListResponse,
+} from '@vpn/contracts';
 
 import { api } from '@/app/store/api.js';
 
@@ -8,6 +13,11 @@ export const keysApi = api.injectEndpoints({
 		devices: builder.query<DeviceListResponse, void>({
 			query: () => 'devices',
 			providesTags: ['Devices'],
+		}),
+
+		deviceAssignees: builder.query<DeviceAssigneeListResponse, void>({
+			query: () => 'devices/assignees',
+			providesTags: ['Users'],
 		}),
 
 		createDevice: builder.mutation<CreateDeviceResponse, CreateDeviceRequest>({
@@ -22,4 +32,9 @@ export const keysApi = api.injectEndpoints({
 	}),
 });
 
-export const { useDevicesQuery, useCreateDeviceMutation, useRevokeDeviceMutation } = keysApi;
+export const {
+	useDevicesQuery,
+	useDeviceAssigneesQuery,
+	useCreateDeviceMutation,
+	useRevokeDeviceMutation,
+} = keysApi;

@@ -83,6 +83,10 @@ export interface ApiStub {
 	reply(body: unknown, status?: number): void;
 	fail(code: AnyErrorCode, status: number): void;
 	grant(...permissions: Permission[]): void;
+	// The one read that has to keep working for the app to draw anything. It is
+	// separate from fail() because every screen asks it, and a test about a
+	// broken login is not a test about a broken authorization read.
+	breakGrants(): void;
 	subscribe(tier: TierId | null): void;
 	lastRequest(): RecordedRequest | undefined;
 }
@@ -133,6 +137,7 @@ export function stubApi(): ApiStub {
 	let nextStatus = 200;
 	let nextBody: unknown = {};
 	let granted: readonly Permission[] = PERMISSIONS;
+	let grantsBroken = false;
 	let tier: TierId | null = 'pro';
 
 	const stub: ApiStub = {
@@ -143,6 +148,9 @@ export function stubApi(): ApiStub {
 		},
 		grant(...permissions) {
 			granted = permissions;
+		},
+		breakGrants() {
+			grantsBroken = true;
 		},
 		subscribe(next) {
 			tier = next;
@@ -174,8 +182,12 @@ export function stubApi(): ApiStub {
 		const path = new URL(request.url).pathname;
 
 		if (request.method === 'GET' && path.endsWith('/permissions')) {
-			return new Response(JSON.stringify({ permissions: granted }), {
-				status: 200,
+			const body = grantsBroken
+				? { code: 'INTERNAL', message: 'INTERNAL (developer detail)', correlationId: 'corr-test' }
+				: { permissions: granted };
+
+			return new Response(JSON.stringify(body), {
+				status: grantsBroken ? 500 : 200,
 				headers: { 'content-type': 'application/json' },
 			});
 		}

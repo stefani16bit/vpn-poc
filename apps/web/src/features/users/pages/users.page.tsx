@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 
 import { ASSIGNABLE_ROLES, createUserRequestSchema, type AssignableRole } from '@vpn/contracts';
 
+import { useHasPermission } from '@/app/access/use-has-permission.js';
 import { normalizeError } from '@/app/store/api-error.js';
 import type { RootState } from '@/app/store/index.js';
 import { Field } from '@/components/form/field.tsx';
@@ -31,6 +32,9 @@ interface Issued {
 export function UsersPage(): ReactNode {
 	const t = useTranslator();
 	const currentUserId = useSelector((state: RootState) => state.auth.user?.id);
+	const canCreate = useHasPermission('users.create');
+	const canUpdate = useHasPermission('users.update');
+	const canDelete = useHasPermission('users.delete');
 
 	const [email, setEmail] = useState('');
 	const [role, setRole] = useState<AssignableRole>('member');
@@ -88,37 +92,39 @@ export function UsersPage(): ReactNode {
 					</Alert>
 				) : null}
 
-				<form onSubmit={(event) => void submit(event)} className="mt-6 space-y-4" noValidate>
-					<Field label={t('users.emailLabel')} error={fieldError ?? undefined}>
-						{(control) => (
-							<Input
-								{...control}
-								type="email"
-								value={email}
-								onChange={(event) => setEmail(event.target.value)}
-							/>
-						)}
-					</Field>
+				{canCreate ? (
+					<form onSubmit={(event) => void submit(event)} className="mt-6 space-y-4" noValidate>
+						<Field label={t('users.emailLabel')} error={fieldError ?? undefined}>
+							{(control) => (
+								<Input
+									{...control}
+									type="email"
+									value={email}
+									onChange={(event) => setEmail(event.target.value)}
+								/>
+							)}
+						</Field>
 
-					<Field label={t('users.roleLabel')}>
-						{(control) => (
-							<select
-								{...control}
-								value={role}
-								onChange={(event) => setRole(event.target.value as AssignableRole)}
-								className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-							>
-								{ASSIGNABLE_ROLES.map((option) => (
-									<option key={option} value={option}>
-										{option === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
-									</option>
-								))}
-							</select>
-						)}
-					</Field>
+						<Field label={t('users.roleLabel')}>
+							{(control) => (
+								<select
+									{...control}
+									value={role}
+									onChange={(event) => setRole(event.target.value as AssignableRole)}
+									className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+								>
+									{ASSIGNABLE_ROLES.map((option) => (
+										<option key={option} value={option}>
+											{option === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
+										</option>
+									))}
+								</select>
+							)}
+						</Field>
 
-					<SubmitButton pending={pending}>{t('users.create')}</SubmitButton>
-				</form>
+						<SubmitButton pending={pending}>{t('users.create')}</SubmitButton>
+					</form>
+				) : null}
 
 				<div className="mt-8">
 					{users.isLoading ? (
@@ -127,6 +133,8 @@ export function UsersPage(): ReactNode {
 						<UserList
 							users={users.data?.users ?? []}
 							currentUserId={currentUserId}
+							canChangeRole={canUpdate}
+							canRemove={canDelete}
 							pending={pending}
 							onChangeRole={(id, next) => void changeRole({ id, role: next })}
 							onRemove={(id) => void removeUser(id)}
