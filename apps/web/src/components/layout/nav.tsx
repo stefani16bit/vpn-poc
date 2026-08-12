@@ -1,19 +1,20 @@
 import type { ReactNode } from 'react';
-import { useSelector } from 'react-redux';
 import { Link, useLocation } from 'react-router-dom';
 
-import type { RootState } from '@/app/store/index.js';
+import { useHasPermission } from '@/app/access/use-has-permission.js';
 import { useTranslator } from '@/i18n/locale-context.tsx';
 
 export function Nav(): ReactNode {
 	const t = useTranslator();
 	const { pathname } = useLocation();
-	const role = useSelector((state: RootState) => state.auth.user?.role);
+	const canReadUsers = useHasPermission('users.read');
+	const canManagePermissions = useHasPermission('permissions.manage');
 
 	const elsewhere = [
 		{ to: '/', label: t('billing.accountTitle') },
 		{ to: '/keys', label: t('keys.link') },
-		...(role === 'admin' || role === 'owner' ? [{ to: '/users', label: t('users.link') }] : []),
+		...(canReadUsers ? [{ to: '/users', label: t('users.link') }] : []),
+		...(canManagePermissions ? [{ to: '/permissions', label: t('permissions.link') }] : []),
 	].filter((link) => link.to !== pathname);
 
 	return (

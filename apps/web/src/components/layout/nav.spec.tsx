@@ -1,20 +1,32 @@
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { UserRole } from '@vpn/contracts';
+import type { Permission } from '@vpn/contracts';
 
 import { sessionResolved } from '@/app/store/auth-slice.js';
 import { Nav } from '@/components/layout/nav.tsx';
-import { makeStore, renderWithProviders, type TestStore } from '@/test-utils.tsx';
+import { makeStore, renderWithProviders, stubApi, type ApiStub } from '@/test-utils.tsx';
 
-function signedIn(role: UserRole): TestStore {
+let api: ApiStub;
+
+beforeEach(() => {
+	api = stubApi();
+});
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
+
+function render(granted: Permission[], route = '/') {
+	api.grant(...granted);
+
 	const store = makeStore();
 	store.dispatch(
 		sessionResolved({
 			user: {
 				id: 'user-1',
 				accountId: 'account-1',
-				role,
+				role: 'member',
 				email: 'ada@example.com',
 				emailVerified: true,
 				locale: 'en',
@@ -23,43 +35,43 @@ function signedIn(role: UserRole): TestStore {
 			accessToken: 'access-1',
 		}),
 	);
-	return store;
-}
 
-function render(role: UserRole, route: string) {
-	return renderWithProviders(<Nav />, { locale: 'en', route, store: signedIn(role) });
+	return renderWithProviders(<Nav />, { locale: 'en', route, store });
 }
 
 describe('Nav', () => {
-	it('offers the users page to an admin', () => {
-		render('admin', '/');
+	it('offers the users page to whoever may read it, whatever their role', async () => {
+		render(['users.read']);
 
-		expect(screen.getByRole('link', { name: 'Users' })).toBeInTheDocument();
+		expect(await screen.findByRole('link', { name: 'Users' })).toBeInTheDocument();
 	});
 
-	it('offers it to the owner too, because owner outranks admin', () => {
-		render('owner', '/');
+	it('offers the permissions page only to whoever may edit it', async () => {
+		render(['users.read', 'permissions.manage']);
 
-		expect(screen.getByRole('link', { name: 'Users' })).toBeInTheDocument();
+		expect(await screen.findByRole('link', { name: 'Permissions' })).toBeInTheDocument();
 	});
 
-	it('hides it from a member, because a link that always 403s is a dead end', () => {
-		render('member', '/');
+	it('hides a page whose link would always 403, which is a dead end', async () => {
+		render(['devices.create']);
 
+		expect(await screen.findByRole('link', { name: /devices and keys/i })).toBeInTheDocument();
 		expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
-		expect(screen.getByRole('link', { name: /devices and keys/i })).toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: 'Permissions' })).not.toBeInTheDocument();
 	});
 
-	it('leaves out the page it is already on', () => {
-		render('admin', '/keys');
+	it('leaves out the page it is already on', async () => {
+		render(['users.read'], '/keys');
 
+		expect(await screen.findByRole('link', { name: 'Users' })).toBeInTheDocument();
 		expect(screen.queryByRole('link', { name: /devices and keys/i })).not.toBeInTheDocument();
-		expect(screen.getByRole('link', { name: 'Users' })).toBeInTheDocument();
 	});
 
-	it('offers nothing role-gated when there is no session yet', () => {
+	it('offers nothing gated when there is no session yet, and never asks', async () => {
 		renderWithProviders(<Nav />, { locale: 'en', route: '/' });
 
+		expect(await screen.findByRole('link', { name: /devices and keys/i })).toBeInTheDocument();
 		expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
+		expect(api.requests).toEqual([]);
 	});
 });

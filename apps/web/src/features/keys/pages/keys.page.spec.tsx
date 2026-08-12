@@ -264,4 +264,15 @@ describe('KeysPage', () => {
 		expect(await screen.findByText(/cannot generate X25519 keys/i)).toBeInTheDocument();
 		expect(api.requests.every((request) => request.method !== 'POST')).toBe(true);
 	});
+	it('hides the form from whoever the tenant did not let generate a key', async () => {
+		api.reply({ devices: [] });
+		api.grant('users.read');
+
+		render();
+
+		expect(await screen.findByText(/No devices yet/i)).toBeInTheDocument();
+		await waitFor(() => expect(api.requests.length).toBeGreaterThan(1));
+		expect(screen.queryByLabelText('Device name')).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /generate key/i })).not.toBeInTheDocument();
+	});
 });

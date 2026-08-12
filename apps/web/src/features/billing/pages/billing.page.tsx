@@ -67,7 +67,6 @@ export function BillingPage() {
 						<SubscriptionStatus subscription={subscription.data} />
 						<PlanActions
 							subscription={subscription.data}
-							role={user?.role}
 							pending={checkout.pending || cancelState.isLoading || resumeState.isLoading}
 							onSubscribe={(cadence) => void checkout.start(cadence)}
 							onCancel={() => void cancelSubscription()}

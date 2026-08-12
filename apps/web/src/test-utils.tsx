@@ -5,7 +5,12 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
 
-import type { AnyErrorCode, SupportedLocale } from '@vpn/contracts';
+import {
+	PERMISSIONS,
+	type AnyErrorCode,
+	type Permission,
+	type SupportedLocale,
+} from '@vpn/contracts';
 
 import { api } from '@/app/store/api.js';
 import { clearApiCacheMiddleware, rootReducer } from '@/app/store/index.js';
@@ -74,6 +79,7 @@ export interface ApiStub {
 	readonly requests: RecordedRequest[];
 	reply(body: unknown, status?: number): void;
 	fail(code: AnyErrorCode, status: number): void;
+	grant(...permissions: Permission[]): void;
 	lastRequest(): RecordedRequest | undefined;
 }
 
@@ -114,16 +120,23 @@ export function stubSlowApi(body: unknown = { acknowledged: true }, status = 200
 	return { requests, aborted, release: () => open() };
 }
 
+// Every authenticated screen asks what the caller may do, so the stub answers
+// that one by route instead of by turn. The default is everything: a test that
+// is not about authorization should not have to opt into being allowed.
 export function stubApi(): ApiStub {
 	const requests: RecordedRequest[] = [];
 	let nextStatus = 200;
 	let nextBody: unknown = {};
+	let granted: readonly Permission[] = PERMISSIONS;
 
 	const stub: ApiStub = {
 		requests,
 		reply(body, status = 200) {
 			nextBody = body;
 			nextStatus = status;
+		},
+		grant(...permissions) {
+			granted = permissions;
 		},
 		// normalizeError only trusts a body carrying a string correlationId, which
 		// the API's exception filter always sends; omitting it here would make
@@ -148,6 +161,13 @@ export function stubApi(): ApiStub {
 				.catch(() => null),
 			headers: request.headers,
 		});
+
+		if (request.method === 'GET' && new URL(request.url).pathname.endsWith('/permissions')) {
+			return new Response(JSON.stringify({ permissions: granted }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' },
+			});
+		}
 
 		return new Response(JSON.stringify(nextBody), {
 			status: nextStatus,

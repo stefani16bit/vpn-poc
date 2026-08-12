@@ -10,6 +10,7 @@ import { BillingPage } from '@/features/billing/pages/billing.page.tsx';
 import { CheckoutCancelPage } from '@/features/billing/pages/checkout-cancel.page.tsx';
 import { CheckoutSuccessPage } from '@/features/billing/pages/checkout-success.page.tsx';
 import { KeysPage } from '@/features/keys/pages/keys.page.tsx';
+import { PermissionsPage } from '@/features/permissions/pages/permissions.page.tsx';
 import { UsersPage } from '@/features/users/pages/users.page.tsx';
 
 export function Router() {
@@ -46,6 +47,15 @@ export function Router() {
 				element={
 					<RequireAuth>
 						<UsersPage />
+					</RequireAuth>
+				}
+			/>
+
+			<Route
+				path="/permissions"
+				element={
+					<RequireAuth>
+						<PermissionsPage />
 					</RequireAuth>
 				}
 			/>

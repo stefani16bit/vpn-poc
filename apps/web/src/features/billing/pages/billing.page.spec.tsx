@@ -92,7 +92,7 @@ describe('BillingPage', () => {
 				'Cancellation is scheduled. Access continues until the end of the paid period.',
 			),
 		).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Resume subscription' })).toBeEnabled();
+		expect(await screen.findByRole('button', { name: 'Resume subscription' })).toBeEnabled();
 		expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
 	});
 
@@ -205,48 +205,54 @@ describe('BillingPage', () => {
 		expect(screen.getByRole('button', { name: /monthly/i })).toBeInTheDocument();
 	});
 
-	it('offers a member no way to start a subscription', async () => {
+	it('offers no way to start a subscription without billing.manage', async () => {
 		api.reply({ status: 'none', currentPeriodEnd: null, cancelAtPeriodEnd: false });
+		api.grant('devices.create');
 		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('member') });
 
 		expect(await screen.findByText('No subscription')).toBeInTheDocument();
+		await waitFor(() => expect(api.requests.length).toBeGreaterThan(1));
 		expect(screen.queryByRole('button', { name: /monthly/i })).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /yearly/i })).not.toBeInTheDocument();
 	});
 
-	it('shows a member the plan it is on, without the button that ends it', async () => {
+	it('shows the plan it is on, without the button that ends it', async () => {
 		api.reply({
 			status: 'active',
 			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
 			cancelAtPeriodEnd: false,
 		});
+		api.grant('devices.create');
 		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('member') });
 
 		expect(await screen.findByText('Active')).toBeInTheDocument();
+		await waitFor(() => expect(api.requests.length).toBeGreaterThan(1));
 		expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
 	});
 
-	it('refuses an admin the same button, because money is not people', async () => {
+	it('refuses an admin the same button, because the default keeps money from people', async () => {
 		api.reply({
 			status: 'active',
 			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
 			cancelAtPeriodEnd: false,
 		});
+		api.grant('users.read', 'users.create', 'users.update', 'users.delete', 'devices.create');
 		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('admin') });
 
 		expect(await screen.findByText('Active')).toBeInTheDocument();
+		await waitFor(() => expect(api.requests.length).toBeGreaterThan(1));
 		expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
 	});
 
-	it('leaves an admin the way back to resume nothing it did not schedule', async () => {
+	it('gives the button to whoever the tenant granted it, whatever their role', async () => {
 		api.reply({
 			status: 'active',
 			currentPeriodEnd: '2026-09-01T00:00:00.000Z',
-			cancelAtPeriodEnd: true,
+			cancelAtPeriodEnd: false,
 		});
-		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('admin') });
+		api.grant('billing.manage');
+		renderWithProviders(<BillingPage />, { locale: 'en', store: signedIn('member') });
 
-		expect(await screen.findByText(/Cancellation is scheduled/)).toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument();
+		expect(await screen.findByRole('button', { name: /cancel/i })).toBeEnabled();
 	});
 });
