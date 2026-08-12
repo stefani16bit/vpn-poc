@@ -1203,6 +1203,181 @@ describe('billing', () => {
 		});
 	});
 
+	describe('permissions', () => {
+		const PUBLIC_KEY = 'GJvAqPYlHR3nOMxdI0qc1lPzZLDkP+FCoAKzMEwPUXA=';
+
+		function grantsOf(accessToken: string) {
+			return request(app.getHttpServer())
+				.get('/permissions')
+				.set('Authorization', `Bearer ${accessToken}`);
+		}
+
+		function setRoleGrant(accessToken: string, role: string, body: object) {
+			return request(app.getHttpServer())
+				.put(`/permissions/roles/${role}`)
+				.set('Authorization', `Bearer ${accessToken}`)
+				.send(body);
+		}
+
+		function setUserGrant(accessToken: string, userId: string, body: object) {
+			return request(app.getHttpServer())
+				.put(`/permissions/users/${userId}`)
+				.set('Authorization', `Bearer ${accessToken}`)
+				.send(body);
+		}
+
+		function createDevice(accessToken: string, publicKey = PUBLIC_KEY) {
+			return request(app.getHttpServer())
+				.post('/devices')
+				.set('Authorization', `Bearer ${accessToken}`)
+				.send({ name: 'laptop', publicKey });
+		}
+
+		it('hands an untouched account exactly the code default', async () => {
+			const owner = await subscribed();
+			const colleague = await colleagueOf(owner.accessToken, 'member');
+
+			const mine = await grantsOf(colleague.accessToken).expect(200);
+
+			expect(mine.body.permissions).toEqual(['devices.create']);
+		});
+
+		it('lets the tenant take the only default a member has', async () => {
+			const owner = await subscribed();
+			const colleague = await colleagueOf(owner.accessToken, 'member');
+
+			await setRoleGrant(owner.accessToken, 'member', {
+				permission: 'devices.create',
+				granted: false,
+			}).expect(200);
+
+			const denied = await createDevice(colleague.accessToken).expect(403);
+			expect(denied.body.code).toBe('FORBIDDEN');
+			expect((await grantsOf(colleague.accessToken).expect(200)).body.permissions).toEqual([]);
+		});
+
+		it('answers differently for the same role in two accounts, which is the whole point', async () => {
+			const strict = await subscribed();
+			const strictMember = await colleagueOf(strict.accessToken, 'member');
+			await setRoleGrant(strict.accessToken, 'member', {
+				permission: 'devices.create',
+				granted: false,
+			}).expect(200);
+
+			const relaxed = await subscribed();
+			const relaxedMember = await colleagueOf(relaxed.accessToken, 'member');
+
+			await createDevice(strictMember.accessToken).expect(403);
+			await createDevice(
+				relaxedMember.accessToken,
+				'iOoJ0M5vNMDlnKQyMHU5x1O2rZlNMvwXWvYCLzsCLl0=',
+			).expect(201);
+		});
+
+		it('separates two people who share a role in the same account', async () => {
+			const owner = await subscribed();
+			const ana = await colleagueOf(owner.accessToken, 'member');
+			const bruno = await colleagueOf(owner.accessToken, 'member');
+
+			await setRoleGrant(owner.accessToken, 'member', {
+				permission: 'devices.create',
+				granted: false,
+			}).expect(200);
+			await setUserGrant(owner.accessToken, ana.userId, {
+				permission: 'devices.create',
+				granted: true,
+			}).expect(200);
+
+			await createDevice(ana.accessToken).expect(201);
+			await createDevice(bruno.accessToken, 'iOoJ0M5vNMDlnKQyMHU5x1O2rZlNMvwXWvYCLzsCLl0=').expect(
+				403,
+			);
+		});
+
+		it('checks what the company bought before what the person may do', async () => {
+			const session = await subscribedSession();
+			const colleague = await colleagueOf(session.accessToken, 'member');
+
+			const denied = await createDevice(colleague.accessToken).expect(402);
+			expect(denied.body.code).toBe('PAYMENT_REQUIRED');
+		});
+
+		it('refuses everyone but the owner the screen that grants permissions', async () => {
+			const owner = await subscribed();
+			const admin = await colleagueOf(owner.accessToken, 'admin');
+
+			await request(app.getHttpServer())
+				.get('/permissions/grants')
+				.set('Authorization', `Bearer ${admin.accessToken}`)
+				.expect(403);
+
+			await request(app.getHttpServer())
+				.get('/permissions/grants')
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(200);
+		});
+
+		it('never lets the owner revoke its own way back in', async () => {
+			const owner = await subscribed();
+
+			await setRoleGrant(owner.accessToken, 'owner', {
+				permission: 'permissions.manage',
+				granted: false,
+			}).expect(200);
+
+			await request(app.getHttpServer())
+				.get('/permissions/grants')
+				.set('Authorization', `Bearer ${owner.accessToken}`)
+				.expect(200);
+		});
+
+		it('drops the row instead of storing a grant that agrees with the default', async () => {
+			const owner = await subscribed();
+
+			await setRoleGrant(owner.accessToken, 'member', {
+				permission: 'devices.create',
+				granted: false,
+			}).expect(200);
+			const restored = await setRoleGrant(owner.accessToken, 'member', {
+				permission: 'devices.create',
+				granted: true,
+			}).expect(200);
+
+			const member = restored.body.roles.find((entry: { role: string }) => entry.role === 'member');
+			expect(member.grants).toEqual([]);
+			expect(await db`SELECT count(*)::int AS count FROM role_permissions`).toEqual([{ count: 0 }]);
+		});
+
+		it('takes away an admin the users page when the tenant says so', async () => {
+			const owner = await subscribed();
+			const admin = await colleagueOf(owner.accessToken, 'admin');
+
+			await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${admin.accessToken}`)
+				.expect(200);
+
+			await setRoleGrant(owner.accessToken, 'admin', {
+				permission: 'users.read',
+				granted: false,
+			}).expect(200);
+
+			await request(app.getHttpServer())
+				.get('/users')
+				.set('Authorization', `Bearer ${admin.accessToken}`)
+				.expect(403);
+		});
+
+		it('refuses a role name the enum does not have', async () => {
+			const owner = await subscribed();
+
+			await setRoleGrant(owner.accessToken, 'superuser', {
+				permission: 'devices.create',
+				granted: true,
+			}).expect(404);
+		});
+	});
+
 	describe('entitlements', () => {
 		async function entitlementsOf(accessToken: string) {
 			const response = await request(app.getHttpServer())

@@ -10,7 +10,6 @@ const ROUTE = /^@(Get|Post|Patch|Put|Delete)\(/;
 const MUTATING = ['Post', 'Patch', 'Put', 'Delete'];
 
 const GATES = [
-	{ decorator: '@RequiresRole(', guard: 'RoleGuard' },
 	{ decorator: '@RequiresCapability(', guard: 'CapabilityGuard' },
 	{ decorator: '@RequiresPermission(', guard: 'PermissionGuard' },
 ] as const;

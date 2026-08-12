@@ -11,12 +11,14 @@ import { AccessTokenGuard } from '../../../shared/access-control/access-token.gu
 import type { AccessTokenClaims } from '../../../shared/access-control/access-token.service.js';
 import { CapabilityGuard } from '../../../shared/access-control/capability.guard.js';
 import { Auth } from '../../../shared/access-control/current-auth.decorator.js';
+import { PermissionGuard } from '../../../shared/access-control/permission.guard.js';
 import { RequiresCapability } from '../../../shared/access-control/require-capability.decorator.js';
+import { RequiresPermission } from '../../../shared/access-control/require-permission.decorator.js';
 import { ZodBody } from '../../../shared/validation/zod-body.pipe.js';
 import { DevicesService } from '../services/devices.service.js';
 
 @Controller('devices')
-@UseGuards(AccessTokenGuard, CapabilityGuard)
+@UseGuards(AccessTokenGuard, CapabilityGuard, PermissionGuard)
 export class DevicesController {
 	constructor(private readonly devices: DevicesService) {}
 
@@ -29,6 +31,7 @@ export class DevicesController {
 	@Post()
 	@HttpCode(201)
 	@RequiresCapability('vpn_access')
+	@RequiresPermission('devices.create')
 	async create(
 		@Auth() claims: AccessTokenClaims,
 		@Body(new ZodBody(createDeviceRequestSchema)) body: CreateDeviceRequest,

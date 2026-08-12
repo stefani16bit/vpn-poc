@@ -22,6 +22,7 @@ import { BillingModule } from './modules/billing/billing.module.js';
 import { DevicesApiModule } from './modules/devices/devices.module.js';
 import { UsersApiModule } from './modules/users/users.module.js';
 import { EntitlementsApiModule } from './modules/entitlements/entitlements.module.js';
+import { PermissionsApiModule } from './modules/permissions/permissions.module.js';
 
 @Module({
 	imports: [
@@ -55,6 +56,7 @@ import { EntitlementsApiModule } from './modules/entitlements/entitlements.modul
 		BillingModule,
 		DevicesApiModule,
 		UsersApiModule,
+		PermissionsApiModule,
 		EntitlementsApiModule,
 	],
 	providers: [
