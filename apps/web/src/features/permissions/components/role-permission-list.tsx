@@ -8,12 +8,10 @@ import { useTranslator } from '@/i18n/locale-context.tsx';
 export function RolePermissionList({
 	role,
 	pending,
-	locked,
 	onToggle,
 }: {
 	role: RoleGrants;
 	pending: boolean;
-	locked: readonly Permission[];
 	onToggle: (permission: Permission, granted: boolean) => void;
 }): ReactNode {
 	const t = useTranslator();
@@ -23,13 +21,12 @@ export function RolePermissionList({
 			{PERMISSIONS.map((permission) => {
 				const granted = role.effective.includes(permission);
 				const diverges = role.defaults.includes(permission) !== granted;
-				const immutable = locked.includes(permission);
 
 				return (
 					<li key={permission} className="flex items-start gap-3">
 						<Checkbox
 							checked={granted}
-							disabled={pending || immutable}
+							disabled={pending}
 							aria-labelledby={`${role.role}-${permission}`}
 							onCheckedChange={(next) => onToggle(permission, next === true)}
 						/>
@@ -43,9 +40,7 @@ export function RolePermissionList({
 								) : null}
 							</span>
 							<p className="text-xs text-muted-foreground">
-								{immutable
-									? t('permissions.ownerLocked')
-									: t(`permissions.hint.${permission}` as never)}
+								{t(`permissions.hint.${permission}` as never)}
 							</p>
 						</div>
 					</li>

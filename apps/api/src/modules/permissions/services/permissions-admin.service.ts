@@ -15,6 +15,8 @@ import type { UserRole } from '../../../shared/identity/user.js';
 import { PermissionRepository } from '../../../shared/permissions/repositories/permission.repository.js';
 import { PermissionService } from '../../../shared/permissions/permission.service.js';
 
+const EDITABLE_ROLES = USER_ROLES.filter((role) => role !== 'owner');
+
 @Injectable()
 export class PermissionsAdminService {
 	constructor(
@@ -26,7 +28,7 @@ export class PermissionsAdminService {
 	async overview(accountId: string): Promise<RoleGrantsResponse> {
 		const stored = await this.permissions.grantsOf(accountId);
 
-		const roles = USER_ROLES.map((role) => {
+		const roles = EDITABLE_ROLES.map((role) => {
 			const own = stored.roles.filter((grant) => grant.role === role);
 
 			return {
@@ -62,6 +64,8 @@ export class PermissionsAdminService {
 		role: UserRole,
 		grant: PermissionGrant,
 	): Promise<RoleGrantsResponse> {
+		refuseOwner(role);
+
 		if (isDefault(role, grant)) await this.grants.clearRoleGrant(accountId, role, grant.permission);
 		else await this.grants.setRoleGrant(accountId, role, grant.permission, grant.granted);
 
@@ -88,6 +92,8 @@ export class PermissionsAdminService {
 		const user = await this.users.findById(userId);
 		if (!user || user.accountId !== accountId) throw new AppError('NOT_FOUND', 'no such user');
 
+		refuseOwner(user.role);
+
 		const stored = await this.permissions.grantsOf(accountId);
 
 		return effectivePermissions(
@@ -113,4 +119,10 @@ function asGrant(stored: { permission: string; granted: boolean }): PermissionGr
 
 function isDefault(role: UserRole, grant: PermissionGrant): boolean {
 	return DEFAULT_ROLE_PERMISSIONS[role].includes(grant.permission) === grant.granted;
+}
+
+function refuseOwner(role: UserRole): void {
+	if (role === 'owner') {
+		throw new AppError('FORBIDDEN', 'the owner holds every permission and cannot be edited');
+	}
 }

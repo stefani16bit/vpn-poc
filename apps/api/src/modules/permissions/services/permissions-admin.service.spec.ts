@@ -59,10 +59,10 @@ describe('PermissionsAdminService', () => {
 	});
 
 	describe('overview', () => {
-		it('describes every role, so a screen never has to guess one', async () => {
+		it('leaves the owner out, because none of it can be edited', async () => {
 			const overview = await admin.overview(ACCOUNT);
 
-			expect(overview.roles.map((entry) => entry.role)).toEqual(['owner', 'admin', 'member']);
+			expect(overview.roles.map((entry) => entry.role)).toEqual(['admin', 'member']);
 		});
 
 		it('leaves the owner out of the per-person list, which can never be locked out', async () => {
@@ -137,6 +137,16 @@ describe('PermissionsAdminService', () => {
 			expect(grants.setRoleGrant).not.toHaveBeenCalled();
 		});
 
+		it('refuses to write against the owner, which holds every permission by construction', async () => {
+			expect(
+				await codeOf(
+					admin.setRoleGrant(ACCOUNT, 'owner', { permission: 'billing.manage', granted: false }),
+				),
+			).toBe('FORBIDDEN');
+			expect(grants.setRoleGrant).not.toHaveBeenCalled();
+			expect(grants.clearRoleGrant).not.toHaveBeenCalled();
+		});
+
 		it('invalidates before answering, so the screen never shows the value it replaced', async () => {
 			await admin.setRoleGrant(ACCOUNT, 'admin', { permission: 'billing.manage', granted: true });
 
@@ -175,6 +185,21 @@ describe('PermissionsAdminService', () => {
 			await admin.setUserGrant(ACCOUNT, ANA, { permission: 'devices.create', granted: true });
 
 			expect(grants.clearUserGrant).toHaveBeenCalledWith(ACCOUNT, ANA, 'devices.create');
+		});
+
+		it('refuses an exception against the owner, by the same rule as the role', async () => {
+			users.findById.mockResolvedValue({ id: 'user-owner', accountId: ACCOUNT, role: 'owner' });
+
+			expect(
+				await codeOf(
+					admin.setUserGrant(ACCOUNT, 'user-owner', {
+						permission: 'billing.manage',
+						granted: false,
+					}),
+				),
+			).toBe('FORBIDDEN');
+			expect(grants.setUserGrant).not.toHaveBeenCalled();
+			expect(grants.clearUserGrant).not.toHaveBeenCalled();
 		});
 
 		it('refuses a user id from another account, which the policy would hide anyway', async () => {

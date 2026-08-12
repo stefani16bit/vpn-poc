@@ -99,11 +99,11 @@ importers:
         specifier: workspace:*
         version: link:../../libs/env
       '@vpn/contracts':
-        specifier: ^0.12.0
-        version: 0.12.0
+        specifier: ^0.13.0
+        version: 0.13.0
       '@vpn/i18n':
-        specifier: ^0.15.1
-        version: 0.15.1
+        specifier: ^0.16.0
+        version: 0.16.0
       '@vpn/ports':
         specifier: ^0.12.0
         version: 0.12.0
@@ -194,11 +194,11 @@ importers:
         specifier: ^2.5.0
         version: 2.12.0(react-redux@9.3.0(@types/react@19.2.18)(react@19.2.8)(redux@5.0.1))(react@19.2.8)
       '@vpn/contracts':
-        specifier: ^0.12.0
-        version: 0.12.0
+        specifier: ^0.13.0
+        version: 0.13.0
       '@vpn/i18n':
-        specifier: ^0.15.1
-        version: 0.15.1
+        specifier: ^0.16.0
+        version: 0.16.0
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -3881,17 +3881,14 @@ packages:
   '@vpn/contracts@0.10.0':
     resolution: {integrity: sha512-LGqYEwewG0ZkXw1iO5oSeVo1Zoli8N+H4nJYuZMQi27inFPs+3l95oITTkhu4q7jb8ZiEF/prjMjPnG3trZKjQ==}
 
-  '@vpn/contracts@0.11.0':
-    resolution: {integrity: sha512-XqY0myufRk0/hjrPSsfmejNMugAYyE6EbM5KUlWv8KuUvmFPEtBApUFb2hTw08Cwph0UoEw4T1yWR/8Lc27MBw==}
-
-  '@vpn/contracts@0.12.0':
-    resolution: {integrity: sha512-RP/6tOAGiklVhDyJ2CRegK+5P4HIaJkSGidg4Qu+ffUbwOU7xmft+UeWYRTXypQkNT0lK0efUG2HbkifG/kCyg==}
+  '@vpn/contracts@0.13.0':
+    resolution: {integrity: sha512-DDcHHzLqAvKMvfPALqy5rhXdK5KxXuE9vREN0TMum5snXXkgQev55uSFN1egN4beTRruSDiIDNhT0ElO84NiCQ==}
 
   '@vpn/i18n@0.13.0':
     resolution: {integrity: sha512-8z10A9lX5urrUSGMXsVyejR2BYO/Xf7ImWCyLe/bPhBfBmxCCmi9FsV2awk5+IPHGHLEJHBH8S/swa8PyzzJUQ==}
 
-  '@vpn/i18n@0.15.1':
-    resolution: {integrity: sha512-YehCg3pBHei5RiU3iim9SaXdM819/H/xxHyKD2fIfUV9pyZa3l8Qq1a5n3qdH+U6X9uWRK9jQumFi7KmfhOqUA==}
+  '@vpn/i18n@0.16.0':
+    resolution: {integrity: sha512-LF0io39VXyaJgUeIlTcKhi7W6gndn3EN4NgvTDjrniVa9lzi1p6Oq8hcTsOP/v/JbLw47Jo5y/nkkiDjv+a7Nw==}
 
   '@vpn/ports@0.12.0':
     resolution: {integrity: sha512-06rYq9z91H4b3e5ygQ2ggxeCzV9O3BvpE/iIF/0hTxs3EkoMQWQOA532Cs5o42FfNXBnNL4/EnfcFTr43L+9ng==}
@@ -11247,11 +11244,7 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@vpn/contracts@0.11.0':
-    dependencies:
-      zod: 3.25.76
-
-  '@vpn/contracts@0.12.0':
+  '@vpn/contracts@0.13.0':
     dependencies:
       zod: 3.25.76
 
@@ -11259,9 +11252,9 @@ snapshots:
     dependencies:
       '@vpn/contracts': 0.10.0
 
-  '@vpn/i18n@0.15.1':
+  '@vpn/i18n@0.16.0':
     dependencies:
-      '@vpn/contracts': 0.11.0
+      '@vpn/contracts': 0.13.0
 
   '@vpn/ports@0.12.0': {}
 

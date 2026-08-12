@@ -6,14 +6,10 @@ import { sessionResolved } from '@/app/store/auth-slice.js';
 import { makeStore, renderWithProviders, type RecordedRequest } from '@/test-utils.tsx';
 import { PermissionsPage } from './permissions.page.tsx';
 
+// The server never sends the owner: it holds every permission by construction,
+// so there is nothing on that row a screen could offer to change.
 const GRANTS = {
 	roles: [
-		{
-			role: 'owner',
-			defaults: ['billing.manage', 'devices.create', 'permissions.manage'],
-			grants: [],
-			effective: ['billing.manage', 'devices.create', 'permissions.manage'],
-		},
 		{ role: 'admin', defaults: ['devices.create'], grants: [], effective: ['devices.create'] },
 		{
 			role: 'member',
@@ -88,8 +84,7 @@ describe('PermissionsPage', () => {
 		stubRoutes(GRANTS);
 		render();
 
-		expect(await screen.findByText('Owner')).toBeInTheDocument();
-		expect(screen.getByText('Administrator')).toBeInTheDocument();
+		expect(await screen.findByText('Administrator')).toBeInTheDocument();
 		expect(screen.getByText('Member')).toBeInTheDocument();
 	});
 
@@ -109,10 +104,10 @@ describe('PermissionsPage', () => {
 		await screen.findByText('Member');
 		const boxes = screen.getAllByRole('checkbox', { name: /generate their own key/i });
 
-		expect(boxes).toHaveLength(4);
+		expect(boxes).toHaveLength(3);
 		expect(boxes[0]).toBeChecked();
-		expect(boxes[2]).not.toBeChecked();
-		expect(boxes[3]).toBeChecked();
+		expect(boxes[1]).not.toBeChecked();
+		expect(boxes[2]).toBeChecked();
 	});
 
 	it('sends the toggle as a grant against the role it belongs to', async () => {
@@ -121,7 +116,7 @@ describe('PermissionsPage', () => {
 
 		await screen.findByText('Member');
 		const boxes = screen.getAllByRole('checkbox', { name: /generate their own key/i });
-		await userEvent.click(boxes[2] as HTMLElement);
+		await userEvent.click(boxes[1] as HTMLElement);
 
 		await waitFor(() => expect(requests.some((entry) => entry.method === 'PUT')).toBe(true));
 		const put = requests.find((entry) => entry.method === 'PUT');
@@ -129,15 +124,12 @@ describe('PermissionsPage', () => {
 		expect(put?.body).toEqual({ permission: 'devices.create', granted: true });
 	});
 
-	it('never lets the owner give away the way back in', async () => {
+	it('never draws the owner, because none of it could be changed anyway', async () => {
 		stubRoutes(GRANTS);
 		render();
 
-		await screen.findByText('Owner');
-		const locked = screen.getAllByRole('checkbox', { name: /manage permissions/i });
-
-		expect(locked[0]).toBeDisabled();
-		expect(screen.getByText(/never loses this one/i)).toBeInTheDocument();
+		expect(await screen.findByText('Member')).toBeInTheDocument();
+		expect(screen.queryByText('Owner')).not.toBeInTheDocument();
 	});
 
 	it('says so plainly when nobody has an exception', async () => {
@@ -162,12 +154,11 @@ describe('PermissionsPage', () => {
 		);
 	});
 
-	it('skips a role the server did not describe instead of rendering an empty one', async () => {
+	it('draws exactly the roles the server sent, and invents none', async () => {
 		stubRoutes({ roles: GRANTS.roles.filter((entry) => entry.role === 'member') });
 		render();
 
 		expect(await screen.findByText('Member')).toBeInTheDocument();
-		expect(screen.queryByText('Owner')).not.toBeInTheDocument();
 		expect(screen.queryByText('Administrator')).not.toBeInTheDocument();
 	});
 

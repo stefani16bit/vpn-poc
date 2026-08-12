@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { USER_ROLES, type Permission, type UserRole } from '@vpn/contracts';
+import type { UserRole } from '@vpn/contracts';
 
 import {
 	usePermissionGrantsQuery,
@@ -15,8 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.t
 import { RolePermissionList } from '@/features/permissions/components/role-permission-list.tsx';
 import { UserPermissionList } from '@/features/permissions/components/user-permission-list.tsx';
 import { useTranslator } from '@/i18n/locale-context.tsx';
-
-const OWNER_LOCKED: readonly Permission[] = ['permissions.manage'];
 
 const ROLE_LABEL: Readonly<
 	Record<UserRole, 'users.roleOwner' | 'users.roleAdmin' | 'users.roleMember'>
@@ -52,24 +50,18 @@ export function PermissionsPage(): ReactNode {
 					<>
 						<h2 className="mt-8 mb-3 text-lg font-medium">{t('permissions.byRole')}</h2>
 
-						{USER_ROLES.map((role) => {
-							const entry = grants.data?.roles.find((candidate) => candidate.role === role);
-							if (!entry) return null;
-
-							return (
-								<section key={role} className="mt-6">
-									<h3 className="text-sm font-semibold">{t(ROLE_LABEL[role])}</h3>
-									<RolePermissionList
-										role={entry}
-										pending={pending}
-										locked={role === 'owner' ? OWNER_LOCKED : []}
-										onToggle={(permission, granted) =>
-											void setRoleGrant({ role, grant: { permission, granted } })
-										}
-									/>
-								</section>
-							);
-						})}
+						{(grants.data?.roles ?? []).map((entry) => (
+							<section key={entry.role} className="mt-6">
+								<h3 className="text-sm font-semibold">{t(ROLE_LABEL[entry.role])}</h3>
+								<RolePermissionList
+									role={entry}
+									pending={pending}
+									onToggle={(permission, granted) =>
+										void setRoleGrant({ role: entry.role, grant: { permission, granted } })
+									}
+								/>
+							</section>
+						))}
 
 						<h2 className="mt-10 mb-3 text-lg font-medium">{t('permissions.byPerson')}</h2>
 						<p className="text-sm text-muted-foreground">{t('permissions.byPersonIntro')}</p>
