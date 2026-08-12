@@ -15,6 +15,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 import { Input } from '@/components/ui/input.tsx';
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select.tsx';
+import { ROLE_LABEL } from '@/features/users/components/role-label.js';
+import {
 	useAccountUsersQuery,
 	useChangeUserRoleMutation,
 	useCreateUserMutation,
@@ -107,18 +115,18 @@ export function UsersPage(): ReactNode {
 
 						<Field label={t('users.roleLabel')}>
 							{(control) => (
-								<select
-									{...control}
-									value={role}
-									onChange={(event) => setRole(event.target.value as AssignableRole)}
-									className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-								>
-									{ASSIGNABLE_ROLES.map((option) => (
-										<option key={option} value={option}>
-											{option === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
-										</option>
-									))}
-								</select>
+								<Select value={role} onValueChange={(next) => setRole(next as AssignableRole)}>
+									<SelectTrigger {...control} className="w-full">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{ASSIGNABLE_ROLES.map((option) => (
+											<SelectItem key={option} value={option}>
+												{t(ROLE_LABEL[option])}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
 							)}
 						</Field>
 

@@ -1,15 +1,17 @@
 import type { ReactNode } from 'react';
 
-import type { AccountUser, AssignableRole } from '@vpn/contracts';
+import { ASSIGNABLE_ROLES, type AccountUser, type AssignableRole } from '@vpn/contracts';
 
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select.tsx';
 import { useTranslator } from '@/i18n/locale-context.tsx';
+import { ROLE_LABEL } from '@/features/users/components/role-label.js';
 import { RemoveUserDialog } from '@/features/users/components/remove-user-dialog.tsx';
-
-const ROLE_LABEL = {
-	owner: 'users.roleOwner',
-	admin: 'users.roleAdmin',
-	member: 'users.roleMember',
-} as const;
 
 export function UserList({
 	users,
@@ -38,7 +40,6 @@ export function UserList({
 				const isSelf = user.id === currentUserId;
 				const isOwner = user.role === 'owner';
 				const editable = !isOwner && !isSelf;
-				const nextRole: AssignableRole = user.role === 'admin' ? 'member' : 'admin';
 
 				return (
 					<li key={user.id} className="rounded-md border p-4">
@@ -47,22 +48,33 @@ export function UserList({
 							{isSelf ? <span className="text-muted-foreground"> — {t('users.you')}</span> : null}
 						</p>
 
-						<p className="text-sm text-muted-foreground">{t(ROLE_LABEL[user.role])}</p>
+						{editable && canChangeRole ? null : (
+							<p className="text-sm text-muted-foreground">{t(ROLE_LABEL[user.role])}</p>
+						)}
+
 						<p className="text-sm text-muted-foreground">
 							{t('users.liveDevices', { count: user.liveDeviceCount })}
 						</p>
 
 						{editable ? (
-							<div className="mt-3 flex gap-2">
+							<div className="mt-3 flex items-center gap-2">
 								{canChangeRole ? (
-									<button
-										type="button"
+									<Select
+										value={user.role}
 										disabled={pending}
-										onClick={() => onChangeRole(user.id, nextRole)}
-										className="text-sm text-primary underline-offset-4 hover:underline disabled:opacity-50"
+										onValueChange={(next) => onChangeRole(user.id, next as AssignableRole)}
 									>
-										{t('users.roleOf', { email: user.email })}
-									</button>
+										<SelectTrigger size="sm" aria-label={t('users.roleOf', { email: user.email })}>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{ASSIGNABLE_ROLES.map((option) => (
+												<SelectItem key={option} value={option}>
+													{t(ROLE_LABEL[option])}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
 								) : null}
 
 								{canRemove ? (

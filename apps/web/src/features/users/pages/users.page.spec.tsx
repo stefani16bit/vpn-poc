@@ -153,13 +153,23 @@ describe('UsersPage', () => {
 		await screen.findByText('member@example.com');
 		api.reply({ user: accountUser({ role: 'admin' }) });
 
-		await userEvent.click(screen.getByRole('button', { name: /role of member@example.com/i }));
+		await userEvent.click(screen.getByRole('combobox', { name: /role of member@example.com/i }));
+		await userEvent.click(await screen.findByRole('option', { name: 'Administrator' }));
 
 		await waitFor(() => {
 			const patched = api.requests.find((request) => request.method === 'PATCH');
 			expect(patched?.body).toEqual({ role: 'admin' });
 		});
 		expect(await screen.findByText(/sessions were ended/i)).toBeInTheDocument();
+	});
+
+	it('shows the role somebody currently has, instead of a toggle that names the other one', async () => {
+		api.reply({ users: [accountUser({ role: 'admin' })] });
+		render();
+
+		expect(
+			await screen.findByRole('combobox', { name: /role of member@example.com/i }),
+		).toHaveTextContent('Administrator');
 	});
 
 	it('asks before removing, and only then deletes', async () => {
@@ -218,7 +228,7 @@ describe('UsersPage', () => {
 
 			expect(await screen.findByRole('button', { name: /^remove$/i })).toBeInTheDocument();
 			expect(
-				screen.queryByRole('button', { name: /role of member@example.com/i }),
+				screen.queryByRole('combobox', { name: /role of member@example.com/i }),
 			).not.toBeInTheDocument();
 		});
 
@@ -227,7 +237,7 @@ describe('UsersPage', () => {
 			render('admin', ['users.read', 'users.update']);
 
 			expect(
-				await screen.findByRole('button', { name: /role of member@example.com/i }),
+				await screen.findByRole('combobox', { name: /role of member@example.com/i }),
 			).toBeInTheDocument();
 			expect(screen.queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument();
 		});
@@ -237,9 +247,7 @@ describe('UsersPage', () => {
 			render('admin', ['users.read']);
 
 			expect(await screen.findByText('member@example.com')).toBeInTheDocument();
-			expect(
-				screen.queryByRole('button', { name: /role of member@example.com/i }),
-			).not.toBeInTheDocument();
+			expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
 			expect(screen.queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument();
 		});
 	});
