@@ -46,7 +46,11 @@ CANARY_NODE_ADDRESS='172.30.13.2/24'
 # in insertion order, so a RETURN appended after the MASQUERADE would leave every
 # private resource seeing the node's address instead of the device's — a failure
 # that answers 200 and loses the only fact worth having.
-POSTROUTING_ORDER='-s 10.13.13.0/24 -d 172.30.13.0/24 -j RETURN -A POSTROUTING -s 10.13.13.0/24 -o eth0 -j MASQUERADE'
+#
+# Both rules match on destination. Which interface Docker hands each network is
+# not guaranteed, and this stack is the proof: eth0 is the canary network here,
+# not the default one. DEC-088.
+POSTROUTING_ORDER='-s 10.13.13.0/24 -d 172.30.13.0/24 -j RETURN -A POSTROUTING -s 10.13.13.0/24 ! -d 10.13.13.0/24 -j MASQUERADE'
 
 ENV_FILES=''
 [ -f ../.env.local ] && ENV_FILES="${ENV_FILES} ../.env.local"
@@ -215,6 +219,19 @@ check_exec 'the node has its pinned address on the canary network' "$CANARY_NODE
 
 check_exec 'the node returns canary traffic before it masquerades the rest' "$POSTROUTING_ORDER" \
 	wireguard sh -c "iptables -t nat -S POSTROUTING | tr '\n' ' '"
+
+# The rule above asserted as text; this one asserts that it fires. The two are
+# not the same assertion, and only this one fails when the rule matches an
+# interface that stopped being the way out: the packet leaves unmasqueraded and
+# every textual probe stays green. Sourced from the tunnel and aimed at another
+# container by name, because that is the path data-plane.md's NAT probe uses.
+#
+# No reply is needed — NAT happens on the way out — so this asserts the counter,
+# not reachability.
+check_exec 'the node masquerades tunnel traffic whatever interface it leaves by' 'MASQUERADED' \
+	wireguard sh -c "iptables -t nat -Z POSTROUTING >/dev/null;
+		ping -c 1 -W 2 -I 10.13.13.1 verdaccio >/dev/null 2>&1;
+		iptables -t nat -L POSTROUTING -v -n | awk '/MASQUERADE/ && \$1 > 0 { print \"MASQUERADED\" }'"
 
 # From the host, not from inside: the worker reaches the node over the published
 # port, and a control plane bound to the wrong interface passes every in-container

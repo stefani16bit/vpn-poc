@@ -71,7 +71,7 @@ Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 Conferido como portão: `--coverage.thresholds.branches=99` falha citando o
 valor real.
 
-`make check` 19/19 · `cdk synth` 6 stacks · `consumer-check` verde ·
+`make check` 20/20 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
 
 `pnpm verify` roda com o Docker parado, de propósito: `*.integration.spec.ts` e
@@ -250,13 +250,16 @@ sem Docker ensina a ignorar suíte vermelha.
       POSTROUTING), uma quarta seção no `tunnel:doctor` e um provador de 12
       asserções. Nenhuma linha de aplicação mudou e `packages/` não se moveu —
       que é o resultado, não a sorte. DEC-075.
-- [ ] **A regra de MASQUERADE do nó ainda casa por interface (`-o eth0`).** Com
-      duas redes, qual interface o Docker entrega a cada uma não é garantido, e
-      se a default virasse `eth1` o egress à internet pararia de ser mascarado. O
-      caminho do canário não corre esse risco — a regra de `RETURN` casa por
-      **destino**, de propósito. Ficou como está porque `data-plane.md` documenta
-      a linha de MASQUERADE textualmente e a sonda `200 → 000 → 200` dela cita a
-      regra exata. DEC-075.
+- [x] ~~**A regra de MASQUERADE do nó ainda casa por interface (`-o eth0`).**~~
+      Esta linha dizia "se a default virasse `eth1`". Ela **já tinha virado**:
+      neste devstack `eth0` é a rede do canário e a bridge do projeto é `eth1`,
+      então o egress do túnel para a bridge saía **sem NAT** — três pacotes
+      atravessando o POSTROUTING e zero batendo na regra. As duas regras casam
+      por destino agora, e o que faltava não era só a regra: `make check` ganhou
+      uma asserção que zera o contador, emite tráfego com origem no túnel e exige
+      que ela **tenha disparado**. A afirmação textual da ordem continua ao lado
+      dela, porque foi ela que ficou verde o tempo todo enquanto o NAT não
+      acontecia. DEC-088.
 - [x] ~~**A faixa do túnel ignora o prefixo do CIDR.**~~ O alocador passou a
       trabalhar em inteiros de 32 bits e a ler a máscara: a faixa vai de
       `rede + 4` até `broadcast − 1`, então um `/25` para em `.126` em vez de
@@ -393,7 +396,7 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 19/19
+make up && make check                                # devstack: 20/20
 pnpm --filter @vpn-poc/api test:e2e                  # 122, o fluxo inteiro
 pnpm --filter @vpn-poc/api test:integration          # 65, RLS e formas de SQL
 pnpm --filter @vpn-poc/adapters test:integration     # 90, adapters reais

@@ -3683,3 +3683,57 @@ que acaba primeiro num pico.
 banco **fora** de `runInAccount` levanta `42704` no `current_setting` estrito
 (DEC-050) em vez de devolver zero linhas — o erro aparece na hora, que é a razão
 de o `current_setting` não ter `missing_ok`.
+
+---
+
+### DEC-088 — O NAT do nó casa por destino, e uma asserção o vê disparar
+
+**Data:** 2026-08-13 · **Status:** accepted
+
+**Contexto.** A regra de MASQUERADE do nó casava por interface
+(`-o eth0`), enquanto o `RETURN` do canário casava por destino. O roadmap
+registrava isso como risco hipotético: "se a default virasse `eth1`, o egress à
+internet pararia de ser mascarado".
+
+Não era hipotético. Neste devstack `eth0` **é** a rede do canário
+(`172.30.13.2/24`) e a bridge do projeto é `eth1`. Medido antes da mudança:
+três pacotes saídos de `10.13.13.1` para o verdaccio atravessaram o POSTROUTING
+e **zero** bateram na regra de MASQUERADE. O egress do túnel para a bridge
+estava saindo sem NAT — e é exatamente o caminho que a sonda `200 → 000 → 200`
+de `data-plane.md` percorre.
+
+**Decisão.** O MASQUERADE passa a casar por destino:
+`-s 10.13.13.0/24 ! -d 10.13.13.0/24 -j MASQUERADE`. E o `check.sh` ganha uma
+asserção que **zera o contador, emite tráfego com origem no túnel e exige que a
+regra tenha disparado**.
+
+**Rationale.** Nenhum critério baseado no nome da interface é estável: quem
+decide qual nome cada rede recebe é o Docker, e a ordem de `networks` no compose
+não é promessa. Destino é a única coisa que o operador controla.
+
+A negação do próprio CIDR do túnel, e não um `-j MASQUERADE` sem qualificador:
+sem ela, tráfego entre dois devices da mesma rede sairia mascarado e cada um
+veria o endereço do nó no lugar do endereço do outro. É o mesmo defeito que o
+`RETURN` do canário existe para evitar, com outro sujeito — e ele deixa de ser
+teórico assim que a frota tiver mais de um peer por nó.
+
+A asserção nova não substitui a de ordem, e é por isso que são duas. A antiga
+afirma o **texto** das regras e a adjacência delas; foi ela que sobreviveu verde
+o tempo todo enquanto o NAT não acontecia. Uma regra afirmada só textualmente é
+uma regra que ninguém viu funcionar.
+
+O destino da sonda é outro contêiner **pelo nome**, não um endereço: o IP da
+bridge muda a cada `reset` e um endereço fixo transformaria a asserção numa
+armadilha de manutenção. Ela não espera resposta — o NAT acontece na ida —,
+então o que ela afere é o contador, nunca alcançabilidade.
+
+**Consequências.** `make check` passa de 19 para 20 asserções.
+
+A sonda zera os contadores de `POSTROUTING` ao rodar. É um smoke check de
+devstack, e nada lê esses contadores para decidir coisa alguma; num nó real, a
+mesma asserção precisaria ler o delta em vez de zerar.
+
+O nó continua sem regra de egress específica por interface, o que significa que
+um nó real com uma interface de gerência separada mascararia tráfego por ela
+também. Isso é trabalho da stack `network` e do nó real, onde a fronteira é
+firewall e não `wg-quick`.

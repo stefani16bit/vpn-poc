@@ -291,7 +291,7 @@ Depois, o que nenhum comando faz sozinho — e que é o item inteiro:
 
    ```bash
    docker compose exec wireguard \
-     iptables -t nat -D POSTROUTING -s 10.13.13.0/24 -o eth0 -j MASQUERADE
+     iptables -t nat -D POSTROUTING -s 10.13.13.0/24 ! -d 10.13.13.0/24 -j MASQUERADE
    ```
 
    `200`, depois `000`, depois `200` ao repor. Sem esta sonda, um egress que
