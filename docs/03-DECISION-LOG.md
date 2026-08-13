@@ -3737,3 +3737,43 @@ O nó continua sem regra de egress específica por interface, o que significa qu
 um nó real com uma interface de gerência separada mascararia tráfego por ela
 também. Isso é trabalho da stack `network` e do nó real, onde a fronteira é
 firewall e não `wg-quick`.
+
+---
+
+### DEC-089 — O plano de controle é copiado para dentro no boot, não servido do mount
+
+**Data:** 2026-08-13 · **Status:** accepted
+
+**Contexto.** `control/` entrava na imagem por `COPY`, então um
+`docker compose restart wireguard` continuava servindo o script velho e só um
+`build` publicava a alteração. O sintoma é a suíte de conformidade do
+`HttpExitNode` vermelha **contra um adapter correto** — o pior tipo de vermelho,
+porque aponta para o lugar errado.
+
+**Decisão.** O compose monta `control/` em `/srv/control-src`, e o `entrypoint.sh`
+copia para `/srv/control` e faz `chmod +x` do lado de dentro antes de subir o
+`httpd`. A imagem continua trazendo `/srv/control` por `COPY`.
+
+**Rationale.** Copiar em vez de servir o mount direto é o ponto inteiro, e a
+razão é o bit de execução. Os CGI são `100644` no git; um mount servido
+diretamente responde 500 em qualquer host que honre esse modo. Medido: neste
+Windows o Docker Desktop apresenta os mesmos arquivos como `rwxrwxrwx`, então o
+mount ingênuo **funcionaria aqui** e quebraria para um colega no Linux. Um
+conserto que só é verde na máquina de quem o escreveu não é conserto, é a
+armadilha seguinte — que é exatamente o que esta decisão foi encarregada de não
+fazer.
+
+A diferença entre dev e produção é a **presença do mount**, não uma variável no
+compose. Um nó real não tem repositório para montar, `/srv/control-src` não
+existe lá, e o bloco inteiro vira no-op sem ninguém precisar lembrar de desligar
+nada. Uma variável seria uma segunda coisa a errar, e erraria em silêncio.
+
+**Consequências.** Editar um CGI vale com `restart`, nunca com `build`. Não vale
+sem nada: o `httpd` serve de `/srv/control`, e a cópia acontece no boot. Servir
+o mount direto e resolver o modo de outro jeito — `httpd.conf` mapeando
+interpretador por extensão — exigiria renomear os CGI para `*.sh`, e o nome
+deles é a URL que `HttpExitNode`, `check.sh` e a spec citam.
+
+Um `build` continua sendo necessário para `entrypoint.sh`, `healthcheck.sh` e o
+`Dockerfile`, que não são montados. É a fronteira certa: são o contrato do
+contêiner, não o conteúdo que se itera.

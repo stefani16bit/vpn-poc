@@ -173,6 +173,10 @@ services:
       # Bind mount rather than COPY: `reload s=wireguard` then re-reads the
       # peer list, which is what makes the NAT probe in the spec runnable.
       - ./wireguard/wg0.conf:/etc/wireguard/wg0.conf:ro
+      # Not mounted onto /srv/control, which the image already fills: the
+      # entrypoint copies this in and sets the execute bit on its own side.
+      # Serving the mount directly would depend on the host's file mode. DEC-089.
+      - ./wireguard/control:/srv/control-src:ro
     healthcheck:
       test: ['CMD', '/healthcheck.sh']
       interval: 5s

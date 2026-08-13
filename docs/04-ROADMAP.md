@@ -52,6 +52,16 @@ dívida antiga e desarma uma armadilha nova: o contrato de servidores já aceita
 `tunnelCidr`, então um `/25` tratado como `/24` deixaria de ser teórico assim
 que um tenant registrasse o primeiro nó.
 
+E duas armadilhas do devstack saíram de cena antes do segundo nó, que é o que as
+tornaria caras. A do NAT **já tinha disparado**: a regra casava por interface e
+`eth0` aqui é a rede do canário, então o egress do túnel para a bridge saía sem
+NAT — com `make check` verde o tempo todo, porque ele aferia o **texto** da regra
+e nunca o disparo dela. As duas regras casam por destino agora, e a asserção que
+faltava zera o contador e exige vê-lo subir. Junto, editar um CGI do plano de
+controle passou a valer com `restart` em vez de `build`, copiado para dentro no
+boot em vez de servido do mount — porque o bit de execução viaja com o host e
+esses arquivos são `100644` no git. DEC-088, DEC-089.
+
 | Suíte                                                       | Testes   | Precisa do devstack |
 | ----------------------------------------------------------- | -------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                | 288      | não                 |
@@ -280,10 +290,14 @@ sem Docker ensina a ignorar suíte vermelha.
       quem o leva de 0 a 1 é dono da janela, e o TTL a rearma. Linha travada
       custaria uma transação por turno de um laço que roda a cada 500 ms. As três
       varreduras usam a mesma forma. DEC-085.
-- [ ] **Mudar um script CGI do nó exige `docker compose build wireguard`.**
-      `control/` entra na imagem por `COPY`, não por bind mount, então um
-      `restart` continua servindo o script velho — e o sintoma é a suíte de
-      conformidade do `HttpExitNode` vermelha contra um adapter correto.
+- [x] ~~**Mudar um script CGI do nó exige `docker compose build wireguard`.**~~ O
+      compose monta `control/` em `/srv/control-src` e o entrypoint copia para
+      dentro no boot, então um `restart` basta. **Copiar** em vez de servir o
+      mount é o conserto, não um detalhe: os CGI são `100644` no git, e servir o
+      mount direto responderia 500 em qualquer host que honre esse modo — só não
+      neste Windows, onde o Docker Desktop reporta `rwxrwxrwx` e o defeito ficaria
+      invisível para quem escreveu. A diferença entre dev e produção é a presença
+      do mount, não uma variável. DEC-089.
 - [ ] **`monthlyTrafficGb` e `regions` são anunciados e não aplicados.** Estão no
       tipo para os tiers se descreverem, e os dois dependem do data plane.
       `seats × devicesPerUser` **passou** a ser aplicado, na escrita e por índice
