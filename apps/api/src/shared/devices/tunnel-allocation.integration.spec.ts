@@ -49,8 +49,8 @@ beforeAll(async () => {
 				values (${userIdFor(id)}, ${id}, ${`owner@${slug}.example.com`}, 'x', 'owner')
 			`;
 			await tx`
-				insert into devices (account_id, user_id, name, public_key, tunnel_address)
-				values (${id}, ${userIdFor(id)}, 'laptop', ${`pk-${slug}`}, ${address})
+				insert into devices (account_id, user_id, name, public_key, tunnel_address, account_slot)
+				values (${id}, ${userIdFor(id)}, 'laptop', ${`pk-${slug}`}, ${address}, 0)
 			`;
 		}
 	});

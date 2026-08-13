@@ -71,8 +71,8 @@ beforeAll(async () => {
 				values (${id}, 'auth.welcome', ${JSON.stringify({ kind: 'auth.welcome', userId: userIdFor(id) })}::jsonb)
 			`;
 			await tx`
-				insert into devices (account_id, user_id, name, public_key, tunnel_address)
-				values (${id}, ${userIdFor(id)}, 'laptop', ${`pk-${slug}`}, ${`10.13.13.${id === A ? 101 : 102}/32`})
+				insert into devices (account_id, user_id, name, public_key, tunnel_address, account_slot)
+				values (${id}, ${userIdFor(id)}, 'laptop', ${`pk-${slug}`}, ${`10.13.13.${id === A ? 101 : 102}/32`}, 0)
 			`;
 			await tx`
 				insert into role_permissions (account_id, role, permission, granted)
@@ -218,7 +218,7 @@ describe('write side', () => {
 });
 
 describe('the policy set itself', () => {
-	it('is exactly the twenty-two policies the schema declares', async () => {
+	it('is exactly the twenty-four policies the schema declares', async () => {
 		const rows = await sql`
 			select tablename, policyname from pg_policies
 			where schemaname = 'public' order by tablename, policyname
@@ -231,6 +231,8 @@ describe('the policy set itself', () => {
 			'billing_events.billing_events_tenant',
 			'devices.devices_system',
 			'devices.devices_tenant',
+			'invoices.invoices_system',
+			'invoices.invoices_tenant',
 			'outbox.outbox_system',
 			'outbox.outbox_tenant',
 			'refresh_tokens.refresh_tokens_system',

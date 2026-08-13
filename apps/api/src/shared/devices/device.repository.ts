@@ -31,6 +31,7 @@ export interface NewDevice {
 	readonly name: string;
 	readonly publicKey: string;
 	readonly tunnelAddress: string;
+	readonly accountSlot: number;
 }
 
 @Injectable()
@@ -48,6 +49,20 @@ export class DeviceRepository {
 			.returning();
 
 		return inserted[0];
+	}
+
+	// A hint, like takenAddresses is a hint: the unique index decides, and this
+	// only spares the loop from starting at zero every time.
+	async takenSlots(
+		accountId: string,
+		executor: Executor = currentExecutor(),
+	): Promise<ReadonlySet<number>> {
+		const rows = await executor
+			.select({ accountSlot: devices.accountSlot })
+			.from(devices)
+			.where(and(eq(devices.accountId, accountId), isNull(devices.revokedAt)));
+
+		return new Set(rows.map((row) => row.accountSlot));
 	}
 
 	async takenAddresses(executor: Executor = currentExecutor()): Promise<ReadonlySet<string>> {

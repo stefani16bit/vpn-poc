@@ -272,6 +272,10 @@ export const devices = pgTable(
 		name: text('name').notNull(),
 		publicKey: text('public_key').notNull(),
 		tunnelAddress: text('tunnel_address').notNull(),
+		// The account's seat for this device. The unique index below is what caps
+		// a tenant: a count() read before the INSERT is the check two concurrent
+		// requests walk through together. DEC-043.
+		accountSlot: integer('account_slot').notNull(),
 		provisionedAt: timestamp('provisioned_at', { withTimezone: true }),
 		revokedAt: timestamp('revoked_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -288,6 +292,9 @@ export const devices = pgTable(
 			.where(sql`${table.revokedAt} is null`),
 		uniqueIndex('devices_live_address_key')
 			.on(table.tunnelAddress)
+			.where(sql`${table.revokedAt} is null`),
+		uniqueIndex('devices_live_account_slot_key')
+			.on(table.accountId, table.accountSlot)
 			.where(sql`${table.revokedAt} is null`),
 		...scopedPolicies('devices'),
 	],

@@ -333,6 +333,19 @@ por **restrição de banco** — um `count()` seguido de `INSERT` é o `if (jáV
 que o inegociável nº 3 proíbe, e dois convites aceitos ao mesmo tempo passam
 pelo `SELECT` juntos. DEC-043.
 
+**Vaga (`account_slot`)** — como esse contador vira restrição para dispositivo:
+cada device vivo ocupa uma vaga numerada da própria account, e o índice único
+parcial em `(account_id, account_slot) where revoked_at is null` é quem recusa a
+de número `seats × devicesPerUser`. O serviço lê as vagas ocupadas como **dica** e
+tenta a mais baixa livre — a leitura só evita começar do zero; quem decide é o
+índice, do mesmo jeito que o endereço de túnel já funciona.
+
+Isso existe porque a faixa de endereços é **global** (DEC-069): sem teto por
+account, um tenant consome os 251 e as vizinhas param de conseguir criar chave.
+Não é o mesmo que levantar o teto global, que continua sendo trabalho da DEC-077.
+A recusa é **`QUOTA_EXCEEDED`**, um 402 próprio: a empresa pagou, e dizer "é
+necessário ter uma assinatura ativa" seria falso na tela. DEC-086.
+
 Ler um entitlement é uniforme; **aplicar não é**. São quatro momentos diferentes
 — request, escrita, provisionamento de peer e medição contínua — e um decorator
 só resolve o primeiro. Ver `docs/specs/entitlements-and-plans.md`.

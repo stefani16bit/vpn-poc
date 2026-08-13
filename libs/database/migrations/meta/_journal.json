@@ -43,6 +43,13 @@
       "when": 1786548891353,
       "tag": "0005_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786631747957,
+      "tag": "0006_device_account_slot",
+      "breakpoints": true
     }
   ]
 }

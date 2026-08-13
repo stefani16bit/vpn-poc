@@ -14,6 +14,7 @@ import type { ExitNodeDirectory } from '../../../shared/devices/exit-node-direct
 import type { UserRepository } from '../../../shared/identity/repositories/user.repository.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import type { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
+import type { EntitlementsService } from '../../../shared/entitlements/entitlements.service.js';
 import type { PermissionService } from '../../../shared/permissions/permission.service.js';
 import { DevicesService } from './devices.service.js';
 
@@ -62,18 +63,23 @@ function service({
 	revoked,
 	granted = [],
 	members = [{ id: USER, email: OWNER_EMAIL }],
+	slots = new Set<number>(),
+	ceiling = { seats: 25, devicesPerUser: 5 },
 }: {
 	taken?: ReadonlySet<string>;
 	claim?: (values: NewDevice) => Promise<StoredDevice | undefined>;
 	revoked?: StoredDevice | undefined;
 	granted?: readonly Permission[];
 	members?: readonly { id: string; email: string }[];
+	slots?: ReadonlySet<number>;
+	ceiling?: { seats: number; devicesPerUser: number };
 } = {}) {
 	const claimAddress = vi.fn(claim ?? ((values: NewDevice) => Promise.resolve(stored(values))));
 	const revoke = vi.fn(() => Promise.resolve(revoked));
 	const listLive = vi.fn(() => Promise.resolve([]));
 	const devices = {
 		takenAddresses: vi.fn(() => Promise.resolve(taken)),
+		takenSlots: vi.fn(() => Promise.resolve(slots)),
 		claimAddress,
 		listLive,
 		revoke,
@@ -102,12 +108,17 @@ function service({
 	);
 	const permissions = { has } as unknown as PermissionService;
 
+	const entitlements = {
+		forAccount: () => Promise.resolve({ tier: 'pro', entitlements: ceiling }),
+	} as unknown as EntitlementsService;
+
 	const subject = new DevicesService(
 		devices,
 		users,
 		outbox,
 		directory,
 		permissions,
+		entitlements,
 		new FixedClock(),
 		{ EXIT_NODE_TUNNEL_CIDR: CIDR } as Env,
 	);
@@ -240,6 +251,72 @@ describe('DevicesService.create', () => {
 
 		expect(claimAddress).toHaveBeenCalledWith(expect.objectContaining({ userId: USER }));
 	});
+
+	describe('the ceiling the plan bought', () => {
+		it('takes the lowest free seat, so a revoked one is reused', async () => {
+			const { subject, claimAddress } = service({ slots: new Set([0, 2]) });
+
+			await subject.create(claims(), REQUEST);
+
+			expect(claimAddress).toHaveBeenCalledWith(expect.objectContaining({ accountSlot: 1 }));
+		});
+
+		// The address range is global. Without this, one tenant takes all 251 and
+		// every neighbour stops being able to create a key.
+		it('refuses once the account holds every seat the plan bought', async () => {
+			const { subject, claimAddress } = service({
+				ceiling: { seats: 2, devicesPerUser: 2 },
+				slots: new Set([0, 1, 2, 3]),
+			});
+
+			await expect(subject.create(claims(), REQUEST)).rejects.toThrow(
+				new AppError(
+					'QUOTA_EXCEEDED',
+					'the plan allows 4 live devices and the account already has that many',
+				),
+			);
+			expect(claimAddress).not.toHaveBeenCalled();
+		});
+
+		// The count is a hint; the index is the rule. Two requests reading the same
+		// free seat is exactly what it is there for.
+		it('moves to the next seat when another request took the one it read', async () => {
+			let attempts = 0;
+			const { subject, claimAddress } = service({
+				ceiling: { seats: 1, devicesPerUser: 3 },
+				claim: (values: NewDevice) => {
+					attempts += 1;
+					if (attempts === 1) {
+						return Promise.reject({
+							code: '23505',
+							constraint_name: 'devices_live_account_slot_key',
+						});
+					}
+					return Promise.resolve(stored(values));
+				},
+			});
+
+			await subject.create(claims(), REQUEST);
+
+			expect(claimAddress).toHaveBeenNthCalledWith(1, expect.objectContaining({ accountSlot: 0 }));
+			expect(claimAddress).toHaveBeenNthCalledWith(2, expect.objectContaining({ accountSlot: 1 }));
+		});
+
+		it('gives up with the quota rather than looping forever on lost races', async () => {
+			const { subject } = service({
+				ceiling: { seats: 1, devicesPerUser: 2 },
+				claim: () =>
+					Promise.reject({ code: '23505', constraint_name: 'devices_live_account_slot_key' }),
+			});
+
+			await expect(subject.create(claims(), REQUEST)).rejects.toThrow(
+				new AppError(
+					'QUOTA_EXCEEDED',
+					'the plan allows 2 live devices and the account already has that many',
+				),
+			);
+		});
+	});
 });
 
 describe('DevicesService.assignees', () => {
@@ -274,6 +351,7 @@ describe('DevicesService.revoke', () => {
 		name: 'laptop',
 		publicKey: REQUEST.publicKey,
 		tunnelAddress: '10.13.13.4/32',
+		accountSlot: 0,
 	});
 
 	it('asks only for a device the member owns', async () => {
