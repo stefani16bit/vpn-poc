@@ -27,7 +27,7 @@ export function ResetPasswordPage() {
 		defaultValues: { token },
 	});
 
-	if (!token) {
+	if (!resetPasswordRequestSchema.shape.token.safeParse(token).success) {
 		return (
 			<MessageScreen title={t('auth.resetPassword.invalidLinkTitle')}>
 				<p>{t('auth.resetPassword.invalidLinkBody')}</p>

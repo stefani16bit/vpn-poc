@@ -58,13 +58,13 @@ que um tenant registrasse o primeiro nó.
 | `libs/env`                                                  | 23       | não                 |
 | `libs/adapters` — render de e-mail/SMS, redação, webhook    | 26       | não                 |
 | `apps/api` — kernel, serviços, controllers                  | 628      | não                 |
-| `apps/web` — store, telas, normalização de erro, locale     | 287      | não                 |
+| `apps/web` — store, telas, normalização de erro, locale     | 288      | não                 |
 | `infra` — validação de config CDK                           | 11       | não                 |
-| **Subtotal `pnpm verify`**                                  | **1263** | **não**             |
+| **Subtotal `pnpm verify`**                                  | **1264** | **não**             |
 | `libs/adapters` — as mesmas suítes contra os serviços reais | 93       | sim                 |
 | `apps/api` — RLS, transações, a view e o trigger            | 71       | sim                 |
 | `apps/api` — fluxo completo mais a matriz de locale         | 159      | sim                 |
-| **Total**                                                   | **1586** |                     |
+| **Total**                                                   | **1587** |                     |
 
 Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 94/87/88/93 (linhas/funções/ramos/statements), `apps/web` em 97/95/92/96.
@@ -174,10 +174,12 @@ sem Docker ensina a ignorar suíte vermelha.
       que a torna obrigatória —, então o que a suíte prova ali é a regra de
       ambiguidade da DEC-051; e a suíte negativa de RLS não estava pendente, ela
       chegou com a DEC-035.
-- [ ] A página de reset mostra a tela de link inválido só quando o token está
-      **ausente**. Um token presente e malformado deixa um formulário que se
-      recusa a enviar e não mostra nada, porque o campo de token não tem `Field`
-      para renderizar o erro.
+- [x] ~~A página de reset mostra a tela de link inválido só quando o token está
+      **ausente**.~~ Quem julga o token agora é o schema que já governa o envio,
+      não a presença de uma string: um link truncado pelo cliente de e-mail cai
+      na **mesma** tela de link inválido que um link sem token nenhum. O campo
+      continua `hidden` e continua sem `Field`, de propósito — o que faltava não
+      era onde renderizar o erro, era não ter chegado ao formulário.
 - [ ] `@vpn/i18n` não tem regra de plural. Nenhuma chave precisa hoje; quando
       precisar, a troca por i18next é contida porque tudo passa por
       `getTranslator` (DEC-014).

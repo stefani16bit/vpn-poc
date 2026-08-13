@@ -80,6 +80,20 @@ describe('ResetPasswordPage', () => {
 		expect(screen.getByText('Invalid link')).toHaveFocus();
 	});
 
+	it('refuses to show a form when the token is present but malformed', () => {
+		renderWithProviders(<ResetPasswordPage />, {
+			locale: 'en',
+			route: '/reset-password?token=truncated',
+		});
+
+		expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();
+		expect(screen.getByText('Invalid link')).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: /request/i })).toHaveAttribute(
+			'href',
+			'/forgot-password',
+		);
+	});
+
 	it('carries the token from the query string into the request', async () => {
 		api.reply({ acknowledged: true });
 		renderWithProviders(<ResetPasswordPage />, {
