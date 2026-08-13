@@ -14,6 +14,8 @@ import { ERROR_REPORTER, type IErrorReporter } from '@vpn/ports';
 import { CORRELATION_HEADER, currentCorrelationId } from '../http/request-context.js';
 import { AppError } from './app-error.js';
 
+const RETRY_AFTER_HEADER = 'retry-after';
+
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
 	readonly #logger = new Logger(GlobalExceptionFilter.name);
@@ -41,6 +43,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 		}
 
 		response.setHeader(CORRELATION_HEADER, correlationId);
+
+		// The header is what an HTTP client honours; the body field is what the
+		// screen reads to word the wait. Without one of them the 429 tells the
+		// caller to wait without saying how long.
+		if (typeof body.retryAfterSeconds === 'number') {
+			response.setHeader(RETRY_AFTER_HEADER, String(body.retryAfterSeconds));
+		}
+
 		response.status(status).json(body);
 	}
 
@@ -51,6 +61,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 				message: exception.message,
 				correlationId,
 				...(exception.fields ? { fields: exception.fields } : {}),
+				...(typeof exception.retryAfterSeconds === 'number'
+					? { retryAfterSeconds: exception.retryAfterSeconds }
+					: {}),
 			};
 		}
 

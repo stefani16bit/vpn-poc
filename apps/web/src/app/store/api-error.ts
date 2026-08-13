@@ -8,6 +8,7 @@ export interface NormalizedError {
 	readonly correlationId: string | null;
 	readonly status: number | null;
 	readonly fields: Readonly<Record<string, string>> | null;
+	readonly retryAfterSeconds: number | null;
 }
 
 function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
@@ -32,6 +33,7 @@ export function normalizeError(
 				correlationId: error.data.correlationId,
 				status: error.status,
 				fields: error.data.fields ?? null,
+				retryAfterSeconds: error.data.retryAfterSeconds ?? null,
 			};
 		}
 
@@ -42,6 +44,7 @@ export function normalizeError(
 				correlationId: null,
 				status: null,
 				fields: null,
+				retryAfterSeconds: null,
 			};
 		}
 
@@ -52,6 +55,7 @@ export function normalizeError(
 				correlationId: null,
 				status: typeof error.originalStatus === 'number' ? error.originalStatus : null,
 				fields: null,
+				retryAfterSeconds: null,
 			};
 		}
 
@@ -61,6 +65,7 @@ export function normalizeError(
 			correlationId: null,
 			status: typeof error.status === 'number' ? error.status : null,
 			fields: null,
+			retryAfterSeconds: null,
 		};
 	}
 
@@ -70,5 +75,6 @@ export function normalizeError(
 		correlationId: null,
 		status: null,
 		fields: null,
+		retryAfterSeconds: null,
 	};
 }

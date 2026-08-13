@@ -66,7 +66,10 @@ export class AuthService {
 	}
 
 	async login(email: string, password: string, slug?: string): Promise<IssuedSession> {
-		await this.rateLimit.consume(RATE_LIMITS.login, email);
+		// The slug the caller already sent scopes the bucket, so hammering one
+		// company does not lock the same address out of another. No lookup is
+		// added in front of the throttle — that is what DEC-050 refused.
+		await this.rateLimit.consume(RATE_LIMITS.login, email, slug);
 
 		return this.transactions.runAsSystem(async () => {
 			const user = await this.identity.authenticate(email, password, slug);

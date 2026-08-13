@@ -62,9 +62,12 @@ describe('AuthMailer', () => {
 	});
 
 	it('uses the account locale, not the locale of the request', async () => {
-		await runWithContext({ correlationId: 'c', locale: 'en', module: 'system' }, async () => {
-			await mailer.sendVerification(account({ locale: 'pt-BR' }), 'tok', 3600);
-		});
+		await runWithContext(
+			{ correlationId: 'c', locale: 'en', module: 'system', ip: null, tenant: null },
+			async () => {
+				await mailer.sendVerification(account({ locale: 'pt-BR' }), 'tok', 3600);
+			},
+		);
 
 		expect(email.sent[0]?.locale).toBe('pt-BR');
 	});

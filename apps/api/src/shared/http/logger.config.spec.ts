@@ -128,13 +128,16 @@ describe('loggerConfig', () => {
 	it('mixes the request context into every line', () => {
 		const mixin = mixinFor('production');
 
-		runWithContext({ correlationId: 'corr-1', locale: 'en', module: 'billing' }, () => {
-			expect(mixin()).toMatchObject({
-				correlationId: 'corr-1',
-				locale: 'en',
-				module: 'billing',
-			});
-		});
+		runWithContext(
+			{ correlationId: 'corr-1', locale: 'en', module: 'billing', ip: null, tenant: null },
+			() => {
+				expect(mixin()).toMatchObject({
+					correlationId: 'corr-1',
+					locale: 'en',
+					module: 'billing',
+				});
+			},
+		);
 	});
 
 	it('attributes a line with no request to system', () => {
@@ -145,20 +148,26 @@ describe('loggerConfig', () => {
 		const mixin = mixinFor('production');
 		const bound = { bindings: () => ({ module: 'auth' }) };
 
-		runWithContext({ correlationId: 'corr-1', locale: 'en', module: 'billing' }, () => {
-			expect(mixin(undefined, undefined, bound)).toEqual({
-				correlationId: 'corr-1',
-				locale: 'en',
-			});
-		});
+		runWithContext(
+			{ correlationId: 'corr-1', locale: 'en', module: 'billing', ip: null, tenant: null },
+			() => {
+				expect(mixin(undefined, undefined, bound)).toEqual({
+					correlationId: 'corr-1',
+					locale: 'en',
+				});
+			},
+		);
 	});
 
 	it('attributes the request itself, since pino-http logs it with no binding', () => {
 		const customProps = configFor('production').customProps as () => Record<string, unknown>;
 
-		runWithContext({ correlationId: 'corr-1', locale: 'en', module: 'auth' }, () => {
-			expect(customProps()).toMatchObject({ module: 'auth' });
-		});
+		runWithContext(
+			{ correlationId: 'corr-1', locale: 'en', module: 'auth', ip: null, tenant: null },
+			() => {
+				expect(customProps()).toMatchObject({ module: 'auth' });
+			},
+		);
 	});
 
 	it('serialises a request down to method, url and correlation id', () => {

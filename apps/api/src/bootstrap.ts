@@ -19,6 +19,12 @@ export async function createApp(): Promise<INestApplication> {
 
 	app.useLogger(app.get(Logger));
 
+	// Behind a load balancer every request arrives from the same address, and a
+	// rate limit keyed on it would bucket the whole internet together. One hop
+	// and no more: trusting the whole chain lets a caller forge the header and
+	// pick its own bucket.
+	app.set('trust proxy', 1);
+
 	app.use(requestContextMiddleware);
 	app.use(cookieParser());
 

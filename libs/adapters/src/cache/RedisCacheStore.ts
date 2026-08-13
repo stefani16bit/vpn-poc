@@ -1,6 +1,6 @@
 import type { Redis } from 'ioredis';
 
-import type { CacheKey, ICacheStore } from '@vpn/ports';
+import type { CacheCounter, CacheKey, ICacheStore } from '@vpn/ports';
 import { flattenCacheKey } from '@vpn/testing/fakes';
 
 export class RedisCacheStore implements ICacheStore {
@@ -32,19 +32,41 @@ export class RedisCacheStore implements ICacheStore {
 		await this.#redis.del(this.#key(key));
 	}
 
-	async increment(key: CacheKey, ttlSeconds: number): Promise<number> {
+	async increment(key: CacheKey, ttlSeconds: number): Promise<CacheCounter> {
 		const flat = this.#key(key);
-		const results = await this.#redis.multi().incr(flat).expire(flat, ttlSeconds, 'NX').exec();
+		// The TTL is read in the same round trip that writes it. Asking for it
+		// afterwards would be a second call against a counter another caller may
+		// already have rolled over.
+		const results = await this.#redis
+			.multi()
+			.incr(flat)
+			.expire(flat, ttlSeconds, 'NX')
+			.ttl(flat)
+			.exec();
 
-		const first = results?.[0];
-		if (!first) throw new Error('redis MULTI returned no result for INCR');
+		const count = readReply(results, 0, 'INCR');
+		const ttl = readReply(results, 2, 'TTL');
 
-		const [error, value] = first;
-		if (error) throw error;
-		return Number(value);
+		// -1 is a key with no expiry and -2 is a key that vanished between the
+		// INCR and the TTL. Neither is a wait a caller can be told to observe.
+		return { count, ttlSeconds: ttl > 0 ? ttl : ttlSeconds };
 	}
 
 	#key(key: CacheKey): string {
 		return `${this.#prefix}:${flattenCacheKey(key)}`;
 	}
+}
+
+function readReply(
+	results: [Error | null, unknown][] | null,
+	index: number,
+	command: string,
+): number {
+	const entry = results?.[index];
+	if (!entry) throw new Error(`redis MULTI returned no result for ${command}`);
+
+	const [error, value] = entry;
+	if (error) throw error;
+
+	return Number(value);
 }

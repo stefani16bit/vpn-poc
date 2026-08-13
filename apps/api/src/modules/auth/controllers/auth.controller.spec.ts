@@ -90,9 +90,12 @@ describe('AuthController', () => {
 		});
 
 		it('falls back to the negotiated locale when the body omits one', async () => {
-			await runWithContext({ correlationId: 'c', locale: 'en', module: 'system' }, async () => {
-				await controller.register({ email: 'ada@example.com', password: 'pw' });
-			});
+			await runWithContext(
+				{ correlationId: 'c', locale: 'en', module: 'system', ip: null, tenant: null },
+				async () => {
+					await controller.register({ email: 'ada@example.com', password: 'pw' });
+				},
+			);
 
 			expect(auth.register).toHaveBeenCalledWith('ada@example.com', 'pw', 'en');
 		});

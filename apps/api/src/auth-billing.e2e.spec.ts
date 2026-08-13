@@ -6,8 +6,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { DATABASE_CONNECTION } from '@vpn-poc/adapters';
 import { ENTITLEMENTS, UNSUBSCRIBED_ENTITLEMENTS } from '@vpn/contracts';
-import { BILLING_PROVIDER, EXIT_NODE, type IExitNode, type SubscriptionStatus } from '@vpn/ports';
-import type { MemoryBillingProvider } from '@vpn/testing/fakes';
+import {
+	BILLING_PROVIDER,
+	CACHE_STORE,
+	EXIT_NODE,
+	type IExitNode,
+	type SubscriptionStatus,
+} from '@vpn/ports';
+import type { MemoryBillingProvider, MemoryCacheStore } from '@vpn/testing/fakes';
 
 import type { createDatabase } from '@vpn-poc/database';
 
@@ -51,6 +57,11 @@ async function drainNotifications(): Promise<void> {
 }
 
 beforeEach(async () => {
+	// The rate limit keyed on the caller address is shared state exactly like a
+	// table is: every request in this suite arrives from loopback, so without
+	// this the ip bucket fills and the rest of the file gets 429.
+	(app.get(CACHE_STORE) as MemoryCacheStore).clear();
+
 	await db`DELETE FROM billing_events`;
 	await db`DELETE FROM outbox`;
 	// A live device refuses to be deleted, cascade included, so the reset has to

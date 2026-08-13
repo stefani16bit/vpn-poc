@@ -185,7 +185,16 @@ describe('AuthService', () => {
 	describe('login', () => {
 		it('rate limits before it checks the password', async () => {
 			await service.login('ada@example.com', 'pw');
-			expect(rateLimit.consume).toHaveBeenCalledWith(RATE_LIMITS.login, 'ada@example.com');
+			expect(rateLimit.consume).toHaveBeenCalledWith(
+				RATE_LIMITS.login,
+				'ada@example.com',
+				undefined,
+			);
+		});
+
+		it('scopes the bucket by the company the caller named', async () => {
+			await service.login('ada@example.com', 'pw', 'acme');
+			expect(rateLimit.consume).toHaveBeenCalledWith(RATE_LIMITS.login, 'ada@example.com', 'acme');
 		});
 
 		it('rejects a wrong password and a missing account identically', async () => {

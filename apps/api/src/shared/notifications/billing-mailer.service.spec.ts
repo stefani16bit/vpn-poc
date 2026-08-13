@@ -64,9 +64,12 @@ describe('BillingMailer', () => {
 	});
 
 	it('prefers the account locale over the locale negotiated for the request', async () => {
-		await runWithContext({ correlationId: 'c', locale: 'en', module: 'system' }, async () => {
-			await mailer.sendPaymentFailed(account({ locale: 'pt-BR' }), 'evt-3');
-		});
+		await runWithContext(
+			{ correlationId: 'c', locale: 'en', module: 'system', ip: null, tenant: null },
+			async () => {
+				await mailer.sendPaymentFailed(account({ locale: 'pt-BR' }), 'evt-3');
+			},
+		);
 
 		expect(email.sent[0]?.locale).toBe('pt-BR');
 	});
