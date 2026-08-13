@@ -21,6 +21,7 @@ import {
 	type SubscriptionResponse,
 } from '@vpn/contracts';
 
+import { SkipTenantTransaction } from '../../../shared/database/skip-tenant-transaction.decorator.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import { ZodBody } from '../../../shared/validation/zod-body.pipe.js';
 import type { AccessTokenClaims } from '../../../shared/access-control/access-token.service.js';
@@ -41,6 +42,7 @@ export class BillingController {
 	@Post('checkout')
 	@UseGuards(AccessTokenGuard, PermissionGuard)
 	@RequiresPermission('billing.manage')
+	@SkipTenantTransaction()
 	@HttpCode(200)
 	async createCheckout(
 		@Auth() claims: AccessTokenClaims,

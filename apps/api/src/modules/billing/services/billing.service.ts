@@ -78,8 +78,15 @@ export class BillingService {
 		this.#logger = contextLogger(logger, BillingService.name);
 	}
 
+	// The read opens and closes its own transaction, and only then does the
+	// provider get called. Holding the request transaction across that round trip
+	// pins a pool connection to somebody else's latency; the alternative — an
+	// escape hatch that reads outside a scope — is the unscoped query this whole
+	// design refuses. DEC-035.
 	async createCheckout(accountId: string, tier: TierId, cadence: Cadence): Promise<string> {
-		const owner = await this.users.findOwner(accountId);
+		const owner = await this.transactions.runInAccount(accountId, () =>
+			this.users.findOwner(accountId),
+		);
 		if (!owner) throw new AppError('UNAUTHENTICATED', 'account no longer exists');
 
 		const session = await this.billing.createCheckout({

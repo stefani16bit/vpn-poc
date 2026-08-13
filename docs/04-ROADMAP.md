@@ -4,7 +4,7 @@ Este arquivo faz as vezes de issue tracker. Não abra issues; edite aqui.
 
 ---
 
-## Estado — 2026-08-11
+## Estado — 2026-08-13
 
 **Fase 1 + i18n entregues. Fase 2: outbox, webhook, Account/User + RLS e
 entitlements entregues.** Cadastro, verificação, login, rotação de sessão, reset
@@ -29,12 +29,23 @@ sai diferente de zero em qualquer passo. Medido: `seenFrom` é o endereço que a
 API alocou, e a revogação mata o acesso em 4s **com o túnel ainda de pé**.
 DEC-075, `docs/specs/tunnel-proof.md`.
 
-E existe uma segunda pessoa. A página de usuários fecha o penúltimo item da
-Fase 2 e traz `@RequiresRole` com o primeiro chamador de produção — provado
-apagando o decorator e vendo o 403 virar 200. A senha é gerada e mostrada uma
-vez, o user nasce verificado, e mudar a role mata as sessões dele em vez de
-esperar o token de 15 minutos expirar. Os cinco casos que fabricavam um colega
-com SQL cru agora o criam pelo endpoint. DEC-076.
+E existe uma segunda pessoa. A página de usuários fechou o penúltimo item da
+Fase 2; o portão dela nasceu como `@RequiresRole` e a DEC-080 o trocou por
+permissão, que é **dado da account** e não rank do enum. A senha é gerada e
+mostrada uma vez, o user nasce verificado, e mudar a role mata as sessões dele em
+vez de esperar o token de 15 minutos expirar. DEC-076, DEC-080.
+
+A tela passou a mostrar só o que a concessão permite fazer: rota e controle
+nascem atrás do que o servidor cobra, o alcance em `/devices` virou permissão em
+vez de rank, e quem não gere cobrança perde a seção de assinatura em vez de ver
+botões que respondem 403. Junto veio o histórico de faturas, projetado do webhook
+com o PDF arquivado em S3 na chegada do evento. DEC-082, DEC-083.
+
+E dez dívidas do backlog caíram de uma vez: a assinatura passou a ser
+reconciliada contra o provider, as tabelas que cresciam para sempre ganharam
+expurgo, o rate limit ganhou um segundo balde por endereço de origem e passou a
+dizer quanto esperar, a varredura deixou de abortar num peer recusado, e o teto
+de dispositivos por account virou índice. DEC-084 a DEC-087.
 
 Junto veio o alocador de endereços lendo a máscara do CIDR, o que fecha uma
 dívida antiga e desarma uma armadilha nova: o contrato de servidores já aceita
@@ -43,17 +54,17 @@ que um tenant registrasse o primeiro nó.
 
 | Suíte                                                       | Testes   | Precisa do devstack |
 | ----------------------------------------------------------- | -------- | ------------------- |
-| `packages/` — portas, contratos, i18n, fakes                | 248      | não                 |
+| `packages/` — portas, contratos, i18n, fakes                | 288      | não                 |
 | `libs/env`                                                  | 23       | não                 |
-| `libs/adapters` — render de e-mail/SMS, redação, webhook    | 22       | não                 |
-| `apps/api` — kernel, serviços, controllers                  | 506      | não                 |
-| `apps/web` — store, telas, normalização de erro, locale     | 241      | não                 |
+| `libs/adapters` — render de e-mail/SMS, redação, webhook    | 26       | não                 |
+| `apps/api` — kernel, serviços, controllers                  | 628      | não                 |
+| `apps/web` — store, telas, normalização de erro, locale     | 287      | não                 |
 | `infra` — validação de config CDK                           | 11       | não                 |
-| **Subtotal `pnpm verify`**                                  | **1051** | **não**             |
-| `libs/adapters` — as mesmas suítes contra os serviços reais | 90       | sim                 |
-| `apps/api` — RLS, transações, a view e o trigger            | 65       | sim                 |
-| `apps/api` — fluxo completo mais a matriz de locale         | 122      | sim                 |
-| **Total**                                                   | **1328** |                     |
+| **Subtotal `pnpm verify`**                                  | **1263** | **não**             |
+| `libs/adapters` — as mesmas suítes contra os serviços reais | 93       | sim                 |
+| `apps/api` — RLS, transações, a view e o trigger            | 71       | sim                 |
+| `apps/api` — fluxo completo mais a matriz de locale         | 159      | sim                 |
+| **Total**                                                   | **1586** |                     |
 
 Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 94/87/88/93 (linhas/funções/ramos/statements), `apps/web` em 97/95/92/96.
@@ -109,8 +120,11 @@ sem Docker ensina a ignorar suíte vermelha.
 
 ### Dívida conhecida
 
-- [ ] `verification_tokens` e `refresh_tokens` não têm expurgo. Crescem para
-      sempre. É um job, e é o primeiro candidato à `WorkersStack`.
+- [x] ~~`verification_tokens` e `refresh_tokens` não têm expurgo.~~ O
+      `RetentionSweeper` roda no worker de hora em hora e leva os dois mais o
+      `outbox` publicado, com um dia de folga atrás do corte — nada no código lê
+      essa folga, quem lê é quem abre um incidente de manhã. A janela é um
+      contador no cache, então dois workers não varrem juntos. DEC-085.
 - [ ] `invoices` e os PDFs em S3 não têm retenção. É deliberado — recibo não some
       quando a assinatura acaba —, mas "para sempre" não é política: falta
       decidir por quanto tempo, e quem responde por isso é a área fiscal, não o
@@ -118,14 +132,19 @@ sem Docker ensina a ignorar suíte vermelha.
 - [ ] O histórico de faturas começa quando começamos a ouvir o webhook. Uma conta
       que já cobrava antes disso tem a tela vazia até a próxima cobrança. O
       backfill pelo provider é trabalho próprio, e a tabela já o comporta.
-- [ ] Rate limit é por endereço de e-mail, não por IP. Um atacante com uma lista
-      de endereços não é limitado por nada.
-- [ ] Nenhum 429 traz `Retry-After`, e o cliente não tem como saber quanto
-      esperar. Não é obtível sem mudar a porta: `ICacheStore.increment` devolve
-      a contagem, não o TTL restante. Ver DEC-029.
-- [ ] `RATE_LIMITED` diz "a few minutes" em `@vpn/i18n`, mas `register`,
-      `forgotPassword` e `resendVerification` têm janela de uma hora. A mensagem
-      mente para três das quatro regras.
+- [x] ~~Rate limit é por endereço de e-mail, não por IP.~~ São dois baldes por
+      tentativa agora, e os dois são consumidos antes de qualquer um ser julgado:
+      lançar no primeiro deixaria o contador de IP parado justo para quem martela
+      um endereço só. O teto por IP é mais alto de propósito — um escritório atrás
+      de um NAT é muita gente. DEC-084.
+- [x] ~~Nenhum 429 traz `Retry-After`.~~ A porta mudou, que era a condição que a
+      DEC-029 registrou: `increment` devolve `{ count, ttlSeconds }`, lidos no
+      mesmo `MULTI` que escreve o contador. A recusa carrega o que sobrou da
+      janela no header e no corpo. DEC-084.
+- [x] ~~`RATE_LIMITED` diz "a few minutes" e mente para três das quatro regras.~~
+      A copy do catálogo não nomeia janela nenhuma — não pode, porque as quatro
+      regras têm duas — e a tela usa `common.retryInMinutes` com o número que o
+      servidor mandou, arredondado para cima. DEC-084.
 - [ ] Falta Playwright. `apps/web` agora tem teste de tela em jsdom para as seis
       páginas, o que cobre comportamento mas não renderização: nenhum teste vê
       um layout quebrado, um contraste ruim ou um foco perdido de verdade.
@@ -188,11 +207,10 @@ sem Docker ensina a ignorar suíte vermelha.
       `LOG_LEVEL=debug pnpm --filter @vpn-poc/api test:e2e` mostra o stack que o
       `GlobalExceptionFilter` já loga. O corpo da resposta continua `INTERNAL`, e
       isso é correto — o que faltava era o log, não a resposta.
-- [ ] **Rate limit divide balde entre accounts.** A chave é o e-mail, então o
-      mesmo endereço em duas empresas compartilha o limite e martelar o login de
-      uma tranca a pessoa da outra. Corrigir exige resolver a account **antes**
-      de limitar, que é trabalho antes do throttle — daí ficar como está.
-      DEC-050.
+- [x] ~~**Rate limit divide balde entre accounts.**~~ O balde do sujeito passou a
+      ser escopado pelo tenant que a requisição **já traz** — o slug que o login
+      enviou, ou o primeiro rótulo do host. Nenhuma query entrou na frente do
+      throttle, que era a razão de a DEC-050 ter deixado como estava. DEC-084.
 - [ ] **O slug não pode ser renomeado.** Ele nasce derivado de um e-mail pessoal
       (DEC-052) e frequentemente não é o nome que a empresa quer. Renomear mexe
       no subdomínio já em uso, então não é só um `UPDATE`.
@@ -208,11 +226,11 @@ sem Docker ensina a ignorar suíte vermelha.
       contra as linhas vivas a cada 5 min, tira o que nenhuma account
       reivindica e repõe o que um nó reconstruído esqueceu, dentro da faixa que
       o alocador distribui. DEC-071.
-- [ ] **Nada reconcilia a subscription com o provider.** Se um webhook se perder,
-      a projeção fica parada e a account continua entitulada para sempre — o TTL
-      de 60s do cache encurta a janela de uma invalidação perdida, não a de um
-      evento que nunca chegou. O conserto é um job que pergunta ao provider, e é o
-      mesmo `WorkersStack` do expurgo. DEC-054.
+- [x] ~~**Nada reconcilia a subscription com o provider.**~~ O
+      `SubscriptionReconciler` pergunta a cada 15 min e corrige a projeção quando
+      o provider discorda, invalidando o cache de entitlement só nesse caso. Uma
+      assinatura que o provider não conhece **não** apaga a linha: consulta que
+      falhou não é motivo para revogar acesso de quem paga. DEC-085.
 - [x] **`@RequiresCapability` ganhou chamador em produção.** `/devices` é a
       primeira rota guardada, e o 402 é provado no e2e apagando o decorator e
       vendo os dois casos virarem 201 e 200.
@@ -220,11 +238,10 @@ sem Docker ensina a ignorar suíte vermelha.
       varredura converge as duas projeções da linha agora, passado um prazo de
       120s que separa "o job está a caminho" de "o job morreu". Medido contra o
       nó real sem worker nenhum: `provisioned: 1, stamped: 1`. DEC-074.
-- [ ] **Um peer recusado aborta a varredura inteira.** As chamadas ao nó não são
-      isoladas peer a peer, então um `wg set` que falhe deixa o resto da varredura
-      sem rodar e nada é carimbado. A próxima varredura repete e `wg set`
-      converge, então isso custa latência e não correção — mas o relatório mente
-      sobre quanto havia para fazer. DEC-074.
+- [x] ~~**Um peer recusado aborta a varredura inteira.**~~ Cada chamada ao nó é
+      isolada e o relatório ganhou `failed`. Ninguém é carimbado como provisionado
+      sem que o `wg set` dele tenha acontecido, que é o que faria a linha dizer
+      que o túnel está aberto sem nada ter sido escrito no nó. DEC-085.
 - [x] ~~**Nada prova que o túnel carrega tráfego.**~~ Um recurso privado sem
       porta publicada no repositório irmão `poc-vpn-canary`, duas asserções novas
       no `check.sh` (endereço do nó na rede e a **ordem** das regras de
@@ -247,24 +264,25 @@ sem Docker ensina a ignorar suíte vermelha.
       endereços, então nada observável mudou no devstack — o que mudou é que
       `EXIT_NODE_TUNNEL_CIDR` passou a significar o que diz.
       `firstFreeHost` virou `firstFreeAddress` e fala em endereço, não em octeto.
-- [ ] **O teto de endereços é do sistema inteiro, não por account.**
-      `live_tunnel_addresses` é deliberadamente cross-account (DEC-069), então os
-      251 endereços de um `/24` são **globais**: `seats 25 × devicesPerUser 5` dá
-      125 devices vivos por account totalmente assinante, ou seja **duas**
-      accounts. Agora dá para levantar por configuração — uma faixa mais larga em
-      `EXIT_NODE_TUNNEL_CIDR` funciona de verdade —, mas o conserto estrutural é
-      o índice por nó da DEC-077, com a página de servidores.
-- [ ] **O intervalo do reconciler é de processo.** Dois workers varreriam em
-      paralelo; hoje há um. Quando houver dois, o throttle vira linha travada
-      ou chave no cache, não um campo privado.
+- [ ] **O teto de endereços continua sendo do sistema inteiro.** O que saiu de
+      cena foi a starvation: `devices.account_slot` com índice único parcial impede
+      uma account de consumir a faixa toda, e estourar `seats × devicesPerUser`
+      responde `QUOTA_EXCEEDED` (DEC-086). O teto **global** de um `/24` segue
+      sendo `251 ÷ (25 × 5)`, ou seja duas accounts totalmente assinantes, e o
+      conserto estrutural continua sendo o índice por nó da DEC-077 com a página de
+      servidores.
+- [x] ~~**O intervalo do reconciler é de processo.**~~ Virou contador no cache:
+      quem o leva de 0 a 1 é dono da janela, e o TTL a rearma. Linha travada
+      custaria uma transação por turno de um laço que roda a cada 500 ms. As três
+      varreduras usam a mesma forma. DEC-085.
 - [ ] **Mudar um script CGI do nó exige `docker compose build wireguard`.**
       `control/` entra na imagem por `COPY`, não por bind mount, então um
       `restart` continua servindo o script velho — e o sintoma é a suíte de
       conformidade do `HttpExitNode` vermelha contra um adapter correto.
-- [ ] **`seats`, `devicesPerUser`, `monthlyTrafficGb` e `regions` são anunciados e
-      não aplicados.** Estão no tipo para os tiers se descreverem; o contador
-      depende da DEC-043 e os dois últimos do data plane. Com um tier só não há o
-      que aplicar, e meio-aplicar um contador parece aplicado.
+- [ ] **`monthlyTrafficGb` e `regions` são anunciados e não aplicados.** Estão no
+      tipo para os tiers se descreverem, e os dois dependem do data plane.
+      `seats × devicesPerUser` **passou** a ser aplicado, na escrita e por índice
+      (DEC-086); `seats` sozinho, no convite de usuário, ainda não é.
 - [x] ~~**`pnpm --filter @vpn-poc/api build` falha.**~~ Falhava, e os builds de
       `api-lambda` e `worker` **saíam com 0** emitindo `.js` dentro de
       `libs/*/src/` e um `dist` que morre com `ERR_UNKNOWN_FILE_EXTENSION`
@@ -285,10 +303,11 @@ sem Docker ensina a ignorar suíte vermelha.
       do mesmo problema: as zonas de par da DEC-027 estavam enumeradas à mão e
       `modules/devices` e `modules/entitlements` não apareciam em nenhuma — agora
       são derivadas do disco. DEC-065.
-- [ ] **Uma transação de requisição atravessa chamada externa.**
-      `BillingService.createCheckout` fala com o Stripe com a transação aberta,
-      prendendo uma conexão do pool pela ida e volta. É um handler hoje; a
-      alternativa era um escape hatch que reabre o buraco da query sem escopo.
+- [x] ~~**Uma transação de requisição atravessa chamada externa.**~~
+      `@SkipTenantTransaction()` desliga o interceptor na rota de checkout, e o
+      serviço abre `runInAccount` só para ler o owner. A leitura continua dentro
+      de um escopo, então não é o escape hatch que se temia — é uma transação mais
+      curta. O escasso é a conexão do pool, não a transação. DEC-087.
 
 ### Fase 2 — o PoC whitelabel
 

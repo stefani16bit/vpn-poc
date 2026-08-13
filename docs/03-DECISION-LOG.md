@@ -3524,3 +3524,162 @@ versões de API, acacia e dahlia, porque a metadata da subscription mudou de lug
 Backfill do que aconteceu antes de ouvirmos fica **de fora**, deliberadamente. A
 história começa quando começamos a ouvir; a tabela comporta o passado, e puxá-lo é
 trabalho próprio com o seu próprio custo de paginação e limite do provider.
+
+---
+
+### DEC-084 — Quem conta a janela é o balde, e ele responde quanto falta
+
+**Data:** 2026-08-13 · **Status:** accepted · **Supera:** a limitação registrada na DEC-029
+
+**Contexto.** Quatro dívidas do mesmo mecanismo. A chave do limite era o e-mail,
+então quem trouxesse uma lista de endereços não era limitado por nada. O mesmo
+e-mail em duas empresas dividia um balde, e martelar o login de uma trancava a
+pessoa da outra. Nenhum 429 dizia quanto esperar. E a copy dizia "alguns
+minutos" enquanto três das quatro regras tinham janela de uma hora.
+
+A DEC-029 registrou que o `Retry-After` **não era obtível sem mudar a porta**,
+porque `ICacheStore.increment` devolvia a contagem e não o TTL. Era verdade, e é
+por isso que as quatro andam juntas: as outras três dependem dessa mudança.
+
+**Decisão.** `increment` passa a devolver `{ count, ttlSeconds }`. O limitador
+consome **dois** baldes por tentativa — um por sujeito, escopado pelo tenant, e
+um por endereço de origem, com teto próprio e mais alto — e a recusa carrega o
+que sobrou da janela, no header e no corpo.
+
+**Rationale.** Dois baldes e não um porque as duas ameaças são diferentes: o
+balde do sujeito defende **um** endereço de ser martelado, e o do IP defende o
+sistema de quem traz uma lista. Um só nunca cobre as duas — limitar apenas por IP
+tranca um escritório inteiro atrás de um NAT, e limitar apenas por e-mail é o
+furo que esta dívida nomeia.
+
+**Os dois são consumidos antes de qualquer um ser julgado.** Lançar no primeiro
+que estoura deixaria o contador de IP parado: quem martela um endereço sozinho
+trancaria o balde dele, e o contador que de fato o observa nunca avançaria.
+
+O tenant vem do que a requisição **já traz** — o slug que o login enviou, ou o
+primeiro rótulo do host — e nunca de uma consulta. Resolver a account antes de
+limitar poria uma query na frente do throttle, que é exatamente o que a DEC-050
+recusou e o que um ataque de volume passaria a exercitar.
+
+O TTL é lido no **mesmo** round trip que escreve o contador: `INCR`, `EXPIRE NX`
+e `TTL` num `MULTI`. Perguntar depois seria uma segunda chamada contra um
+contador que outro chamador já pode ter rolado.
+
+A copy do catálogo **não pode** nomear uma janela, porque as quatro regras têm
+duas. `errors.RATE_LIMITED` passa a dizer "mais tarde", sem mentir, e a tela usa
+`common.retryInMinutes` quando o servidor disse quanto — arredondado para cima,
+porque mandar esperar zero convida a repetir a tentativa que acabou de ser
+recusada.
+
+**Consequências.** `app.set('trust proxy', 1)`: atrás de um balanceador toda
+requisição chega do mesmo endereço, e um limite por IP juntaria a internet
+inteira num balde. Um salto e não a cadeia toda — confiar na cadeia deixa o
+chamador forjar o header e escolher o próprio balde.
+
+O e2e passou a limpar os contadores no `beforeEach`, do mesmo jeito que limpa as
+tabelas: um limite por endereço de origem é estado compartilhado, e a suíte
+inteira chega de loopback. `MemoryCacheStore` ganhou `clear()`, que é método do
+**fake** e não da porta — a mesma categoria dos `seed*` do
+`MemoryBillingProvider`.
+
+---
+
+### DEC-085 — Uma janela no cache é o que faz duas cópias do worker não varrerem juntas
+
+**Data:** 2026-08-13 · **Status:** accepted
+
+**Contexto.** O `PeerReconciler` decidia se estava na hora por um campo de
+instância. Isso só limita o processo que o carrega: dois workers varreriam o
+mesmo nó em paralelo. E não havia varredura nenhuma para duas coisas que
+precisavam de uma: a assinatura, cuja projeção congela quando um webhook se
+perde, e as tabelas que crescem para sempre.
+
+**Decisão.** A janela vira um contador no cache: quem o leva de 0 a 1 é dono
+dela, e o TTL a rearma. Três varreduras usam a mesma forma — peers (5 min),
+assinaturas (15 min) e expurgo (1 h).
+
+**Rationale.** O contador **é** a reivindicação; não há `SELECT` antes dele. Uma
+linha travada no banco resolveria igual e custaria uma transação por turno de
+laço, num laço que roda a cada 500 ms.
+
+`SubscriptionReconciler` só invalida o cache de entitlement quando o provider
+**discorda** da projeção, e nunca apaga uma linha por não achar a assinatura lá:
+uma consulta que falhou não é motivo para revogar o acesso de quem paga. Ele
+escreve com o instante corrente e não com um carimbo do provider, porque é a
+leitura mais fresca que existe — a guarda monotônica do upsert tem que deixá-la
+vencer o que o último webhook escreveu.
+
+O expurgo deixa **um dia** de folga atrás do corte. Nada no código lê esse dia;
+quem lê é quem abre um incidente de manhã.
+
+**Consequências.** Um peer recusado pelo nó deixou de abortar a varredura: cada
+chamada é isolada, o relatório ganhou `failed`, e ninguém é carimbado como
+provisionado sem que o `wg set` dele tenha acontecido. Antes disso o relatório
+afirmava um total que não havia alcançado.
+
+---
+
+### DEC-086 — O teto de dispositivos da account é um índice, não uma contagem
+
+**Data:** 2026-08-13 · **Status:** accepted
+
+**Contexto.** Os 251 endereços de um `/24` são **globais** (DEC-069), então uma
+account podia consumir a faixa inteira e as vizinhas paravam de conseguir criar
+chave. `seats` e `devicesPerUser` estavam anunciados no tier e aplicados em lugar
+nenhum.
+
+**Decisão.** `devices` ganha `account_slot` e um índice único parcial em
+`(account_id, account_slot) where revoked_at is null`. O serviço lê as vagas
+ocupadas como **dica**, tenta a mais baixa livre, e quem recusa é o índice.
+Estourar o teto responde `QUOTA_EXCEEDED` (402).
+
+**Rationale.** Um `count()` seguido de `INSERT` é o `if (jáVimos)` que o
+inegociável nº 3 proíbe: duas requisições concorrentes leem a mesma contagem e
+passam juntas. Um trigger que conta no `BEFORE INSERT` tem o mesmo defeito sob
+`READ COMMITTED`. A restrição é a única coisa que duas transações não atravessam
+— é o mesmo desenho do endereço de túnel, que já vive de dica mais índice.
+
+Esgotar a faixa **não** é motivo para tentar a próxima vaga: o range é
+compartilhado, então estaria vazio para ela também. Por isso o laço distingue os
+dois desfechos, e só a perda de corrida avança a vaga.
+
+`QUOTA_EXCEEDED` é código próprio e não `PAYMENT_REQUIRED`: a empresa pagou, e
+"é necessário ter uma assinatura ativa" seria falso na tela. É 402 porque a
+dimensão é entitlement — o contador é a espécie de entitlement que se aplica na
+escrita (DEC-043).
+
+**Consequências.** Isto **não** levanta o teto global; ele continua sendo da
+DEC-077, com a faixa por nó. O que sai de cena é a starvation: um tenant deixa de
+poder derrubar os vizinhos. A linha do roadmap foi reescrita nesses termos em vez
+de marcada como fechada.
+
+Um downgrade de plano deixa vagas acima do novo teto ocupadas por dispositivos
+que já existiam. Eles continuam válidos e o teto passa a valer para o próximo —
+revogar chave de quem já conectou não é decisão de código.
+
+---
+
+### DEC-087 — O handler que fala com terceiro abre a própria transação
+
+**Data:** 2026-08-13 · **Status:** accepted
+
+**Contexto.** `BillingService.createCheckout` falava com o Stripe com a
+transação da requisição aberta, prendendo uma conexão do pool pela ida e volta
+inteira. O roadmap dizia que a alternativa seria um escape hatch que reabre o
+buraco da query sem escopo.
+
+**Decisão.** `@SkipTenantTransaction()` na rota, e o serviço abre `runInAccount`
+só para ler o owner. A transação fecha, e só então o provider é chamado.
+
+**Rationale.** A leitura continua **dentro** de um escopo, então a policy vale
+igual — não é escape hatch, é uma transação mais curta. O que o decorator desliga
+é o interceptor, não a RLS.
+
+O escasso é a conexão, não a transação: um checkout que demora dois segundos
+contra o provider segurava uma conexão do pool por dois segundos, e o pool é o
+que acaba primeiro num pico.
+
+**Consequências.** O decorator é opt-in e por método. Uma rota que o use e leia o
+banco **fora** de `runInAccount` levanta `42704` no `current_setting` estrito
+(DEC-050) em vez de devolver zero linhas — o erro aparece na hora, que é a razão
+de o `current_setting` não ter `missing_ok`.
