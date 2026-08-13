@@ -2054,7 +2054,7 @@ describe('billing', () => {
 			const before = await app.get<IExitNode>(EXIT_NODE).listPeers();
 			const report = await app.get(PeerReconciler).runOnce();
 
-			expect(report).toEqual({ revoked: 0, provisioned: 0, stamped: 0 });
+			expect(report).toEqual({ revoked: 0, provisioned: 0, stamped: 0, failed: 0 });
 			expect(await app.get<IExitNode>(EXIT_NODE).listPeers()).toEqual(before);
 
 			const [row] =

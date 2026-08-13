@@ -6,6 +6,7 @@ import { AdaptersModule, DATABASE } from '@vpn-poc/adapters';
 import { CACHE_STORE, type ICacheStore } from '@vpn/ports';
 import { loadEnv } from '@vpn-poc/env';
 
+import { MaintenanceModule } from './shared/maintenance/maintenance.module.js';
 import { DatabaseModule } from './shared/database/database.module.js';
 import { TenantTransactionInterceptor } from './shared/database/tenant-transaction.interceptor.js';
 import { GlobalExceptionFilter } from './shared/errors/exception.filter.js';
@@ -37,6 +38,7 @@ import { PermissionsApiModule } from './modules/permissions/permissions.module.j
 		),
 		AdaptersModule,
 		DatabaseModule,
+		MaintenanceModule,
 		HealthModule.forRoot({
 			readiness: [
 				{

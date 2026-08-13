@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { FixedClock } from '@vpn/testing/fakes';
+import { FixedClock, MemoryCacheStore } from '@vpn/testing/fakes';
 import { MemoryExitNode } from '@vpn/testing/fakes';
 import type { Env } from '@vpn-poc/env';
 
@@ -61,11 +61,17 @@ function reconciler(rows: readonly StoredDevice[] = []) {
 		runAsSystem: <T>(work: () => Promise<T>) => work(),
 	} as unknown as TransactionRunner;
 
-	const subject = new PeerReconciler(node, devices, transactions, clock, {
+	const cache = new MemoryCacheStore(clock);
+	const subject = new PeerReconciler(node, devices, transactions, cache, clock, {
 		EXIT_NODE_TUNNEL_CIDR: CIDR,
 	} as Env);
 
-	return { subject, node, clock, markProvisioned };
+	// A second process against the same cache is what two workers look like.
+	const twin = new PeerReconciler(node, devices, transactions, cache, clock, {
+		EXIT_NODE_TUNNEL_CIDR: CIDR,
+	} as Env);
+
+	return { subject, twin, node, clock, markProvisioned };
 }
 
 describe('PeerReconciler', () => {
@@ -202,6 +208,82 @@ describe('PeerReconciler', () => {
 			await node.provisionPeer(ADA);
 
 			expect(await subject.runOnce()).toMatchObject({ revoked: 1 });
+		});
+
+		// The throttle used to be a field on the instance, which only ever
+		// throttled the process holding it.
+		it('lets one of two workers sweep, not both', async () => {
+			const { subject, twin } = reconciler();
+
+			const mine = await subject.runIfDue();
+			const theirs = await twin.runIfDue();
+
+			expect(mine).not.toBeNull();
+			expect(theirs).toBeNull();
+		});
+
+		it('hands the window to the other worker once it has elapsed', async () => {
+			const { subject, twin, clock, node } = reconciler();
+			await subject.runIfDue();
+
+			await node.provisionPeer(ADA);
+			clock.advance(301);
+
+			expect(await twin.runIfDue()).toMatchObject({ revoked: 1 });
+		});
+	});
+
+	describe('a node that refuses one peer', () => {
+		it('keeps going through the rest instead of abandoning the sweep', async () => {
+			const { subject, node } = reconciler([live(ADA), live(GRACE)]);
+			vi.spyOn(node, 'provisionPeer').mockRejectedValueOnce(new Error('wg set failed'));
+
+			const report = await subject.runOnce();
+
+			expect(report).toMatchObject({ provisioned: 1, failed: 1 });
+			expect(await node.listPeers()).toHaveLength(1);
+		});
+
+		it('stamps the row whose peer it did write, in a sweep that also lost one', async () => {
+			const { subject, node, markProvisioned } = reconciler([
+				pending(ADA, BEFORE_THE_GRACE),
+				pending(GRACE, BEFORE_THE_GRACE),
+			]);
+			vi.spyOn(node, 'provisionPeer').mockRejectedValueOnce(new Error('wg set failed'));
+
+			const report = await subject.runOnce();
+
+			expect(report).toMatchObject({ provisioned: 1, stamped: 1, failed: 1 });
+			expect(markProvisioned).toHaveBeenCalledTimes(1);
+		});
+
+		it('counts what it did, not what it set out to do', async () => {
+			const { subject, node } = reconciler();
+			await node.provisionPeer(ADA);
+			await node.provisionPeer(GRACE);
+			vi.spyOn(node, 'revokePeer').mockRejectedValueOnce(new Error('wg set failed'));
+
+			const report = await subject.runOnce();
+
+			expect(report).toMatchObject({ revoked: 1, failed: 1 });
+		});
+
+		// Stamping a row whose peer the node refused would say the tunnel is open
+		// when nothing was written to the node.
+		it('stamps nobody whose peer it could not write', async () => {
+			const { subject, node, markProvisioned } = reconciler([pending(ADA, BEFORE_THE_GRACE)]);
+			vi.spyOn(node, 'provisionPeer').mockRejectedValueOnce(new Error('wg set failed'));
+
+			const report = await subject.runOnce();
+
+			expect(report).toMatchObject({ provisioned: 0, stamped: 0, failed: 1 });
+			expect(markProvisioned).not.toHaveBeenCalled();
+		});
+
+		it('reports nothing failed on a clean sweep', async () => {
+			const { subject } = reconciler([live(ADA)]);
+
+			expect(await subject.runOnce()).toMatchObject({ failed: 0 });
 		});
 	});
 });

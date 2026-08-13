@@ -1,6 +1,14 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
-import { CLOCK, EXIT_NODE, type IClock, type IExitNode, type PeerSpec } from '@vpn/ports';
+import {
+	CACHE_STORE,
+	CLOCK,
+	EXIT_NODE,
+	type ICacheStore,
+	type IClock,
+	type IExitNode,
+	type PeerSpec,
+} from '@vpn/ports';
 import { ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 
@@ -13,28 +21,35 @@ const INTERVAL_SECONDS = 300;
 // job is still on its way to it.
 const PENDING_GRACE_SECONDS = 120;
 
+const SWEEP_CLAIM = { owner: null, namespace: 'exit-node:sweep', id: 'peers' } as const;
+
 export interface ReconcileReport {
 	readonly revoked: number;
 	readonly provisioned: number;
 	readonly stamped: number;
+	readonly failed: number;
 }
 
 @Injectable()
 export class PeerReconciler {
 	readonly #logger = new Logger(PeerReconciler.name);
-	#sweptAt: Date | null = null;
 
 	constructor(
 		@Inject(EXIT_NODE) private readonly node: IExitNode,
 		private readonly devices: DeviceRepository,
 		private readonly transactions: TransactionRunner,
+		@Inject(CACHE_STORE) private readonly cache: ICacheStore,
 		@Inject(CLOCK) private readonly clock: IClock,
 		@Inject(ENV) private readonly env: Env,
 	) {}
 
+	// The claim is the counter itself: whoever takes it from 0 to 1 owns this
+	// window, and the TTL re-arms it. A field on the instance only throttles the
+	// process holding it, so a second worker would sweep the same node in
+	// parallel with the first.
 	async runIfDue(): Promise<ReconcileReport | null> {
-		if (!this.#due()) return null;
-		this.#sweptAt = this.clock.now();
+		const claim = await this.cache.increment(SWEEP_CLAIM, INTERVAL_SECONDS);
+		if (claim.count > 1) return null;
 
 		return this.runOnce();
 	}
@@ -56,27 +71,42 @@ export class PeerReconciler {
 			.map((device) => ({ publicKey: device.publicKey, tunnelAddress: device.tunnelAddress }));
 		const unstamped = adoptable.filter((device) => !device.provisionedAt);
 
-		for (const peer of orphans) {
-			await this.node.revokePeer(peer.publicKey);
-		}
+		// Every call to the node is isolated: one peer the node refuses used to
+		// abort the sweep, so nothing after it ran and nothing was stamped. The
+		// next sweep converged anyway, which is why this cost latency rather than
+		// correctness — but the report claimed a total it had not reached.
+		const revoked = await this.#each(orphans, (peer) => this.node.revokePeer(peer.publicKey));
+		const provisioned = await this.#each(missing, (peer) => this.node.provisionPeer(peer));
 
-		for (const peer of missing) {
-			await this.node.provisionPeer(peer);
-		}
+		const stamped = unstamped.filter((device) =>
+			provisioned.done.some((peer) => peer.publicKey === device.publicKey),
+		);
+		const settled = unstamped.filter(
+			(device) => !missing.some((peer) => peer.publicKey === device.publicKey),
+		);
+		const toStamp = [...settled, ...stamped];
 
-		if (unstamped.length > 0) {
+		if (toStamp.length > 0) {
 			await this.transactions.runAsSystem(async () => {
-				for (const device of unstamped) {
+				for (const device of toStamp) {
 					await this.devices.markProvisioned(device.id, at);
 				}
 			});
 		}
 
 		const report = {
-			revoked: orphans.length,
-			provisioned: missing.length,
-			stamped: unstamped.length,
+			revoked: revoked.done.length,
+			provisioned: provisioned.done.length,
+			stamped: toStamp.length,
+			failed: revoked.failed + provisioned.failed,
 		};
+
+		if (report.failed > 0) {
+			this.#logger.error(
+				{ event: 'exit_node.sweep_incomplete', ...report },
+				'the exit node refused part of the sweep; the next one retries what is left',
+			);
+		}
 
 		if (report.revoked > 0 || report.provisioned > 0 || report.stamped > 0) {
 			this.#logger.warn(
@@ -88,16 +118,30 @@ export class PeerReconciler {
 		return report;
 	}
 
+	async #each<T>(
+		items: readonly T[],
+		work: (item: T) => Promise<unknown>,
+	): Promise<{ done: T[]; failed: number }> {
+		const done: T[] = [];
+		let failed = 0;
+
+		for (const item of items) {
+			try {
+				await work(item);
+				done.push(item);
+			} catch (error) {
+				failed += 1;
+				this.#logger.warn({ event: 'exit_node.peer_failed', error }, 'a peer was refused');
+			}
+		}
+
+		return { done, failed };
+	}
+
 	#stillWaitingOnAJob(device: StoredDevice, at: Date): boolean {
 		if (device.provisionedAt) return false;
 
 		return at.getTime() - device.createdAt.getTime() < PENDING_GRACE_SECONDS * 1000;
-	}
-
-	#due(): boolean {
-		if (!this.#sweptAt) return true;
-
-		return this.clock.now().getTime() - this.#sweptAt.getTime() >= INTERVAL_SECONDS * 1000;
 	}
 }
 

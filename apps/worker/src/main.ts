@@ -3,7 +3,14 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 
-import { AppModule, OutboxConsumer, OutboxRelay, PeerReconciler } from '@vpn-poc/api/worker';
+import {
+	AppModule,
+	OutboxConsumer,
+	OutboxRelay,
+	PeerReconciler,
+	RetentionSweeper,
+	SubscriptionReconciler,
+} from '@vpn-poc/api/worker';
 
 const IDLE_PAUSE_MS = 500;
 const RECEIVE_WAIT_SECONDS = 5;
@@ -17,6 +24,8 @@ async function main(): Promise<void> {
 	const relay = context.get(OutboxRelay);
 	const consumer = context.get(OutboxConsumer);
 	const reconciler = context.get(PeerReconciler);
+	const subscriptions = context.get(SubscriptionReconciler);
+	const retention = context.get(RetentionSweeper);
 
 	let running = true;
 	const stop = async (): Promise<void> => {
@@ -46,6 +55,16 @@ async function main(): Promise<void> {
 
 		await reconciler.runIfDue().catch((error: unknown) => {
 			logger.error({ event: 'worker.reconcile_failed', error });
+		});
+
+		// Each of these owns its own window in the cache, so the loop can ask
+		// every turn and only one worker ever answers.
+		await subscriptions.runIfDue().catch((error: unknown) => {
+			logger.error({ event: 'worker.billing_reconcile_failed', error });
+		});
+
+		await retention.runIfDue().catch((error: unknown) => {
+			logger.error({ event: 'worker.retention_failed', error });
 		});
 
 		if (published === 0 && report.received === 0) {

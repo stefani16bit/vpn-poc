@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 
 import { DATABASE } from '@vpn-poc/adapters';
 import { subscriptions, type Database } from '@vpn-poc/database';
@@ -30,6 +30,21 @@ export class SubscriptionRepository {
 			.limit(1);
 
 		return rows[0];
+	}
+
+	async listForReconciliation(
+		limit: number,
+		executor: Executor = currentExecutor(),
+	): Promise<readonly { accountId: string; externalId: string; status: string }[]> {
+		return executor
+			.select({
+				accountId: subscriptions.accountId,
+				externalId: subscriptions.externalId,
+				status: subscriptions.status,
+			})
+			.from(subscriptions)
+			.orderBy(asc(subscriptions.updatedAt))
+			.limit(limit);
 	}
 
 	async setCancelAtPeriodEnd(
