@@ -48,7 +48,11 @@ migrate() {
 case "${1:-}" in
 up)
 	prepare_mounts
-	docker compose up -d --wait --wait-timeout "$WAIT_TIMEOUT"
+	# --remove-orphans because a renamed service leaves its old container holding
+	# the published port, and the failure lands on whoever pulls the rename
+	# rather than on whoever made it. The compose file is the whole truth about
+	# this project, so there is nothing here to keep that it does not describe.
+	docker compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --remove-orphans
 	migrate
 	printf '\ndevstack is up.\n'
 	printf '  registry  http://localhost:%s\n' "${VERDACCIO_PORT:-24873}"

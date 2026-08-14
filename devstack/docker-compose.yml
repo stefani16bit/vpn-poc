@@ -3,6 +3,28 @@
 # machine that use the same layout.
 name: poc-vpn
 
+# What every exit node shares. Only one of them joins the canary network, and
+# that asymmetry is the whole demonstration: the region a key was created in is
+# what decides whether a private resource is reachable at all.
+x-exit-node: &exit-node
+  build: ./wireguard
+  restart: unless-stopped
+  # NET_ADMIN plus the tun device, never --privileged: this is the file
+  # someone copies toward a real exit node. DEC-062.
+  cap_add:
+    - NET_ADMIN
+  devices:
+    - /dev/net/tun:/dev/net/tun
+  sysctls:
+    net.ipv4.ip_forward: '1'
+    net.ipv4.conf.all.src_valid_mark: '1'
+  healthcheck:
+    test: ['CMD', '/healthcheck.sh']
+    interval: 5s
+    timeout: 3s
+    retries: 10
+    start_period: 10s
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -81,6 +103,14 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      # Handed in so 01-resources.sh can seed the credential each node was
+      # actually started with. One interpolation, consumed twice: the node and
+      # the secret store cannot disagree.
+      EXIT_NODE_API_TOKEN_SA: ${EXIT_NODE_API_TOKEN_SA:-exit_node_dev_sa_1f4a9c2e8b7d6053a1c9e4f2b8d7a601}
+      EXIT_NODE_API_TOKEN_NA: ${EXIT_NODE_API_TOKEN_NA:-exit_node_dev_na_7c2e91b4f8a6d3095e1b7c4a2f8d6053}
+      EXIT_NODE_API_TOKEN_EU: ${EXIT_NODE_API_TOKEN_EU:-exit_node_dev_eu_3b8d1f6a4c9e2705d8b3a1f6c4e97052}
+      EXIT_NODE_API_TOKEN_AS: ${EXIT_NODE_API_TOKEN_AS:-exit_node_dev_as_9e4c7a2f1b8d6503c9a4e7b2f1d86045}
+      EXIT_NODE_API_TOKEN_AF: ${EXIT_NODE_API_TOKEN_AF:-exit_node_dev_af_5d1a8f3c6b9e2074a5d1c8f3b6e29047}
     ports:
       - '${LOCALSTACK_PORT:-24566}:4566'
     volumes:
@@ -140,25 +170,16 @@ services:
       retries: 10
       start_period: 10s
 
-  wireguard:
-    build: ./wireguard
-    container_name: poc-vpn-wireguard
-    restart: unless-stopped
-    # NET_ADMIN plus the tun device, never --privileged: this is the file
-    # someone copies toward a real exit node. DEC-062.
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    sysctls:
-      net.ipv4.ip_forward: '1'
-      net.ipv4.conf.all.src_valid_mark: '1'
+  # One service per demonstrated region. Five copies of the same anchor and not
+  # a template with substitution: this file is what somebody copies toward a
+  # real exit node, and the only things that differ per node are exactly the
+  # five the fleet cannot share — its name, its two ports, its wireguard key,
+  # its range, and the credential its control plane demands. DEC-062, DEC-073.
+  wireguard-sa:
+    <<: *exit-node
+    container_name: poc-vpn-wireguard-sa
     environment:
-      # The default is not laziness: compose reads .env from its own project
-      # directory, which is devstack/, so the repository root .env is invisible
-      # here — same reason every port above carries one. It is a committed
-      # fixture credential, in the category of vpn_app_dev. DEC-073.
-      EXIT_NODE_API_TOKEN: ${EXIT_NODE_API_TOKEN:-exit_node_dev_1f4a9c2e8b7d6053a1c9e4f2b8d7a601}
+      EXIT_NODE_API_TOKEN: ${EXIT_NODE_API_TOKEN_SA:-exit_node_dev_sa_1f4a9c2e8b7d6053a1c9e4f2b8d7a601}
     networks:
       # `default` is listed because declaring this key at all stops the service
       # from joining it implicitly, and the symptom would be every other
@@ -167,22 +188,64 @@ services:
       canary:
         ipv4_address: 172.30.13.2
     ports:
-      - '${WIREGUARD_PORT:-21820}:51820/udp'
-      - '${EXIT_NODE_API_PORT:-21821}:51821'
+      - '${WIREGUARD_PORT_SA:-21820}:51820/udp'
+      - '${EXIT_NODE_API_PORT_SA:-21821}:51821'
     volumes:
-      # Bind mount rather than COPY: `reload s=wireguard` then re-reads the
+      # Bind mount rather than COPY: `reload s=wireguard-sa` then re-reads the
       # peer list, which is what makes the NAT probe in the spec runnable.
-      - ./wireguard/wg0.conf:/etc/wireguard/wg0.conf:ro
+      - ./wireguard/nodes/sa.conf:/etc/wireguard/wg0.conf:ro
       # Not mounted onto /srv/control, which the image already fills: the
       # entrypoint copies this in and sets the execute bit on its own side.
       # Serving the mount directly would depend on the host's file mode. DEC-089.
       - ./wireguard/control:/srv/control-src:ro
-    healthcheck:
-      test: ['CMD', '/healthcheck.sh']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
+
+  wireguard-na:
+    <<: *exit-node
+    container_name: poc-vpn-wireguard-na
+    environment:
+      EXIT_NODE_API_TOKEN: ${EXIT_NODE_API_TOKEN_NA:-exit_node_dev_na_7c2e91b4f8a6d3095e1b7c4a2f8d6053}
+    ports:
+      - '${WIREGUARD_PORT_NA:-21830}:51820/udp'
+      - '${EXIT_NODE_API_PORT_NA:-21831}:51821'
+    volumes:
+      - ./wireguard/nodes/na.conf:/etc/wireguard/wg0.conf:ro
+      - ./wireguard/control:/srv/control-src:ro
+
+  wireguard-eu:
+    <<: *exit-node
+    container_name: poc-vpn-wireguard-eu
+    environment:
+      EXIT_NODE_API_TOKEN: ${EXIT_NODE_API_TOKEN_EU:-exit_node_dev_eu_3b8d1f6a4c9e2705d8b3a1f6c4e97052}
+    ports:
+      - '${WIREGUARD_PORT_EU:-21840}:51820/udp'
+      - '${EXIT_NODE_API_PORT_EU:-21841}:51821'
+    volumes:
+      - ./wireguard/nodes/eu.conf:/etc/wireguard/wg0.conf:ro
+      - ./wireguard/control:/srv/control-src:ro
+
+  wireguard-as:
+    <<: *exit-node
+    container_name: poc-vpn-wireguard-as
+    environment:
+      EXIT_NODE_API_TOKEN: ${EXIT_NODE_API_TOKEN_AS:-exit_node_dev_as_9e4c7a2f1b8d6503c9a4e7b2f1d86045}
+    ports:
+      - '${WIREGUARD_PORT_AS:-21850}:51820/udp'
+      - '${EXIT_NODE_API_PORT_AS:-21851}:51821'
+    volumes:
+      - ./wireguard/nodes/as.conf:/etc/wireguard/wg0.conf:ro
+      - ./wireguard/control:/srv/control-src:ro
+
+  wireguard-af:
+    <<: *exit-node
+    container_name: poc-vpn-wireguard-af
+    environment:
+      EXIT_NODE_API_TOKEN: ${EXIT_NODE_API_TOKEN_AF:-exit_node_dev_af_5d1a8f3c6b9e2074a5d1c8f3b6e29047}
+    ports:
+      - '${WIREGUARD_PORT_AF:-21860}:51820/udp'
+      - '${EXIT_NODE_API_PORT_AF:-21861}:51821'
+    volumes:
+      - ./wireguard/nodes/af.conf:/etc/wireguard/wg0.conf:ro
+      - ./wireguard/control:/srv/control-src:ro
 
 networks:
   # Declared here and consumed as `external` by poc-vpn-canary, so that `make up`

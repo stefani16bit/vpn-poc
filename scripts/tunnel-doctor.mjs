@@ -1,26 +1,10 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 
-// This script is plain node, so nothing has loaded the dotenv files for it. Read
-// the same two, in the same order loadEnv does, or the doctor diagnoses a node
-// that is fine against a credential it never had.
-function fromDotenv(key) {
-	for (const file of ['.env.local', '.env']) {
-		try {
-			const match = readFileSync(file, 'utf8').match(new RegExp(`^${key}=(.*)$`, 'm'));
-			if (match) return match[1].trim();
-		} catch {
-			// either file is optional
-		}
-	}
-
-	return '';
-}
-
-const CONTROL_URL =
-	process.env['EXIT_NODE_API_URL'] || fromDotenv('EXIT_NODE_API_URL') || 'http://127.0.0.1:21821';
-const CONTROL_TOKEN = process.env['EXIT_NODE_API_TOKEN'] || fromDotenv('EXIT_NODE_API_TOKEN');
+// Each node has its own now, and the doctor reads them where the API reads
+// them: a value taken from .env would diagnose a node against a credential it
+// was never started with.
+const CONTROL_REF = (node) => `poc-vpn/exit-node/${node}`;
 // a constant on both sides: the node has no user directory
 const CONTROL_USER = 'worker';
 const COMPOSE = ['compose', '-f', 'devstack/docker-compose.yml'];
@@ -28,7 +12,13 @@ const COMPOSE = ['compose', '-f', 'devstack/docker-compose.yml'];
 const FIXTURE_ADDRESS = '10.13.13.2';
 // pinned in the compose network, so it can be written down instead of discovered
 const CANARY_URL = process.env['CANARY_URL'] || 'http://172.30.13.10';
+// the canary node's own end of its tunnel: seeing this instead of a device is
+// the POSTROUTING ordering failure, and only that node can produce it
 const CANARY_NODE_ADDRESS = '10.13.13.1';
+// The control port inside every node. Which host port it is published on is the
+// compose file's business, and asking docker is what keeps this script from
+// carrying a second copy of the mapping.
+const CONTROL_PORT_IN_CONTAINER = '51821';
 
 const GREEN = '[32m';
 const RED = '[31m';
@@ -84,11 +74,32 @@ function powershell(script) {
 				.filter(Boolean);
 }
 
-const AUTHORIZATION = `Basic ${Buffer.from(`${CONTROL_USER}:${CONTROL_TOKEN}`).toString('base64')}`;
+function authorization(token) {
+	return `Basic ${Buffer.from(`${CONTROL_USER}:${token}`).toString('base64')}`;
+}
 
-async function control(path, headers = { authorization: AUTHORIZATION }) {
+function secret(ref) {
+	const value = docker([
+		'exec',
+		'-T',
+		'localstack',
+		'awslocal',
+		'secretsmanager',
+		'get-secret-value',
+		'--secret-id',
+		ref,
+		'--query',
+		'SecretString',
+		'--output',
+		'text',
+	]);
+
+	return value?.trim() || null;
+}
+
+async function control(url, path, headers) {
 	try {
-		const response = await fetch(`${CONTROL_URL}${path}`, {
+		const response = await fetch(`${url}${path}`, {
 			signal: AbortSignal.timeout(4000),
 			headers,
 		});
@@ -97,6 +108,34 @@ async function control(path, headers = { authorization: AUTHORIZATION }) {
 	} catch {
 		return { status: 0, body: null };
 	}
+}
+
+// Discovered from compose rather than listed here: a node added to the devstack
+// has to show up in the doctor without anybody remembering to edit this file.
+// The published port comes from docker for the same reason.
+function fleetServices() {
+	const listed = docker(['ps', '--format', '{{.Service}}\t{{.State}}']);
+	if (listed === null) return null;
+
+	return listed
+		.split('\n')
+		.map((line) => line.trim().split('\t'))
+		.filter(([service]) => service?.startsWith('wireguard-'))
+		.map(([service, state]) => ({
+			service,
+			name: service.slice('wireguard-'.length),
+			running: state === 'running',
+			controlUrl: publishedControlUrl(service),
+			credential: secret(CONTROL_REF(service.slice('wireguard-'.length))),
+		}))
+		.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function publishedControlUrl(service) {
+	const mapped = docker(['port', service, CONTROL_PORT_IN_CONTAINER]);
+	const port = mapped?.trim().split('\n')[0]?.split(':').at(-1);
+
+	return port ? `http://127.0.0.1:${port}` : null;
 }
 
 async function probe(url) {
@@ -117,60 +156,83 @@ const advise = (line) => problems.push(line);
 
 // ---------------------------------------------------------------- the node
 
-section('exit node');
+section('exit nodes');
 
-const state = docker(['ps', '--format', '{{.Service}}\t{{.State}}']);
-const nodeUp = state?.split('\n').some((line) => line.startsWith('wireguard\trunning'));
-
-if (state === null) {
-	console.log(bad('docker is not answering — is Docker Desktop running?'));
-	advise('start Docker Desktop, then `sh devstack/dev.sh up`');
-} else if (!nodeUp) {
-	console.log(bad('the wireguard container is not running'));
-	advise('run `sh devstack/dev.sh up`');
-} else {
-	console.log(ok('container running'));
-}
-
-const described = await control('/cgi-bin/describe');
-const nodeKey = described.body?.match(/^publicKey=(.+)$/m)?.[1]?.trim() ?? null;
-
-if (nodeKey) {
-	console.log(ok(`control plane answers at ${CONTROL_URL}`));
-	console.log(`     public key ${DIM}${nodeKey}${OFF}`);
-} else if (described.status === 401) {
-	console.log(bad(`control plane refuses this credential at ${CONTROL_URL}`));
-	advise(
-		CONTROL_TOKEN
-			? 'EXIT_NODE_API_TOKEN in .env is not the token the node was started with: recreate the node with `sh devstack/dev.sh up`'
-			: 'no EXIT_NODE_API_TOKEN in .env or .env.local: copy it from .env.example, or the worker 401s on every provision',
-	);
-} else if (nodeUp) {
-	console.log(bad(`control plane is not answering at ${CONTROL_URL}`));
-	advise('the worker cannot provision while the control plane is silent');
-}
-
-const anonymous = await control('/cgi-bin/describe', {});
-
-if (anonymous.status === 401) {
-	console.log(ok('control plane refuses an anonymous caller'));
-} else if (anonymous.status !== 0) {
-	console.log(bad(`control plane answered an anonymous caller with ${anonymous.status}`));
-	advise(
-		'anything that can reach the control plane can add or remove any peer: the node is serving without a credential',
-	);
-}
-
-const wg = docker(['exec', '-T', 'wireguard', 'wg', 'show', 'wg0']);
+const fleet = fleetServices();
 const peers = new Map();
 
-if (wg) {
+if (fleet === null) {
+	console.log(bad('docker is not answering — is Docker Desktop running?'));
+	advise('start Docker Desktop, then `sh devstack/dev.sh up`');
+} else if (fleet.length === 0) {
+	console.log(bad('no exit node container is running'));
+	advise('run `sh devstack/dev.sh up`');
+}
+
+for (const node of fleet ?? []) {
+	if (!node.running) {
+		console.log(bad(`${node.name} — container is not running`));
+		advise(`the ${node.name} node is down: any key in that region has nowhere to connect`);
+		continue;
+	}
+
+	if (!node.controlUrl) {
+		console.log(bad(`${node.name} — no published control port`));
+		advise(`the ${node.name} node publishes no control port, so the worker cannot provision on it`);
+		continue;
+	}
+
+	if (!node.credential) {
+		console.log(bad(`${node.name} — no credential at ${CONTROL_REF(node.name)}`));
+		advise(
+			`nothing holds a credential for ${node.name}: seed it with \`sh devstack/dev.sh up\`, or the worker cannot authenticate to that node`,
+		);
+		continue;
+	}
+
+	const described = await control(node.controlUrl, '/cgi-bin/describe', {
+		authorization: authorization(node.credential),
+	});
+	const nodeKey = described.body?.match(/^publicKey=(.+)$/m)?.[1]?.trim() ?? null;
+
+	if (nodeKey) {
+		console.log(ok(`${node.name} — answers at ${node.controlUrl}`));
+		console.log(`     public key ${DIM}${nodeKey}${OFF}`);
+	} else if (described.status === 401) {
+		console.log(bad(`${node.name} — refuses the credential ${CONTROL_REF(node.name)} holds`));
+		advise(
+			`the secret for ${node.name} is not the token that node was started with: recreate the stack with \`sh devstack/dev.sh up\``,
+		);
+	} else {
+		console.log(bad(`${node.name} — control plane is not answering at ${node.controlUrl}`));
+		advise(`the worker cannot provision on ${node.name} while its control plane is silent`);
+	}
+
+	const anonymous = await control(node.controlUrl, '/cgi-bin/describe', {});
+
+	if (anonymous.status !== 401 && anonymous.status !== 0) {
+		console.log(bad(`${node.name} — answered an anonymous caller with ${anonymous.status}`));
+		advise(
+			`anything that can reach the ${node.name} control plane can add or remove any peer: it is serving without a credential`,
+		);
+	}
+
+	// Peers are collected per node, because the same tunnel address on two nodes
+	// is two different devices and a flat list would call one of them a stranger.
+	const wg = docker(['exec', '-T', node.service, 'wg', 'show', 'wg0']);
 	let current = null;
-	for (const raw of wg.split('\n')) {
+
+	for (const raw of (wg ?? '').split('\n')) {
 		const line = raw.trim();
 		if (line.startsWith('peer:')) {
-			current = line.slice(5).trim();
-			peers.set(current, { handshake: null, transfer: null, allowed: null });
+			current = `${node.name}|${line.slice(5).trim()}`;
+			peers.set(current, {
+				node: node.name,
+				publicKey: line.slice(5).trim(),
+				handshake: null,
+				transfer: null,
+				allowed: null,
+			});
 		} else if (current) {
 			if (line.startsWith('latest handshake:'))
 				peers.get(current).handshake = line.slice(17).trim();
@@ -183,15 +245,18 @@ if (wg) {
 // ------------------------------------------------------------ the database
 
 const rows = psql(
-	'select name, tunnel_address, public_key, (provisioned_at is not null), (revoked_at is not null) from devices order by created_at',
+	`select d.name, d.tunnel_address, d.public_key, (d.provisioned_at is not null),
+		(d.revoked_at is not null), coalesce(n.label, '?')
+	from devices d left join exit_nodes n on n.id = d.exit_node_id order by d.created_at`,
 );
 
 const devices = (rows ?? []).map((line) => {
-	const [name, address, publicKey, provisioned, revoked] = line.split('|');
+	const [name, address, publicKey, provisioned, revoked, node] = line.split('|');
 	return {
 		name,
 		address,
 		publicKey,
+		node,
 		provisioned: provisioned === 't',
 		revoked: revoked === 't',
 	};
@@ -199,22 +264,23 @@ const devices = (rows ?? []).map((line) => {
 
 const live = devices.filter((device) => !device.revoked);
 
-section(`peers on the node (${peers.size})`);
+section(`peers across the fleet (${peers.size})`);
 if (peers.size === 0) console.log(`     ${DIM}none${OFF}`);
-for (const [key, peer] of peers) {
-	const owner = live.find((device) => device.publicKey === key);
+for (const peer of peers.values()) {
+	const owner = live.find((device) => device.publicKey === peer.publicKey);
 	const fixture = peer.allowed?.startsWith(`${FIXTURE_ADDRESS}/`);
 	const alive = peer.handshake && !/never/i.test(peer.handshake);
+	const where = `${peer.node}  ${short(peer.publicKey)}  ${peer.allowed ?? '?'}`;
 
 	if (fixture) {
-		console.log(ok(`${short(key)}  ${peer.allowed} — the devstack spike fixture`));
+		console.log(ok(`${where} — the devstack spike fixture`));
 	} else if (!owner) {
-		console.log(bad(`${short(key)}  ${peer.allowed ?? '?'} — no live device owns this peer`));
+		console.log(bad(`${where} — no live device owns this peer`));
 		advise(
-			`the node serves ${peer.allowed ?? short(key)}, which no live device claims: the reconciler should sweep it`,
+			`the ${peer.node} node serves ${peer.allowed ?? short(peer.publicKey)}, which no live device claims: the reconciler should sweep it`,
 		);
 	} else {
-		console.log((alive ? ok : warn)(`${short(key)}  ${peer.allowed ?? '?'} — "${owner.name}"`));
+		console.log((alive ? ok : warn)(`${where} — "${owner.name}"`));
 	}
 
 	console.log(`     handshake ${peer.handshake ?? 'never'} · transfer ${peer.transfer ?? '0'}`);
@@ -225,12 +291,12 @@ if (rows === null) console.log(warn('could not read the database'));
 if (devices.length === 0 && rows !== null) console.log(`     ${DIM}none${OFF}`);
 
 for (const device of devices) {
-	const onNode = peers.has(device.publicKey);
+	const onNode = [...peers.values()].some((peer) => peer.publicKey === device.publicKey);
 
 	if (device.revoked) {
 		const mark = onNode ? bad : ok;
-		console.log(mark(`${device.name} — revoked${onNode ? ', but STILL on the node' : ''}`));
-		if (onNode) advise(`the node still serves the revoked device "${device.name}"`);
+		console.log(mark(`${device.name} — revoked${onNode ? ', but STILL on a node' : ''}`));
+		if (onNode) advise(`a node still serves the revoked device "${device.name}"`);
 		continue;
 	}
 
@@ -246,7 +312,7 @@ for (const device of devices) {
 			`"${device.name}" works on the node but the database never recorded it: the screen will say it is still being opened up forever`,
 		);
 	} else {
-		console.log(ok(`${device.name} — ${device.address} on the node`));
+		console.log(ok(`${device.name} — ${device.address} on ${device.node}`));
 	}
 }
 

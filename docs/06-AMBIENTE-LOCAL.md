@@ -8,7 +8,7 @@ cd poc-vpn
 cp .env.example .env.local
 
 make up                      # sobe os 8 contêineres e espera ficarem saudáveis
-make check                   # 20 asserções; tem que dar 20/20
+make check                   # 47 asserções; tem que dar 47/47
 
 pnpm install
 pnpm packages:publish:local  # publica @vpn/* no Verdaccio local
@@ -29,19 +29,30 @@ mesmo erro — `relation "accounts" does not exist`.
 | postgres 17  | 25432         | banco                                                     |
 | redis 7.4    | 26379         | `ICacheStore`                                             |
 | verdaccio 6  | 24873         | registry de `@vpn/*` — <http://localhost:24873>           |
-| localstack 4 | 24566         | S3, SQS, SNS, Secrets Manager                             |
+| localstack 4 | 24566         | S3, SQS, SNS, Secrets Manager — a credencial de cada nó   |
 | localstripe  | 28420         | API do Stripe (sem Checkout, DEC-009)                     |
 | mailpit      | 21025 / 28025 | SMTP + caixa de entrada — <http://localhost:28025>        |
 | caddy        | 20080 / 20443 | TLS e roteamento por Host — `https://app.localhost:20443` |
-| wireguard    | 21820/udp     | nó de saída — o túnel, `docs/specs/data-plane.md`         |
-| wireguard    | 21821         | agente de controle do nó — exige credencial (DEC-073)     |
+| wireguard-sa | 21820/udp     | nó de saída — o túnel, `docs/specs/data-plane.md`         |
+| wireguard-sa | 21821         | agente de controle do nó — exige credencial (DEC-073)     |
+| wireguard-na | 21830 / 21831 | mesma dupla, para a região seguinte                       |
+| wireguard-eu | 21840 / 21841 | idem                                                      |
+| wireguard-as | 21850 / 21851 | idem                                                      |
+| wireguard-af | 21860 / 21861 | idem                                                      |
 
 Portas no intervalo 2xxxx de propósito (DEC-010): três projetos irmãos dividem
 esta máquina e todos queriam a 5432.
 
-A do wireguard é a única **UDP** da lista, e é a única cujo publish atravessa a
-VM do WSL2 por um caminho diferente do de TCP. Se o contêiner sobe e o handshake
-não acontece, é aí que se olha primeiro — ver §8.
+São **cinco** nós, um por região demonstrada, e só o `sa` entra na rede do
+canário. É essa assimetria que faz a região significar alguma coisa: uma chave
+criada nela alcança o recurso privado e uma criada em qualquer outra não. Cada
+nó tem par de chaves e faixa de túnel próprios — chave repetida colide no índice
+`(account_id, public_key)`, e faixa repetida faria dois nós entregarem o mesmo
+endereço para redes que não se conhecem.
+
+As portas UDP são as únicas da lista cujo publish atravessa a VM do WSL2 por um
+caminho diferente do de TCP. Se o contêiner sobe e o handshake não acontece, é aí
+que se olha primeiro — ver §8.
 
 ## 3. Comandos do devstack
 
@@ -109,7 +120,8 @@ quebram para quem consome.
    à mão leva a do `.env`:
 
    ```bash
-   curl -s -u "worker:${EXIT_NODE_API_TOKEN}" http://127.0.0.1:21821/cgi-bin/peers
+   TOKEN=$(docker compose exec -T localstack awslocal secretsmanager get-secret-value \n     --secret-id poc-vpn/exit-node/sa --query SecretString --output text)
+   curl -s -u "worker:${TOKEN}" http://127.0.0.1:21821/cgi-bin/peers
    ```
 
 6. "Esqueci minha senha" → mailpit → redefinir → entrar com a senha nova
@@ -227,8 +239,8 @@ então tirá-lo do `.env` não muda nada nos testes.
   peer já no nó. O segundo é reparado pela varredura sozinha, passados 120s desde
   a criação da linha: ela repõe o peer se faltar e carimba `provisioned_at`. O
   worker varre a cada 5 min, então o pior caso é ~7 min. DEC-074.
-- **Toda chamada ao nó responde 401:** `EXIT_NODE_API_TOKEN` no `.env` da raiz não
-  é o token com que o contêiner subiu. Os dois lados vêm de lugares diferentes de
+- **Toda chamada ao nó responde 401:** o segredo em `poc-vpn/exit-node/<nó>` não
+  é o token com que aquele contêiner subiu. Os dois lados vêm de lugares diferentes de
   propósito — o compose lê o `.env` de `devstack/`, que não existe, e usa o default
   dele — então uma divergência é possível. `sh devstack/check.sh` tem uma asserção
   exatamente para isso, e `sh devstack/dev.sh up` recria o nó com o valor atual.
@@ -237,8 +249,8 @@ então tirá-lo do `.env` não muda nada nos testes.
   healthcheck afirma que `wg0` existe e que o plano de controle cobra credencial,
   e as duas coisas ficam verdes sem nenhum pacote atravessando o túnel. Confirme
   o mapeamento com
-  `docker compose port --protocol udp wireguard 51820` e olhe o nó com
-  `docker compose exec wireguard wg show wg0` — sucesso é `latest handshake` mais
+  `docker compose port --protocol udp wireguard-sa 51820` e olhe o nó com
+  `docker compose exec wireguard-sa wg show wg0` — sucesso é `latest handshake` mais
   `transfer` diferente de zero **nos dois sentidos**. Se o mapeamento existe e
   nada atravessa, tente o `Endpoint` pelo IP da VM do WSL2
   (`wsl -d docker-desktop -e ip -4 -o addr show eth0`), que muda a cada reboot.
@@ -307,7 +319,7 @@ Se a página mostrar `seenFrom: 10.13.13.1`, o canário está vendo o **nó** e 
 device:
 
 ```bash
-docker compose exec wireguard iptables -t nat -S POSTROUTING
+docker compose exec wireguard-sa iptables -t nat -S POSTROUTING
 ```
 
 `RETURN` tem que aparecer antes do `MASQUERADE`. O `make check` tem uma asserção

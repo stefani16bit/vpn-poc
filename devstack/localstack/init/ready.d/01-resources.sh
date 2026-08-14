@@ -25,3 +25,23 @@ awslocal sqs create-queue \
 	--region "$REGION"
 
 awslocal sns create-topic --name poc-vpn-domain-events --region "$REGION"
+
+# One credential per exit node, under the name its exit_nodes row points at.
+# The values come from the compose file, which hands the same interpolation to
+# the node itself — so what is stored here is what the node was started with,
+# and neither can drift from the other.
+#
+# `set -eu` above is load-bearing: an unset variable fails the seed loudly
+# instead of writing an empty secret that 401s much later.
+seed_exit_node_credential() {
+	awslocal secretsmanager create-secret \
+		--name "poc-vpn/exit-node/$1" --secret-string "$2" --region "$REGION" >/dev/null 2>&1 ||
+		awslocal secretsmanager put-secret-value \
+			--secret-id "poc-vpn/exit-node/$1" --secret-string "$2" --region "$REGION" >/dev/null
+}
+
+seed_exit_node_credential sa "$EXIT_NODE_API_TOKEN_SA"
+seed_exit_node_credential na "$EXIT_NODE_API_TOKEN_NA"
+seed_exit_node_credential eu "$EXIT_NODE_API_TOKEN_EU"
+seed_exit_node_credential as "$EXIT_NODE_API_TOKEN_AS"
+seed_exit_node_credential af "$EXIT_NODE_API_TOKEN_AF"
