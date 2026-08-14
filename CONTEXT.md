@@ -376,22 +376,19 @@ existe, não por user — daí `devicesPerUser` ser um entitlement.
 provisionamento cria, e é onde o entitlement de região é aplicado: no servidor,
 nunca só na UI, porque o cliente que pede o peer é código do usuário.
 
-**Exit node** — a máquina por onde o tráfego sai, e uma linha **do tenant**: quem
-registra os nós é a account, sob RLS como qualquer outra tabela de domínio. O que
-o registro guarda é o que o nó **responde** quando perguntado, nunca o que o
-formulário afirmou — a chave pública é a que o `describe()` reportou, que é a
-custódia desenhada pela DEC-063. DEC-077.
+**Exit node** — a máquina por onde o tráfego sai, e uma linha **nossa**: quem
+opera a frota é a plataforma, não a account. Nenhuma rota expõe um nó a um
+tenant, e nenhuma permissão nomeia um. A linha é semeada por migration e a chave
+pública que ela carrega é a que aquela máquina responde — o que o `make check`
+confere a cada rodada, contra o `describe()` do próprio nó. DEC-090, DEC-091.
 
-**Region** — o agrupamento de exit nodes que o **tenant** nomeia, e por onde o
-usuário final escolhe. `us` e `eu` eram um enum fechado do produto, e um enum
-fechado não sobrevive a uma empresa brasileira que quer "São Paulo": num produto
-whitelabel quem nomeia é o cliente. O que o tier entitula deixa então de ser
-_quais_ regiões e passa a ser **quantas** — um contador, da mesma natureza de
-`seats`, aplicado na escrita e por restrição. DEC-078.
+**Region** — o agrupamento de exit nodes que **nós** nomeamos, e por onde o
+usuário final escolhe. Uma região não publica quantas máquinas tem: ela responde
+**alcançável** ou não, que é a única pergunta que o formulário de chave faz.
 
-Um cliente escolhe região; **qual nó atende é nosso**. Por isso um device carrega
-duas coisas diferentes, e este glossário existe para não deixar que virem a
-mesma: a **região**, que é a escolha da pessoa, e o **exit node**, que é a nossa
+Quem usa o produto escolhe região; **qual nó atende é nosso**. Por isso um device
+carrega duas coisas diferentes, e este glossário existe para não deixar que virem
+a mesma: a **região**, que é a escolha da pessoa, e o **exit node**, que é a nossa
 atribuição.
 
 **Device** e **Peer** existem: `devices` é tabela, sob RLS como qualquer outra, e
@@ -399,11 +396,42 @@ a chave pública é o identificador nas duas pontas — a linha e o peer no nó.
 liga uma à outra é o **outbox**, não uma chamada: a linha é o registro e o nó é
 uma projeção dela, reconciliada pelo worker. DEC-064.
 
-**Exit node** e **Region** ainda **não são tabelas**. Existe um nó, ele vem de
-variável de ambiente e é um contêiner do devstack — um nó não é uma frota. O
-vocabulário acima chegou **antes** do schema de propósito, que é a regra deste
-arquivo; a tabela vem com a página de servidores. Até lá, `regions` segue
-anunciado no tier e aplicado em lugar nenhum.
+**Exit node** e **Region** são tabelas, e são as **duas únicas** tabelas de
+domínio fora do RLS: elas não pendem de account nenhuma. O vocabulário acima
+chegou **antes** do schema de propósito, que é a regra deste arquivo. Não estarem
+sob policy não as deixa abertas — o papel da aplicação tem `SELECT` e nada mais,
+por `REVOKE` explícito na migration, e é isso que faz "tabela da plataforma" ser
+um fato e não um nome (DEC-090).
+
+O tier não diz nada sobre região. Contar só fazia sentido enquanto o nome era do
+cliente; agora que o nome é nosso, a forma honesta é uma lista das nossas — e com
+um tier só não há o que escolher (DEC-092).
+
+**Referência de credencial** — o que a linha do nó guarda no lugar do segredo:
+o **nome** de onde ele mora, nunca o valor. Um token na linha entraria em todo
+backup e em todo `SELECT *`; uma referência é inútil para quem não alcança o
+lugar que ela nomeia. Cada nó tem a sua, e é isso que faz rotacionar ser um nó
+de cada vez em vez de uma parada da frota — o preço que a DEC-073 tinha
+registrado para o token compartilhado. DEC-098.
+
+Ela é da conversa entre **nós** e o plano de controle, e não tem nada a ver com
+a chave do túnel: quem autentica um device no WireGuard é o par de chaves, e o
+`.conf` não carrega senha nenhuma.
+
+**Alcançável** — um exit node cujo **plano de controle** respondeu ao último
+healthcheck. É diferente de "existe": um nó calado continua na frota, continua
+com devices atribuídos e continua com o `.conf` de cada um deles válido — apagar
+essa diferença transformaria uma queda de rede em perda de configuração.
+
+É por nó, mas o que atravessa a fronteira é por **região**: `available` é a
+resposta a "dá para criar uma chave aqui agora", decidida no servidor pela mesma
+janela que escolhe o nó. Um cliente que julgasse a idade pela régua dele
+ofereceria a região que a próxima chamada recusa.
+
+Alcançável também não é "passa tráfego": o healthcheck fala com o `httpd` do nó,
+não com o WireGuard dele. Um nó com o plano de controle no ar e o túnel derrubado
+conta como alcançável, e é uma limitação registrada em
+`docs/specs/servers-and-regions.md`.
 
 **Recurso privado** — o que existe do outro lado do túnel e em lugar nenhum
 mais. É o destino que dá sentido ao túnel: a rede interna de um cliente, um banco
@@ -422,8 +450,10 @@ que faz a prova valer. DEC-075.
 reivindicado por restrição única na escrita, nunca contado antes: dois devices
 criados no mesmo instante atravessariam um `count()` juntos e pediriam o mesmo
 endereço. Um device revogado o devolve, porque o índice único é parcial. A faixa
-é **global**, não por account — uma view escolhe por onde começar a busca, e o
-índice continua sendo quem decide (DEC-069).
+é **por nó** e não por account: dois nós são redes independentes, então o mesmo
+`10.13.13.4` em dois deles são dois devices, e o índice é `(exit_node_id,
+tunnel_address)`. Como um nó atende várias accounts, essa faixa é compartilhada
+entre elas — o índice continua sendo quem decide (DEC-091).
 
 **Revogado** — o device deixou de valer. É um _timestamp_, não uma remoção: a
 chave pública continua sendo o identificador do que já existiu, e é ela que o

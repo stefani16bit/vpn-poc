@@ -2522,7 +2522,7 @@ nenhum script depende dele.
 
 ### DEC-068 — A descrição do nó é cacheada com prazo, e uma chave trocada é dita em voz alta
 
-**Data:** 2026-08-10 · **Status:** accepted
+**Data:** 2026-08-10 · **Status:** superseded by DEC-095
 
 **Contexto.** `ExitNodeDirectory` memoizava a **promessa** de `describe()` pela
 vida do processo. A memoização em si está certa: `describe()` está no caminho de
@@ -2805,7 +2805,7 @@ provisionada não segura o polling aberto para sempre.
 
 ### DEC-073 — O plano de controle do nó exige credencial, e quem a cobra é o `httpd`
 
-**Data:** 2026-08-10 · **Status:** accepted
+**Data:** 2026-08-10 · **Status:** superseded by DEC-098
 
 **Contexto.** A DEC-063 registrou em voz alta que o agente do nó não tem
 autenticação nenhuma, e a DEC-062 é o que tornava isso defensável: aquele
@@ -3090,7 +3090,7 @@ lado.
 
 ### DEC-077 — Exit node é dado do tenant, e o que vale é o que o nó responde
 
-**Data:** 2026-08-10 · **Status:** accepted
+**Data:** 2026-08-10 · **Status:** superseded by DEC-090
 
 **Contexto.** Existe **um** nó, e ele vem de variável de ambiente
 (`EXIT_NODE_*`). Isso bastou enquanto o produto tinha um data plane só e nenhuma
@@ -3147,7 +3147,7 @@ a fronteira natural para isolar peer a peer.
 
 ### DEC-078 — O entitlement de região conta, não lista
 
-**Data:** 2026-08-10 · **Status:** accepted
+**Data:** 2026-08-10 · **Status:** superseded by DEC-099
 
 **Contexto.** `REGIONS = ['us','eu']` é um enum fechado em `@vpn/contracts`, e
 `entitlements.regions` é um array dele. Foi assim desde a DEC-036, quando região
@@ -3777,3 +3777,532 @@ deles é a URL que `HttpExitNode`, `check.sh` e a spec citam.
 Um `build` continua sendo necessário para `entrypoint.sh`, `healthcheck.sh` e o
 `Dockerfile`, que não são montados. É a fronteira certa: são o contrato do
 contêiner, não o conteúdo que se itera.
+
+---
+
+### DEC-090 — A frota é da plataforma, e não existe CRUD de servidor nem de região
+
+**Data:** 2026-08-14 · **Status:** accepted · **Supersedes:** DEC-077
+
+**Contexto.** Existe **um** nó e ele vem de variável de ambiente. O brief pede
+gerenciamento de servidores e regiões, e uma frota não cabe num `.env`: ela muda
+em runtime e precisa de dono.
+
+O dono somos **nós**. Os servidores de saída são máquinas que a plataforma opera
+e cuja banda a plataforma paga; quem gera uma chave escolhe entre os que já
+existem. A leitura oposta — o nó como máquina do cliente, registrada por ele numa
+tela — foi considerada e recusada: ela transforma o produto em outro, obriga cada
+account a cadastrar as mesmas máquinas, e põe uma URL fornecida pelo cliente no
+caminho de uma requisição nossa, que é SSRF por construção.
+
+**Decisão.** `regions` e `exit_nodes` são tabelas **sem `account_id` e sem
+policy**. Não há rota que crie, altere ou remova qualquer das duas, não há
+`GET /exit-nodes`, e o catálogo de permissões não nomeia servidor. Existe **uma**
+rota: `GET /regions`, que alimenta o seletor do formulário de chave e responde
+nome e disponibilidade — nunca endereço, url de controle ou contagem de máquinas.
+
+**Rationale.** Uma tabela que não pende de account não tem o que uma policy
+isole. Mas **não ter policy não é o mesmo que não ter escrita**: o
+`ALTER DEFAULT PRIVILEGES` de `01-roles.sql` concede `SELECT, INSERT, UPDATE,
+DELETE` a `vpn_app` em toda tabela criada pelo migrator, e enquanto havia policy
+era o `WITH CHECK` dela que segurava a escrita. Por isso a migration faz
+`REVOKE INSERT, UPDATE, DELETE ON regions, exit_nodes FROM vpn_app`, e o teste de
+isolamento afirma o `42501`. É esse `REVOKE` que faz "tabela da plataforma" ser
+um fato verificável e não uma convenção de nomenclatura.
+
+O papel do tenant continua lendo `credential_ref`, porque ele viaja na linha que
+o provisionamento carrega. Não é vazamento: a referência é o **nome** de onde o
+segredo mora, e resolvê-la exige alcançar o Secrets Manager — o que acontece pelo
+`ISecretStore`, fora da transação do tenant. O valor nunca passa por uma conexão
+de tenant.
+
+Não é devida migration de limpeza para `role_permissions` e `user_permissions`
+que guardem `servers.*`: `effectivePermissions` faz `safeParse` de cada linha e
+ignora o que o catálogo não publica mais, então uma concessão órfã é inerte.
+
+**Consequências.** As duas viram as **únicas** tabelas de domínio fora do RLS, e
+os dois portões que cobravam a regra em bloco — `check.sh` e
+`rls.integration.spec.ts` — passam a afirmar o conjunto exato
+(`exit_nodes,regions`) em vez de contar zero. Igualdade de conjunto é mais forte
+que exclusão: falha se aparecer uma terceira tabela sem RLS, e falha também se
+alguém ligar RLS numa destas duas.
+
+O `.conf` continua nomeando um nó específico, e um device continua preso ao nó que
+lhe foi atribuído — se ele sair do ar o `.conf` é reemitido, não reapontado. O
+que muda é quem conserta: era o cliente, agora somos nós.
+
+---
+
+### DEC-091 — O lugar de um device é um par que o banco cobra, e remover um nó solta quem já foi revogado
+
+**Data:** 2026-08-14 · **Status:** accepted
+
+**Contexto.** Um device carrega duas coisas que não podem colapsar numa só: a
+**região**, que é a escolha da pessoa, e o **exit node**, que é a nossa
+atribuição. Nada impedia que as duas discordassem — uma linha podia dizer
+"Frankfurt" e apontar para uma máquina de São Paulo.
+
+**Decisão.** `devices` referencia `exit_nodes` por um par:
+`(exit_node_id, region_id) → exit_nodes(id, region_id)`, com
+`ON DELETE SET NULL ("exit_node_id")`. A coluna `region_id` tem FK própria para
+`regions(id)` com `RESTRICT`.
+
+**Rationale.** O par é a única coisa que recusa um device cujo lugar não fecha. Um
+`FK` só em `exit_node_id` aceitaria a discordância, e checar em código não
+sobrevive a dois processos concorrentes.
+
+A lista de colunas no `SET NULL` é escrita à mão porque o drizzle-kit não a
+modela. Sem ela o PostgreSQL anula **as duas** colunas do par, e anular
+`region_id` apaga a escolha da pessoa — que é justamente o que precisa sobreviver
+quando uma máquina é aposentada. A faixa de endereços é por nó, então o índice
+vivo é `(exit_node_id, tunnel_address)`.
+
+O `SET NULL` só dispara para device já revogado: um trigger recusa apagar um nó
+que ainda tem chave viva nele, e a mensagem diz qual é o caminho de saída.
+
+**Consequências.** `region_id` e `exit_node_id` são anuláveis, o que só existe
+para o `SET NULL` poder disparar. Um `CHECK` cobra o que a anulabilidade abriu:
+device vivo tem os dois preenchidos.
+
+---
+
+### DEC-092 — `live_tunnel_addresses` some, e a dica de endereço vira função da própria faixa
+
+**Data:** 2026-08-14 · **Status:** accepted
+
+**Contexto.** A DEC-069 criou a view `live_tunnel_addresses` para escolher por
+onde a busca de endereço começa, num tempo em que a faixa era global. Com a faixa
+por nó, a view perdeu o assunto — e o `GRANT` escrito à mão que ela obrigava era
+uma armadilha registrada.
+
+**Decisão.** A view é apagada. No lugar dela, uma função
+`live_addresses_on(node uuid) RETURNS SETOF text`, `SECURITY DEFINER`, com
+`EXECUTE` concedido a `vpn_app`.
+
+**Rationale.** A view sozinha não bastava e a ausência dela também não. Um nó da
+plataforma atende várias accounts, e `takenAddresses` roda dentro da transação do
+tenant: sob a policy de `devices` ele enxerga só os devices **daquela** account,
+enquanto o índice único é global. Enquanto o nó pertencia a uma account só, os
+dois concordavam; agora a dica subcontaria, e a alocação degradaria para um
+`INSERT` recusado por endereço já ocupado, a partir do `.4`, dentro da requisição.
+
+A função devolve os endereços vivos daquele nó e **nada** sobre quem os possui —
+nem `account_id`, nem `user_id`, nem a chave pública. É o mínimo que faz a dica
+voltar a ser dica, sem reabrir leitura entre tenants sobre quem está onde.
+
+`SECURITY DEFINER` e não uma view justamente porque o privilégio fica no corpo da
+função, com um argumento obrigatório: não existe "selecionar tudo" a partir dela.
+
+**Consequências.** A capacidade real passa a ser **251 devices vivos por nó,
+somando todas as accounts**. Com `seats 25 × devicesPerUser 5 = 125`, duas
+accounts cheias enchem uma região. Está registrado como limitação em
+`docs/specs/servers-and-regions.md`, e o caminho de saída é mais de um nó por
+região — que o schema já comporta e o devstack ainda não demonstra.
+
+---
+
+### DEC-093 — O endpoint de um nó é validado por estrutura, e IPv6 entra entre colchetes
+
+**Data:** 2026-08-13 · **Status:** accepted
+
+**Contexto.** `exitNodeEndpointSchema` era `/^[A-Za-z0-9.-]+:\d{1,5}$/` mais uma
+checagem de faixa de porta. Uma classe de caracteres não sabe o que é um host:
+`...:80`, `.:1`, `-:1` e `999.999.999.999:80` passavam todos. O último é o
+interessante — quatro rótulos numéricos são um hostname perfeitamente comum
+para qualquer regra que não distinga hostname de endereço.
+
+E ela **recusava IPv6**. `[2001:db8::1]:51820` é endpoint legítimo de WireGuard,
+e um nó alcançável só por IPv6 era impossível de registrar.
+
+**Decisão.** O endpoint é partido em host e porta e cada metade é validada pelo
+que ela é: IPv6 entre colchetes, senão IPv4 ou hostname. `exitNodeSchema.endpoint`
+passa a reusar o schema estrito, como `label` já fazia.
+
+**Rationale.** Partir em vez de uma regex só porque uma regex que cobrisse IPv6,
+IPv4 e hostname de uma vez seria ilegível e — o que importa mais — impossível de
+ler para conferir. A validação de IP sai do zod, que já a tem, em vez de virar a
+décima variação caseira de um regex de IPv6 no mundo.
+
+Os colchetes não são cosmética: sem eles o último `:` de `2001:db8::1:51820`
+pertence ao endereço e não há porta para encontrar. É por isso que a forma sem
+colchetes é recusada em vez de tolerada — não existe leitura correta dela.
+
+A regra do último rótulo não poder ser todo dígito é o que fecha o
+`999.999.999.999`: ele falha como IPv4 nos octetos, e falha como hostname
+porque um TLD numérico não resolve em lugar nenhum.
+
+A resposta reusando o schema do request é a mesma razão da DEC-090 sobre o par
+região/nó: dois lugares descrevendo a mesma coisa com regras diferentes acabam
+discordando, e o lado que discorda em silêncio é o que não tem teste.
+
+**Consequências.** Um nó registrado antes desta versão com um endpoint que a
+regra nova recusa continua na tabela — a validação é de entrada, e nada revalida
+linha existente. No devstack não há nenhum; num ambiente que tenha, o sintoma é
+um `.conf` que já não fechava handshake.
+
+`@vpn/contracts` vai a **0.20.0**. É mudança de comportamento de validação, não
+de tipo: quem já mandava um endpoint válido não vê diferença.
+
+---
+
+### DEC-094 — A varredura e o provisionamento são por nó, e silêncio não é lista vazia
+
+**Data:** 2026-08-13 · **Status:** accepted
+
+**Contexto.** `PeerReconciler` e `DeviceProvisioner` ainda injetavam o `EXIT_NODE`
+único do container e liam `EXIT_NODE_TUNNEL_CIDR` do ambiente. Com `exit_nodes`
+sendo tabela (DEC-090), isso significa que toda a frota era varrida contra **um**
+nó: os peers de um nó eram comparados com os devices vivos de **todos** eles, e
+qualquer device atribuído a outra máquina aparecia como peer faltando.
+
+**Decisão.** O laço externo passa a ser `fleet.listAllNodes()`. Cada nó é
+comparado só com os devices atribuídos a ele, dentro da faixa da **linha** dele.
+Um nó que não responde ao `listPeers()` é pulado inteiro, e o relatório ganha
+`unreachable`.
+
+**Rationale.** Pular o nó em vez de tratar a lista como vazia é a decisão que
+mais importa aqui, e a spec já a pedia em voz alta: uma exceção lida como
+"nenhum peer" faz a varredura concluir que **tudo** naquela máquina é órfão. O
+resultado seria revogar todos os peers de um nó que só estava inalcançável — a
+varredura destruindo exatamente o que ela existe para conservar.
+
+`unreachable` é campo separado de `failed` porque as duas coisas se contam em
+unidades diferentes: `failed` conta peers que o nó recusou, e de um nó calado não
+sabemos nem quantos peers seriam. Somar os dois num número só produziria um
+relatório que ninguém consegue interpretar.
+
+A faixa vem de `row.tunnelCidr`, e é isso que faz `isAssignable` decidir o que é
+nosso para revogar **naquele** nó. Com o CIDR vindo do ambiente, uma frota com
+faixas diferentes teria a varredura ignorando peers legítimos de um nó e adotando
+peers semeados à mão em outro.
+
+A intenção `device.revoke` passa a carregar `exitNodeId` junto do `publicKey`. A
+linha já está revogada quando a mensagem é entregue, então nada a jusante
+consegue descobrir em qual máquina procurar; a alternativa seria pedir a **toda**
+a frota que esquecesse a chave, que é um broadcast para um device.
+
+**Consequências.** Uma mensagem `device.revoke` escrita antes desta versão não
+tem `exitNodeId` e é recusada pelo parser — vira job desconhecido e termina na
+DLQ, como qualquer mensagem que o consumer não entende. É a saída certa: o
+alternativo é adivinhar o nó.
+
+A varredura alcança **só nós da frota**. Apagar uma account não leva nó nenhum
+junto — a frota é nossa —, mas aposentar uma máquina leva: sem a linha não há
+`control_url` para perguntar, e os peers que estavam nela ficam lá. Inventar um
+endereço para alcançá-los é o SSRF que a spec recusa. Há um teste e2e afirmando
+exatamente isso, para que a limitação seja lida e não descoberta.
+
+---
+
+### DEC-095 — O diretório do nó sai de cena, e quem vê a chave trocar é a varredura de saúde
+
+**Data:** 2026-08-13 · **Status:** accepted · **Supersedes:** DEC-068
+
+**Contexto.** `ExitNodeDirectory` cacheava **um** `describe()` para a instalação
+inteira. Ele nasceu quando havia um nó, e a DEC-068 lhe deu prazo e a detecção de
+chave trocada. Com a frota em tabela, o que ele cacheia deixou de existir: não há
+"a descrição do nó", há uma por linha.
+
+Ele também já não tinha chamador. A montagem do `.conf` passou a sair da linha
+(DEC-090), que é a projeção do nó, e não de uma ida à máquina no caminho de uma
+lista que precisa renderizar.
+
+**Decisão.** A classe é removida. A detecção de rotação de chave vai para
+`NodeHealth`, que já chama `describe()` em cada nó a cada minuto, e compara o que
+o nó respondeu com `public_key` da linha.
+
+**Rationale.** A varredura de saúde é o lugar natural: ela já pergunta a cada nó
+"você responde?", e a resposta **é** a chave. Detectar rotação ali sai de graça,
+vale para a frota inteira, e acontece num laço de fundo em vez de no caminho de
+uma requisição.
+
+O prazo de 60 segundos que a DEC-068 introduziu deixa de ser um TTL de memo e
+passa a ser o intervalo do healthcheck — o mesmo número, com a mesma
+consequência, mas agora é a janela de uma varredura em vez de um cache no
+caminho de `GET /devices`.
+
+A linha **não** é corrigida quando a chave diverge, e isso é a DEC-068 inteira
+sobrevivendo: adotar a chave nova em silêncio faria a API servir `.conf` que
+concordam com a máquina e discordam de todo arquivo já baixado. Reemitir em massa
+é decisão de produto, e a spec a mantém fora desta entrega.
+
+**Consequências.** A memoização some, e com ela a garantia de que dez chamadores
+concorrentes produziam uma ida ao nó. Não custa nada porque nenhum caminho de
+requisição chama `describe()` — o único que chamava era o registro, que fala com
+uma máquina que ainda não tem linha e por isso não teria o que memoizar.
+
+O aviso passa a ter `nodeId`. Sem ele, numa frota de cinco, a linha de log dizia
+que "o nó" trocou de chave sem dizer qual.
+
+---
+
+### DEC-096 — A leitura de regiões mora ao lado da store, e o seletor tem padrão
+
+**Data:** 2026-08-13 · **Status:** accepted
+
+**Contexto.** A tela de servidores e o formulário de chaves precisam da **mesma**
+lista de regiões, e `features/` não importa `features/` — o lint reprova, e a
+razão dele é a que vale: duas features acopladas viram uma.
+
+**Decisão.** `GET /regions` mora em `features/keys/api/`, junto de quem o usa. O
+seletor começa na primeira região **disponível**, e uma região que não está
+respondendo é oferecida desabilitada em vez de escondida.
+
+**Rationale.** O mesmo movimento que o `logout` fez: o que duas features
+precisam desce para junto da store que o cacheia, não sobe para uma delas. E é
+só a **leitura** que desce — criar e apagar região é gestão de frota, que é
+assunto de uma tela só. A tag `Regions` é registrada no `createApi`, então a
+mutação de um arquivo invalida a query do outro sem que os dois se conheçam.
+
+O padrão no seletor existe porque um seletor vazio é a razão invisível de um
+formulário não fazer nada: a pessoa preenche tudo, clica, e o schema recusa um
+`regionId` que ela não sabia que precisava escolher. Ele é **derivado**, não um
+efeito — `region || available[0]?.id` renderiza certo na primeira passada, e um
+`useEffect` sincronizando estado com dado carregado roda duas vezes em
+StrictMode.
+
+Sem região nenhuma, o botão de gerar é **desabilitado** e a tela diz para pedir
+a um administrador. É a exceção consciente ao "nada de botão desabilitado" da
+DEC-058: lá o botão desabilitado escondia uma ação que existia; aqui não existe
+ação nenhuma a oferecer, e a alternativa é um 400 depois do clique.
+
+**Consequências.** A recusa de remover — região com nó, nó com chave viva — é
+traduzida na tela em vez de cair no `errors.CONFLICT` genérico, que não diz o
+que fazer. É a única ramificação por código de erro nesta página, e ela existe
+porque as duas rotas só conflitam de um jeito.
+
+`stubApi` passa a responder `/regions` por rota, ao lado de permissões e
+entitlements, pela mesma razão que já estava escrita lá: um teste sobre baixar um
+`.conf` não deveria precisar optar por a frota existir.
+
+O contador de regiões continua **não aplicado** (DEC-043, DEC-078), e a tela não
+o exibe. Mostrar um teto que ninguém cobra convida a acreditar que ele é cobrado.
+
+---
+
+### DEC-097 — Cinco nós no devstack, e o canário atrás de exatamente um deles
+
+**Data:** 2026-08-13 · **Status:** accepted
+
+**Contexto.** O devstack tinha **um** nó. Com a frota em tabela e a região
+escolhida na criação da chave, um nó só torna a escolha indistinguível de um
+rótulo: qualquer região que o tenant nomeasse levaria ao mesmo lugar, e a
+demonstração inteira ficaria compatível com um sistema que não decide nada.
+
+**Decisão.** Cinco serviços WireGuard, um por região demonstrada, cada um com
+`container_name`, par de portas, par de chaves e faixa de túnel próprios. **Só o
+`sa`** entra na rede do canário.
+
+**Rationale.** Os quatro atributos são exatamente os que a frota **não** pode
+compartilhar, e cada um por um motivo diferente: chave repetida colide em
+`exit_nodes_public_key_key`; faixa repetida faria dois nós entregarem
+`10.13.13.4` para redes que não se conhecem, que é a propriedade que a DEC-090
+levantou o teto para ter; porta repetida não sobe; nome repetido não existe.
+
+Um anchor YAML e cinco cópias curtas, em vez de um template com substituição no
+entrypoint: este arquivo é o que alguém copia na direção de um nó real (DEC-062),
+e o que difere entre os cinco tem que ser legível como diferença e não como
+consequência de uma variável.
+
+O canário atrás de um só é a decisão que carrega a demonstração. A assimetria
+não é uma regra que alguém configure — é **ausência de rota**: os outros quatro
+não têm endereço em `172.30.13.0/24`, e por isso uma chave criada na região
+deles não alcança o recurso privado nem por engano. É a mesma forma de prova da
+DEC-075, agora aplicada à escolha de região em vez de ao túnel.
+
+`check.sh` vira laço, e a asserção nova é **negativa**: cada nó que não é o do
+canário prova que não tem pé naquela rede. Ela é escrita sobre a causa e não
+sobre um ping que falha, porque um ping falha igual quando o canário não está
+rodando — e este arquivo precisa ficar verde numa máquina que nunca ouviu falar
+do repositório irmão.
+
+**Consequências.** `make check` passa de 20 para **41** asserções. As três de
+canário ficam escopadas ao nó dele; as outras quatro por nó rodam cinco vezes.
+
+O serviço `wireguard` foi renomeado para `wireguard-sa`, então o contêiner
+antigo fica órfão segurando a porta 21820 — e a falha cairia em quem faz o pull,
+não em quem fez a mudança. Por isso `dev.sh up` passa a usar `--remove-orphans`:
+o compose é a verdade inteira sobre este projeto, e não há o que preservar que
+ele não descreva.
+
+`tunnel:doctor` descobre a frota pelo `docker compose ps` em vez de ter os cinco
+escritos dentro dele, e os peers passam a ser listados **por nó**: o mesmo
+endereço em dois nós são dois devices, e uma lista achatada chamaria um deles de
+estranho.
+
+`.env` e `.env.example` trocam `WIREGUARD_PORT`/`EXIT_NODE_API_PORT` por um par
+por região. `EXIT_NODE_*` no singular continua apontando para o `sa` — ele é o
+que o adapter de nó único ainda usa para a checagem de driver no boot, e é o nó
+que a suíte de integração dos adapters exercita.
+
+---
+
+### DEC-098 — Cada nó tem a sua credencial, e a linha diz onde ela mora
+
+**Data:** 2026-08-13 · **Status:** accepted · **Supersedes:** DEC-073
+
+**Contexto.** A DEC-073 pôs credencial no plano de controle do nó e escolheu um
+**token compartilhado**, com as duas consequências ditas em voz alta: trocá-lo
+derruba a frota inteira, e nenhum log diz qual chamador o usou. Com um nó só
+isso era hipótese. Com cinco, virou o arranjo.
+
+A investigação achou um terceiro fato, pior que os dois: `exit_nodes.credential_ref`
+**não tinha leitor nenhum**. Era escrita pelo formulário, guardada, selecionada de
+volta — e descartada em silêncio em toda chamada a `ExitNodeFactory.for()`, porque
+`ExitNodeRow` declarava quatro campos e a tipagem estrutural do TypeScript aceita
+a propriedade extra sem reclamar. O seam da DEC-090 existia e não ligava em lugar
+nenhum. Junto: o localstack **habilitava** `secretsmanager` e não semeava nada,
+enquanto a documentação o listava como se fosse usado.
+
+**Decisão.** Uma porta `ISecretStore` com **um método de leitura**, um adapter de
+Secrets Manager, e `ExitNodeFactory.for()` resolvendo a credencial de cada nó
+pela referência que a linha dele carrega. `credential_ref` vira `NOT NULL`,
+`EXIT_NODE_API_TOKEN` sai do sistema, e cada contêiner do devstack sobe com a
+sua.
+
+**Rationale.** A porta **não tem `write`**. A aplicação nunca guarda um segredo, e
+um método sem chamador de produção é uma superfície que alguém acaba chamando de
+dentro de um handler — semear é da suíte de conformidade, fora de banda, como já
+é para o nó.
+
+`read()` devolve **`null`** para uma referência inexistente em vez de lançar, e é
+isso que torna possível a terceira recusa. O operador tem três lugares para ir, e
+até aqui existiam dois códigos: `NODE_CREDENTIAL_NOT_FOUND` é o segredo que
+ninguém criou, `NODE_UNAUTHORIZED` é o nó recusando o que existe, e
+`NODE_UNREACHABLE` é a máquina calada. Ele é **400**, não 502: o nó nunca entrou
+na história, e o que estava errado era um campo do request.
+
+**Sem caminho de fallback**, e essa é a decisão que carrega peso. Nada está
+publicado e nenhum nó estava registrado, então não havia linha legada para
+acomodar — e um `credential_ref` nulo teria mantido o token da frota vivo como
+"modo alternativo", que é como um substituto sobrevive ao que ele substituiu.
+
+O cache é um `Map` **em processo**, com TTL de 300s, e nunca o `ICacheStore`: o
+Redis do devstack roda sem `requirepass` e com AOF em disco, então cachear a
+credencial ali seria mudá-la de lugar em vez de protegê-la — o oposto exato do
+motivo de `credential_ref` ser uma referência. A chave é a **referência** e não o
+id do nó, e a ausência **nunca** é cacheada: a correção é o operador criar o
+segredo, e isso deve valer na varredura seguinte.
+
+`for()` passou a ser assíncrona, e isso moveu uma fronteira. Em
+`PeerReconciler.#sweep` a abertura do nó ficava **fora** do `try`, porque não
+podia falhar; agora pode, e fora dali um nó com segredo ausente abortaria a
+varredura da frota inteira — a mesma regressão que a DEC-094 fechou, um nível
+acima. Provado apagando a fronteira e vendo o teste ficar vermelho.
+
+O esquema continua **HTTP Basic**. A DEC-073 registra que um `Bearer` não
+adiantaria caminho para mTLS, porque mTLS não reaproveita esquema de cabeçalho
+nenhum; só o **valor** passou a ser por nó. Do lado do contêiner a variável
+continua `EXIT_NODE_API_TOKEN`: `entrypoint.sh` e `healthcheck.sh` não mudaram um
+byte, porque um nó real toma um token do próprio ambiente e não sabe o que é uma
+frota.
+
+`IExitNode` e `describeExitNodeContract` **não mudaram**. Era o teste que o
+`libs/adapters/CLAUDE.md` já tinha escrito: se a suíte precisasse mudar, a
+credencial teria vazado para a porta.
+
+**Consequências.** Quem cobra que a referência de um nó resolve é o `make check`,
+por nó, a cada rodada — não uma rota de registro, que não existe. Uma referência
+que não nomeia nada aparece como nó inalcançável na varredura de saúde, e o log
+diz qual das duas coisas falhou.
+
+Rotacionar passa a ser um nó de cada vez: escrever o segredo novo, recarregar
+aquele nó, apagar o antigo. **No devstack isso é recriar o contêiner**, porque o
+`entrypoint.sh` escreve o `httpd.conf` no boot. Uma janela em que o nó aceita os
+dois valores exigiria descobrir se o `busybox httpd` casa duas linhas para o
+mesmo caminho, e isso não foi verificado — fica como spike, não como promessa.
+
+`make check` passa de 41 para **47**. A asserção que ganha o dia é **negativa e
+cíclica**: cada nó recusa o token do vizinho (`sa←na←eu←as←af←sa`). Sem ela,
+cinco valores idênticos passariam por todo o resto do arquivo, inclusive pela
+positiva. A positiva, por sua vez, passou a ler o token do **Secrets Manager**,
+o que a transforma de "o `.env` e o nó concordam" em "o segredo, o compose, o
+`httpd.conf` e a porta publicada concordam".
+
+O adapter único no token `EXIT_NODE` foi **removido do registry**: ele não tinha
+consumidor desde a DEC-090 e deixou de ter um token para usar. `EXIT_NODE_DRIVER`
+continua validado pelo enum do zod, então nada se perdeu no boot.
+
+O que **não** mudou: mTLS continua sendo o teto e continua sendo trabalho de nó
+real — o `busybox httpd` é 1.37.0 e não fala TLS. E a rotação da **chave
+WireGuard** do nó continua fora de escopo: ela invalida todo `.conf` já baixado,
+a DEC-095 só a detecta, e reemitir em massa é decisão de produto.
+
+---
+
+### DEC-099 — O entitlement de região sai; quando voltar, volta como lista
+
+**Data:** 2026-08-14 · **Status:** accepted · **Supersedes:** DEC-078
+
+**Contexto.** A DEC-078 trocou "quais regiões" por "quantas" com um argumento de
+uma linha: se o nome é do cliente, o tier não tem como entitular quais.
+
+**Decisão.** `regions` sai de `Entitlements`.
+
+**Rationale.** A premissa inverteu. Nós nomeamos as regiões (DEC-090), então um
+tier **pode** dizer quais — e a forma honesta é a lista de slugs que a DEC-036
+sempre quis, agora legitimamente nossa.
+
+Publicar o mesmo número com um terceiro significado — "quantas você alcança" —
+seria o único que nenhuma restrição sabe cobrar. "Quantas" precisa de um "quais"
+para cobrar contra: ou as N primeiras por alguma ordem, que é arbitrário e muda
+sozinho quando uma região entra, ou um teto de espalhamento sobre as regiões em
+que a account tem device vivo. O teto de espalhamento é a única leitura coerente,
+e a DEC-043 proíbe cobrá-lo com `count()` antes do `INSERT` — o que exige tabela
+própria, ciclo de devolução e um caminho de `QUOTA_EXCEEDED`, para cobrar
+`pro = 5` contra uma frota de exatamente cinco regiões, onde nunca pegaria.
+
+**Consequências.** Com um tier só não há o que decidir de qualquer forma
+(DEC-043). Quando existir um segundo, `regions` volta como
+`readonly RegionSlug[]`, cobrado na criação do device contra `request.regionId`.
+A tela de plano perde uma linha, e nenhum teste de entitlement além dela muda:
+os do e2e comparam o objeto inteiro contra `ENTITLEMENTS.pro`.
+
+---
+
+### DEC-100 — A frota é semeada por migration, e a custódia da chave vira portão
+
+**Data:** 2026-08-14 · **Status:** accepted
+
+**Contexto.** Se a frota é nossa (DEC-090), ela precisa existir como linha em todo
+ambiente sem passo manual — e a DEC-090 apagou a única rota que criava essas
+linhas. Um `pnpm db:migrate` numa base vazia tem que deixar o produto usável.
+
+**Decisão.** Um descritor congelado em `libs/database/src/platform-fleet.ts` é a
+fonte única — slug, nome, rótulo, endpoint, url de controle, faixa, referência de
+credencial, chave pública e **UUID fixo** —, transcrito para
+`0008_seed_platform_fleet.sql`.
+
+**Rationale.** SQL não sabe chamar `describe()`, então a custódia da DEC-063 não
+pode ser cumprida do jeito que a DEC-077 cumpria. Ela **se move** em vez de sumir.
+
+A regra existia contra uma ameaça precisa: alguém digita uma chave num formulário,
+o erro de digitação entra em todo `.conf`, e a falha aparece longe, num cliente
+que nunca fecha handshake. Todo elemento dessa ameaça é sobre um valor não
+revisado vindo de fora — e o formulário deixou de existir. A chave semeada está
+versionada ao lado da chave privada que a produz, e é revisada em diff. No lugar
+da checagem em runtime entra uma **asserção por nó** no `check.sh`, comparando o
+`publicKey=` que a máquina responde com o que a linha dela carrega. É mais forte
+do que o registro era: o registro provava uma vez, no insert; isto prova a cada
+`make check`.
+
+O UUID fixo não é conveniência. É o que faz o helper de frota do e2e virar uma
+constante em vez de duas requisições por teste, e o que transforma um seed que
+divergiu em erro de compilação em vez de violação de chave estrangeira no
+quadragésimo teste.
+
+`last_seen_at` é semeado com `now()`. Com `NULL`, `pickNodeInRegion` não devolve
+nada e toda criação de chave responde 409 até a primeira varredura — que nunca
+chega para quem sobe api e web sem o worker, nem depois de um `db:migrate` seco.
+`now()` é uma afirmação que ninguém verificou, mas é limitada: passados
+`STALE_AFTER_SECONDS` um nó que nunca respondeu sai de circulação sozinho, o que
+é o mesmo desfecho de um nó que morreu um segundo depois de responder.
+
+**Consequências.** `make check` passa de 47 para 52 asserções.
+
+`DELETE FROM accounts` deixa de levar a frota junto, que é o ponto — e cobra duas
+coisas do `beforeEach` do e2e. `last_seen_at` precisa ser restaurado, porque o
+teste que envelhece um nó agora contamina todos os seguintes. E os peers do
+`MemoryExitNode` precisam ser limpos: o fake é cacheado por **id** de nó, o id
+agora é fixo, e o mapa de peers passa a acumular pelo arquivo inteiro. Um e2e
+rodado duas vezes seguidas sem resetar o banco é o que prova as duas.
