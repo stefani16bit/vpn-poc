@@ -3,16 +3,15 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
 	CACHE_STORE,
 	CLOCK,
-	EXIT_NODE,
 	type ICacheStore,
 	type IClock,
 	type IExitNode,
 	type PeerSpec,
 } from '@vpn/ports';
-import { ENV } from '@vpn-poc/adapters';
-import type { Env } from '@vpn-poc/env';
+import { ExitNodeFactory } from '@vpn-poc/adapters';
 
 import { TransactionRunner } from '../database/transaction-runner.js';
+import { FleetRepository, type StoredExitNode } from '../fleet/fleet.repository.js';
 import { DeviceRepository, type StoredDevice } from './device.repository.js';
 import { isAssignable } from './tunnel-address.js';
 
@@ -28,6 +27,14 @@ export interface ReconcileReport {
 	readonly provisioned: number;
 	readonly stamped: number;
 	readonly failed: number;
+	readonly unreachable: number;
+}
+
+interface NodeOutcome {
+	readonly revoked: number;
+	readonly provisioned: number;
+	readonly failed: number;
+	readonly toStamp: readonly StoredDevice[];
 }
 
 @Injectable()
@@ -35,12 +42,12 @@ export class PeerReconciler {
 	readonly #logger = new Logger(PeerReconciler.name);
 
 	constructor(
-		@Inject(EXIT_NODE) private readonly node: IExitNode,
+		private readonly fleet: FleetRepository,
+		private readonly nodes: ExitNodeFactory,
 		private readonly devices: DeviceRepository,
 		private readonly transactions: TransactionRunner,
 		@Inject(CACHE_STORE) private readonly cache: ICacheStore,
 		@Inject(CLOCK) private readonly clock: IClock,
-		@Inject(ENV) private readonly env: Env,
 	) {}
 
 	// The claim is the counter itself: whoever takes it from 0 to 1 owns this
@@ -56,35 +63,31 @@ export class PeerReconciler {
 
 	async runOnce(): Promise<ReconcileReport> {
 		const at = this.clock.now();
-		const onNode = await this.node.listPeers();
-		const live = await this.transactions.runAsSystem(() => this.devices.listLiveAcrossAccounts());
+		const { fleet, live } = await this.transactions.runAsSystem(async () => ({
+			fleet: await this.fleet.listAllNodes(),
+			live: await this.devices.listLiveAcrossAccounts(),
+		}));
 
-		const wanted = new Map(live.map((device) => [device.publicKey, device.tunnelAddress]));
-		const ours = onNode.filter((peer) =>
-			isAssignable(peer.tunnelAddress, this.env.EXIT_NODE_TUNNEL_CIDR),
-		);
+		const assigned = groupByNode(live);
+		const toStamp: StoredDevice[] = [];
+		let revoked = 0;
+		let provisioned = 0;
+		let failed = 0;
+		let unreachable = 0;
 
-		const orphans = ours.filter((peer) => !wanted.has(peer.publicKey));
-		const adoptable = live.filter((device) => !this.#stillWaitingOnAJob(device, at));
-		const missing = adoptable
-			.filter((device) => !hasPeer(ours, device.publicKey, device.tunnelAddress))
-			.map((device) => ({ publicKey: device.publicKey, tunnelAddress: device.tunnelAddress }));
-		const unstamped = adoptable.filter((device) => !device.provisionedAt);
+		for (const row of fleet) {
+			const outcome = await this.#sweep(row, assigned.get(row.id) ?? [], at);
 
-		// Every call to the node is isolated: one peer the node refuses used to
-		// abort the sweep, so nothing after it ran and nothing was stamped. The
-		// next sweep converged anyway, which is why this cost latency rather than
-		// correctness — but the report claimed a total it had not reached.
-		const revoked = await this.#each(orphans, (peer) => this.node.revokePeer(peer.publicKey));
-		const provisioned = await this.#each(missing, (peer) => this.node.provisionPeer(peer));
+			if (!outcome) {
+				unreachable += 1;
+				continue;
+			}
 
-		const stamped = unstamped.filter((device) =>
-			provisioned.done.some((peer) => peer.publicKey === device.publicKey),
-		);
-		const settled = unstamped.filter(
-			(device) => !missing.some((peer) => peer.publicKey === device.publicKey),
-		);
-		const toStamp = [...settled, ...stamped];
+			revoked += outcome.revoked;
+			provisioned += outcome.provisioned;
+			failed += outcome.failed;
+			toStamp.push(...outcome.toStamp);
+		}
 
 		if (toStamp.length > 0) {
 			await this.transactions.runAsSystem(async () => {
@@ -94,17 +97,12 @@ export class PeerReconciler {
 			});
 		}
 
-		const report = {
-			revoked: revoked.done.length,
-			provisioned: provisioned.done.length,
-			stamped: toStamp.length,
-			failed: revoked.failed + provisioned.failed,
-		};
+		const report = { revoked, provisioned, stamped: toStamp.length, failed, unreachable };
 
-		if (report.failed > 0) {
+		if (report.failed > 0 || report.unreachable > 0) {
 			this.#logger.error(
 				{ event: 'exit_node.sweep_incomplete', ...report },
-				'the exit node refused part of the sweep; the next one retries what is left',
+				'part of the fleet was not converged; the next sweep retries what is left',
 			);
 		}
 
@@ -116,6 +114,67 @@ export class PeerReconciler {
 		}
 
 		return report;
+	}
+
+	// Null is "this node said nothing", and it is not the same answer as "this
+	// node serves no peers". Reading silence as an empty list would revoke every
+	// device on a machine that is merely unreachable.
+	async #sweep(
+		row: StoredExitNode,
+		assigned: readonly StoredDevice[],
+		at: Date,
+	): Promise<NodeOutcome | null> {
+		// Both inside the try, and that is the whole point of this boundary: opening
+		// the node resolves its credential, so it can fail now. Outside, one node
+		// whose secret is missing would abort the sweep of the entire fleet — the
+		// isolation this method exists for, lost one level up.
+		let node: IExitNode;
+		let onNode: readonly PeerSpec[];
+		try {
+			node = await this.nodes.for(row);
+			onNode = await node.listPeers();
+		} catch (error) {
+			this.#logger.error(
+				{ event: 'exit_node.unreadable', nodeId: row.id, error },
+				'the exit node did not report its peers, so nothing on it was touched',
+			);
+
+			return null;
+		}
+
+		const wanted = new Set(assigned.map((device) => device.publicKey));
+		// Only the range this node hands out: a peer somebody seeded by hand is
+		// not ours to revoke, and the range belongs to the node rather than to
+		// the installation.
+		const ours = onNode.filter((peer) => isAssignable(peer.tunnelAddress, row.tunnelCidr));
+
+		const orphans = ours.filter((peer) => !wanted.has(peer.publicKey));
+		const adoptable = assigned.filter((device) => !this.#stillWaitingOnAJob(device, at));
+		const missing = adoptable
+			.filter((device) => !hasPeer(ours, device.publicKey, device.tunnelAddress))
+			.map((device) => ({ publicKey: device.publicKey, tunnelAddress: device.tunnelAddress }));
+		const unstamped = adoptable.filter((device) => !device.provisionedAt);
+
+		// Every call to the node is isolated: one peer the node refuses used to
+		// abort the sweep, so nothing after it ran and nothing was stamped. The
+		// next sweep converged anyway, which is why this cost latency rather than
+		// correctness — but the report claimed a total it had not reached.
+		const revoked = await this.#each(orphans, (peer) => node.revokePeer(peer.publicKey));
+		const provisioned = await this.#each(missing, (peer) => node.provisionPeer(peer));
+
+		const stamped = unstamped.filter((device) =>
+			provisioned.done.some((peer) => peer.publicKey === device.publicKey),
+		);
+		const settled = unstamped.filter(
+			(device) => !missing.some((peer) => peer.publicKey === device.publicKey),
+		);
+
+		return {
+			revoked: revoked.done.length,
+			provisioned: provisioned.done.length,
+			failed: revoked.failed + provisioned.failed,
+			toStamp: [...settled, ...stamped],
+		};
 	}
 
 	async #each<T>(
@@ -143,6 +202,20 @@ export class PeerReconciler {
 
 		return at.getTime() - device.createdAt.getTime() < PENDING_GRACE_SECONDS * 1000;
 	}
+}
+
+function groupByNode(devices: readonly StoredDevice[]): Map<string, StoredDevice[]> {
+	const byNode = new Map<string, StoredDevice[]>();
+
+	for (const device of devices) {
+		if (!device.exitNodeId) continue;
+
+		const bucket = byNode.get(device.exitNodeId);
+		if (bucket) bucket.push(device);
+		else byNode.set(device.exitNodeId, [device]);
+	}
+
+	return byNode;
 }
 
 function hasPeer(peers: readonly PeerSpec[], publicKey: string, tunnelAddress: string): boolean {

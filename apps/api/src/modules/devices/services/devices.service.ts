@@ -1,15 +1,16 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import type {
-	CreateDeviceRequest,
-	Device,
-	DeviceAssigneeListResponse,
-	DeviceWithNode,
-	ExitNodeView,
-	Permission,
+import {
+	STALE_AFTER_SECONDS,
+	type CreateDeviceRequest,
+	type Device,
+	type DeviceAssigneeListResponse,
+	type DeviceWithNode,
+	type ExitNodeView,
+	type Permission,
 } from '@vpn/contracts';
 import { CLOCK, type IClock } from '@vpn/ports';
-import { ENV } from '@vpn-poc/adapters';
+import { clientAllowedIps, ENV } from '@vpn-poc/adapters';
 import type { Env } from '@vpn-poc/env';
 
 import type { AccessTokenClaims } from '../../../shared/access-control/access-token.service.js';
@@ -21,7 +22,7 @@ import {
 	type OwnedDevice,
 	type StoredDevice,
 } from '../../../shared/devices/device.repository.js';
-import { ExitNodeDirectory } from '../../../shared/devices/exit-node-directory.service.js';
+import { FleetRepository, type PlacementNode } from '../../../shared/fleet/fleet.repository.js';
 import { UserRepository } from '../../../shared/identity/repositories/user.repository.js';
 import { assignableAddresses, firstFreeAddress } from '../../../shared/devices/tunnel-address.js';
 import { AppError } from '../../../shared/errors/app-error.js';
@@ -44,7 +45,7 @@ export class DevicesService {
 		private readonly devices: DeviceRepository,
 		private readonly users: UserRepository,
 		private readonly outbox: OutboxRepository,
-		private readonly directory: ExitNodeDirectory,
+		private readonly fleet: FleetRepository,
 		private readonly permissions: PermissionService,
 		private readonly entitlements: EntitlementsService,
 		@Inject(CLOCK) private readonly clock: IClock,
@@ -52,12 +53,19 @@ export class DevicesService {
 	) {}
 
 	async list(claims: AccessTokenClaims): Promise<{ devices: DeviceWithNode[] }> {
-		const [stored, node] = await Promise.all([
+		const [stored, nodes] = await Promise.all([
 			this.devices.listLive(await this.#scope(claims, 'devices.readAll')),
-			this.#node(),
+			this.fleet.listNodes(),
 		]);
 
-		return { devices: stored.map((device) => ({ ...toView(device), node })) };
+		const byId = new Map(nodes.map((node) => [node.id, node]));
+
+		return {
+			devices: stored.map((device) => ({
+				...toView(device),
+				node: this.#viewOf(byId.get(device.exitNodeId ?? '')),
+			})),
+		};
 	}
 
 	async assignees(accountId: string): Promise<DeviceAssigneeListResponse> {
@@ -74,10 +82,20 @@ export class DevicesService {
 			throw new AppError('FORBIDDEN', 'assigning a device to another user needs devices.assign');
 		}
 
-		const cidr = this.env.EXIT_NODE_TUNNEL_CIDR;
-		const [node, taken, takenSlots, entitlements, owner] = await Promise.all([
-			this.#node(),
-			this.devices.takenAddresses(),
+		// The person chooses a region; which node serves it is ours. A region with
+		// no node that answered recently is a dead end, and saying so here is what
+		// keeps a .conf from being issued against a machine nobody can reach.
+		const staleBefore = new Date(this.clock.now().getTime() - STALE_AFTER_SECONDS * 1000);
+		const chosen = await this.fleet.pickNodeInRegion(request.regionId, staleBefore);
+
+		if (!chosen) {
+			throw new AppError('CONFLICT', 'no server in that region answered recently enough');
+		}
+
+		const cidr = chosen.tunnelCidr;
+		const node = this.#viewOf(chosen);
+		const [taken, takenSlots, entitlements, owner] = await Promise.all([
+			this.devices.takenAddresses(chosen.id),
 			this.devices.takenSlots(accountId),
 			this.entitlements.forAccount(accountId),
 			this.users.findById(userId),
@@ -110,6 +128,8 @@ export class DevicesService {
 					name: request.name,
 					publicKey: request.publicKey,
 					tunnelAddress,
+					regionId: request.regionId,
+					exitNodeId: chosen.id,
 					accountSlot,
 				});
 
@@ -145,6 +165,7 @@ export class DevicesService {
 		await this.outbox.enqueue(claims.accountId, {
 			kind: 'device.revoke',
 			publicKey: revoked.publicKey,
+			exitNodeId: placementOf(revoked.exitNodeId, revoked.id),
 		});
 	}
 
@@ -174,15 +195,27 @@ export class DevicesService {
 		}
 	}
 
-	async #node(): Promise<ExitNodeView> {
-		const description = await this.directory.current();
+	// Built from the row, not from describe(): the row is the projection of the
+	// node, and asking the machine on every request would put a network call in
+	// front of a list that has to render.
+	#viewOf(node: PlacementNode | undefined): ExitNodeView {
+		if (!node) throw new AppError('INTERNAL', 'a live device points at no exit node');
 
 		return {
-			publicKey: description.publicKey,
-			endpoint: description.endpoint,
-			allowedIps: [...description.allowedIps],
+			publicKey: node.publicKey,
+			endpoint: node.endpoint,
+			allowedIps: [...clientAllowedIps(node.tunnelCidr, this.env.EXIT_NODE_CLIENT_ALLOWED_IPS)],
 		};
 	}
+}
+
+// devices_live_has_placement makes this unreachable for a live row. Reaching it
+// means the constraint was dropped, and answering with a device that has no node
+// would hand somebody a .conf pointing nowhere.
+function placementOf(value: string | null, deviceId: string): string {
+	if (!value) throw new AppError('INTERNAL', `live device ${deviceId} has no placement`);
+
+	return value;
 }
 
 function firstFreeSlot(ceiling: number, taken: ReadonlySet<number>): number | null {
@@ -199,6 +232,8 @@ function toView(device: OwnedDevice): Device {
 		name: device.name,
 		publicKey: device.publicKey,
 		tunnelAddress: device.tunnelAddress,
+		regionId: placementOf(device.regionId, device.id),
+		exitNodeId: placementOf(device.exitNodeId, device.id),
 		userId: device.userId,
 		userEmail: device.userEmail,
 		provisionedAt: device.provisionedAt?.toISOString() ?? null,

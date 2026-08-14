@@ -10,7 +10,7 @@ import type {
 	NewDevice,
 	StoredDevice,
 } from '../../../shared/devices/device.repository.js';
-import type { ExitNodeDirectory } from '../../../shared/devices/exit-node-directory.service.js';
+import type { FleetRepository, StoredExitNode } from '../../../shared/fleet/fleet.repository.js';
 import type { UserRepository } from '../../../shared/identity/repositories/user.repository.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 import type { OutboxRepository } from '../../../shared/outbox/outbox.repository.js';
@@ -23,9 +23,25 @@ const ACCOUNT = 'account-1';
 const USER = 'user-1';
 const COLLEAGUE = 'user-2';
 const OWNER_EMAIL = 'owner@example.com';
+const REGION = 'region-1';
+const NODE = 'node-1';
 const REQUEST: CreateDeviceRequest = {
 	name: 'laptop',
 	publicKey: 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=',
+	regionId: REGION,
+};
+
+const NODE_ROW: StoredExitNode = {
+	id: NODE,
+	regionId: REGION,
+	label: 'sp-01',
+	endpoint: '127.0.0.1:21820',
+	controlUrl: 'http://127.0.0.1:21821',
+	publicKey: 'rKCjjZR5cgoZSG0BE1Cjs5wHcOAOYU5Vweb/Gj0rPWg=',
+	tunnelCidr: CIDR,
+	credentialRef: 'poc-vpn/exit-node/test',
+	lastSeenAt: new Date('2026-08-13T12:00:00.000Z'),
+	createdAt: new Date('2026-08-13T00:00:00.000Z'),
 };
 
 function duplicateKey() {
@@ -37,6 +53,8 @@ function stored(values: NewDevice): StoredDevice {
 		id: `device-${values.tunnelAddress}`,
 		accountId: values.accountId,
 		userId: values.userId,
+		regionId: values.regionId,
+		exitNodeId: values.exitNodeId,
 		name: values.name,
 		publicKey: values.publicKey,
 		tunnelAddress: values.tunnelAddress,
@@ -65,6 +83,7 @@ function service({
 	members = [{ id: USER, email: OWNER_EMAIL }],
 	slots = new Set<number>(),
 	ceiling = { seats: 25, devicesPerUser: 5 },
+	node = NODE_ROW,
 }: {
 	taken?: ReadonlySet<string>;
 	claim?: (values: NewDevice) => Promise<StoredDevice | undefined>;
@@ -73,6 +92,7 @@ function service({
 	members?: readonly { id: string; email: string }[];
 	slots?: ReadonlySet<number>;
 	ceiling?: { seats: number; devicesPerUser: number };
+	node?: StoredExitNode | undefined;
 } = {}) {
 	const claimAddress = vi.fn(claim ?? ((values: NewDevice) => Promise.resolve(stored(values))));
 	const revoke = vi.fn(() => Promise.resolve(revoked));
@@ -94,14 +114,10 @@ function service({
 	const enqueue = vi.fn(() => Promise.resolve());
 	const outbox = { enqueue } as unknown as OutboxRepository;
 
-	const directory = {
-		current: () =>
-			Promise.resolve({
-				publicKey: 'rKCjjZR5cgoZSG0BE1Cjs5wHcOAOYU5Vweb/Gj0rPWg=',
-				endpoint: '127.0.0.1:21820',
-				allowedIps: ['10.13.13.0/24'],
-			}),
-	} as unknown as ExitNodeDirectory;
+	const fleet = {
+		pickNodeInRegion: vi.fn(() => Promise.resolve(node)),
+		listNodes: vi.fn(() => Promise.resolve(node ? [{ ...node, liveDeviceCount: 0 }] : [])),
+	} as unknown as FleetRepository;
 
 	const has = vi.fn((_account: string, _user: string, _role: string, permission: Permission) =>
 		Promise.resolve(granted.includes(permission)),
@@ -116,7 +132,7 @@ function service({
 		devices,
 		users,
 		outbox,
-		directory,
+		fleet,
 		permissions,
 		entitlements,
 		new FixedClock(),
@@ -351,6 +367,8 @@ describe('DevicesService.revoke', () => {
 		name: 'laptop',
 		publicKey: REQUEST.publicKey,
 		tunnelAddress: '10.13.13.4/32',
+		regionId: REGION,
+		exitNodeId: NODE,
 		accountSlot: 0,
 	});
 
@@ -386,7 +404,10 @@ describe('DevicesService.revoke', () => {
 		expect(revoke).toHaveBeenCalledWith(LIVE.id, { ownedBy: USER }, expect.any(Date));
 	});
 
-	it('tells the node to forget the key once the row stops counting', async () => {
+	// The node travels with the key because the row is revoked by the time the
+	// intent is delivered, and nothing downstream can work out which machine to
+	// tell from a public key alone.
+	it('tells the node to forget the key once the row stops counting, and says which node', async () => {
 		const { subject, enqueue } = service({ revoked: LIVE });
 
 		await subject.revoke(claims(), LIVE.id);
@@ -394,6 +415,7 @@ describe('DevicesService.revoke', () => {
 		expect(enqueue).toHaveBeenCalledWith(ACCOUNT, {
 			kind: 'device.revoke',
 			publicKey: LIVE.publicKey,
+			exitNodeId: LIVE.exitNodeId,
 		});
 	});
 

@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 
 import { DATABASE } from '@vpn-poc/adapters';
-import { devices, liveTunnelAddresses, users, type Database } from '@vpn-poc/database';
+import { devices, users, type Database } from '@vpn-poc/database';
 
 import { currentExecutor } from '../database/db-scope.js';
 import type { Executor } from '../database/transaction-runner.js';
@@ -14,6 +14,8 @@ export interface StoredDevice {
 	readonly name: string;
 	readonly publicKey: string;
 	readonly tunnelAddress: string;
+	readonly regionId: string | null;
+	readonly exitNodeId: string | null;
 	readonly provisionedAt: Date | null;
 	readonly revokedAt: Date | null;
 	readonly createdAt: Date;
@@ -31,6 +33,8 @@ export interface NewDevice {
 	readonly name: string;
 	readonly publicKey: string;
 	readonly tunnelAddress: string;
+	readonly regionId: string;
+	readonly exitNodeId: string;
 	readonly accountSlot: number;
 }
 
@@ -45,7 +49,10 @@ export class DeviceRepository {
 		const inserted = await executor
 			.insert(devices)
 			.values(values)
-			.onConflictDoNothing({ target: devices.tunnelAddress, where: isNull(devices.revokedAt) })
+			.onConflictDoNothing({
+				target: [devices.exitNodeId, devices.tunnelAddress],
+				where: isNull(devices.revokedAt),
+			})
 			.returning();
 
 		return inserted[0];
@@ -65,8 +72,17 @@ export class DeviceRepository {
 		return new Set(rows.map((row) => row.accountSlot));
 	}
 
-	async takenAddresses(executor: Executor = currentExecutor()): Promise<ReadonlySet<string>> {
-		const rows = await executor.select().from(liveTunnelAddresses);
+	// Per node, because two nodes are independent networks and the same address
+	// on both is two different devices. The unique index decides; this only
+	// spares the loop from starting at the bottom of the range every time.
+	async takenAddresses(
+		exitNodeId: string,
+		executor: Executor = currentExecutor(),
+	): Promise<ReadonlySet<string>> {
+		const rows = await executor
+			.select({ tunnelAddress: devices.tunnelAddress })
+			.from(devices)
+			.where(and(eq(devices.exitNodeId, exitNodeId), isNull(devices.revokedAt)));
 
 		return new Set(rows.map((row) => row.tunnelAddress));
 	}
@@ -84,6 +100,8 @@ export class DeviceRepository {
 				name: devices.name,
 				publicKey: devices.publicKey,
 				tunnelAddress: devices.tunnelAddress,
+				regionId: devices.regionId,
+				exitNodeId: devices.exitNodeId,
 				provisionedAt: devices.provisionedAt,
 				revokedAt: devices.revokedAt,
 				createdAt: devices.createdAt,

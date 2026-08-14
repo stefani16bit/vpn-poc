@@ -1,6 +1,6 @@
 import '../../e2e.setup.js';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createDatabase } from '@vpn-poc/database';
 
@@ -9,10 +9,12 @@ const DATABASE_URL =
 
 const { sql } = createDatabase({ url: DATABASE_URL, maxConnections: 2 });
 
-const A = '33333333-3333-3333-3333-333333333333';
-const B = '44444444-4444-4444-4444-444444444444';
-const ADDRESS_OF_A = '10.13.13.211/32';
-const ADDRESS_OF_B = '10.13.13.212/32';
+const ACCOUNT = '33333333-3333-3333-3333-333333333333';
+const USER = 'a3333333-3333-3333-3333-333333333333';
+const REGION = 'b3333333-3333-3333-3333-333333333333';
+const SAO_PAULO = 'c3333333-3333-3333-3333-333333333333';
+const FRANKFURT = 'c4444444-4444-4444-4444-444444444444';
+const ADDRESS = '10.13.13.4/32';
 
 type Sql = typeof sql;
 
@@ -23,34 +25,34 @@ function asSystem<T>(work: (tx: Sql) => Promise<T>): Promise<T> {
 	}) as Promise<T>;
 }
 
-function asAccount<T>(accountId: string, work: (tx: Sql) => Promise<T>): Promise<T> {
-	return sql.begin(async (tx) => {
-		await tx`select set_config('app.account_id', ${accountId}, true)`;
-		return work(tx as unknown as Sql);
-	}) as Promise<T>;
+function claim(tx: Sql, nodeId: string, publicKey: string, slot: number): Promise<unknown> {
+	return tx`
+		insert into devices (account_id, user_id, name, public_key, tunnel_address, account_slot, region_id, exit_node_id)
+		values (${ACCOUNT}, ${USER}, 'laptop', ${publicKey}, ${ADDRESS}, ${slot}, ${REGION}, ${nodeId})
+	`;
 }
 
-function userIdFor(accountId: string): string {
-	return accountId.replace(/^./, 'a');
-}
-
-beforeAll(async () => {
+beforeEach(async () => {
 	await asSystem(async (tx) => {
-		await tx`delete from accounts where id in (${A}, ${B})`;
-
-		for (const { id, address } of [
-			{ id: A, address: ADDRESS_OF_A },
-			{ id: B, address: ADDRESS_OF_B },
+		await tx`update devices set revoked_at = now() where account_id = ${ACCOUNT}`;
+		await tx`delete from accounts where id = ${ACCOUNT}`;
+		await tx`insert into accounts (id, slug, name) values (${ACCOUNT}, 'alloc', 'alloc')`;
+		await tx`
+			insert into users (id, account_id, email, password_hash, role)
+			values (${USER}, ${ACCOUNT}, 'owner@alloc.example.com', 'x', 'owner')
+		`;
+		await tx`
+			insert into regions (id, account_id, name, slug)
+			values (${REGION}, ${ACCOUNT}, 'Europa', 'europa')
+		`;
+		for (const node of [
+			{ id: SAO_PAULO, label: 'sp1' },
+			{ id: FRANKFURT, label: 'fra1' },
 		]) {
-			const slug = `alloc-${id.slice(0, 4)}`;
-			await tx`insert into accounts (id, slug, name) values (${id}, ${slug}, ${slug})`;
 			await tx`
-				insert into users (id, account_id, email, password_hash, role)
-				values (${userIdFor(id)}, ${id}, ${`owner@${slug}.example.com`}, 'x', 'owner')
-			`;
-			await tx`
-				insert into devices (account_id, user_id, name, public_key, tunnel_address, account_slot)
-				values (${id}, ${userIdFor(id)}, 'laptop', ${`pk-${slug}`}, ${address}, 0)
+				insert into exit_nodes (id, account_id, region_id, label, endpoint, control_url, public_key, tunnel_cidr, credential_ref)
+				values (${node.id}, ${ACCOUNT}, ${REGION}, ${node.label}, '203.0.113.30:51820',
+					'http://203.0.113.30:51821', ${`alloc-node-${node.label}`}, '10.13.13.0/24', ${`poc-vpn/exit-node/${node.label}`})
 			`;
 		}
 	});
@@ -58,49 +60,52 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	await asSystem(async (tx) => {
-		await tx`update devices set revoked_at = now() where account_id in (${A}, ${B})`;
-		await tx`delete from accounts where id in (${A}, ${B})`;
+		await tx`update devices set revoked_at = now() where account_id = ${ACCOUNT}`;
+		await tx`delete from accounts where id = ${ACCOUNT}`;
 	});
 	await sql.end({ timeout: 5 });
 });
 
-describe('live_tunnel_addresses', () => {
-	it('reports an address the tenant policy hides, which is the whole point', async () => {
-		const throughTheTable = await asAccount(
-			B,
-			(tx) => tx`select tunnel_address from devices order by tunnel_address`,
+describe('the tunnel address', () => {
+	it('is the same address on two nodes, which is what raised the ceiling', async () => {
+		await asSystem(async (tx) => {
+			await claim(tx, SAO_PAULO, 'alloc-pk-sp', 0);
+			await claim(tx, FRANKFURT, 'alloc-pk-fra', 1);
+		});
+
+		const rows = await asSystem(
+			(tx) => tx`
+				select exit_node_id from devices
+				where account_id = ${ACCOUNT} and tunnel_address = ${ADDRESS} and revoked_at is null
+			`,
 		);
-		const throughTheView = await asAccount(
-			B,
-			(tx) => tx`select tunnel_address from live_tunnel_addresses order by tunnel_address`,
-		);
 
-		const table = throughTheTable.map((row) => row['tunnel_address']);
-		const view = throughTheView.map((row) => row['tunnel_address']);
-
-		expect(table).toContain(ADDRESS_OF_B);
-		expect(table).not.toContain(ADDRESS_OF_A);
-
-		expect(view).toContain(ADDRESS_OF_B);
-		expect(view).toContain(ADDRESS_OF_A);
+		expect(rows.map((row) => row['exit_node_id']).sort()).toEqual([SAO_PAULO, FRANKFURT].sort());
 	});
 
-	it('reports only the address, so no tenant is identifiable through it', async () => {
-		const [row] = await asAccount(B, (tx) => tx`select * from live_tunnel_addresses limit 1`);
+	it('is still claimed once per node, and the index is what refuses the second', async () => {
+		await asSystem((tx) => claim(tx, SAO_PAULO, 'alloc-pk-sp', 0));
 
-		expect(Object.keys(row ?? {})).toEqual(['tunnel_address']);
+		await expect(asSystem((tx) => claim(tx, SAO_PAULO, 'alloc-pk-other', 1))).rejects.toMatchObject(
+			{ code: '23505' },
+		);
 	});
 
-	it('forgets an address as soon as the device is revoked', async () => {
-		await asSystem(
-			(tx) => tx`update devices set revoked_at = now() where tunnel_address = ${ADDRESS_OF_A}`,
+	it('goes back to the node as soon as the device is revoked', async () => {
+		await asSystem(async (tx) => {
+			await claim(tx, SAO_PAULO, 'alloc-pk-sp', 0);
+			await tx`update devices set revoked_at = now() where public_key = 'alloc-pk-sp'`;
+		});
+
+		await asSystem((tx) => claim(tx, SAO_PAULO, 'alloc-pk-next', 1));
+
+		const rows = await asSystem(
+			(tx) => tx`
+				select public_key from devices
+				where exit_node_id = ${SAO_PAULO} and revoked_at is null
+			`,
 		);
 
-		const view = await asAccount(B, (tx) => tx`select tunnel_address from live_tunnel_addresses`);
-		expect(view.map((row) => row['tunnel_address'])).not.toContain(ADDRESS_OF_A);
-
-		await asSystem(
-			(tx) => tx`update devices set revoked_at = null where tunnel_address = ${ADDRESS_OF_A}`,
-		);
+		expect(rows.map((row) => row['public_key'])).toEqual(['alloc-pk-next']);
 	});
 });
