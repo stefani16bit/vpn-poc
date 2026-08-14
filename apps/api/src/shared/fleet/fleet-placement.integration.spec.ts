@@ -40,13 +40,19 @@ beforeEach(async () => {
 			insert into users (id, account_id, email, password_hash, role)
 			values (${USER}, ${ACCOUNT}, 'owner@placement.example.com', 'x', 'owner')
 		`;
+		// Spec-owned rows rather than the seeded fleet: this file deletes a node to
+		// prove the SET NULL, and the seed has to survive the whole suite. They are
+		// no longer swept away by the account cascade, so afterAll has to clear them
+		// or they surface in /regions as a failure in a different file.
+		await tx`delete from exit_nodes where id = ${NODE_IN_EUROPE}`;
+		await tx`delete from regions where id in (${EUROPE}, ${ASIA})`;
 		await tx`
-			insert into regions (id, account_id, name, slug)
-			values (${EUROPE}, ${ACCOUNT}, 'Europa', 'europa'), (${ASIA}, ${ACCOUNT}, 'Ásia', 'asia')
+			insert into regions (id, name, slug)
+			values (${EUROPE}, 'Europa placement', 'europa-placement'), (${ASIA}, 'Ásia placement', 'asia-placement')
 		`;
 		await tx`
-			insert into exit_nodes (id, account_id, region_id, label, endpoint, control_url, public_key, tunnel_cidr, credential_ref)
-			values (${NODE_IN_EUROPE}, ${ACCOUNT}, ${EUROPE}, 'eu1', '203.0.113.20:51820',
+			insert into exit_nodes (id, region_id, label, endpoint, control_url, public_key, tunnel_cidr, credential_ref)
+			values (${NODE_IN_EUROPE}, ${EUROPE}, 'eu1', '203.0.113.20:51820',
 				'http://203.0.113.20:51821', 'placement-node-pk', '10.13.13.0/24', 'poc-vpn/exit-node/eu1')
 		`;
 	});
@@ -56,6 +62,8 @@ afterAll(async () => {
 	await asSystem(async (tx) => {
 		await tx`update devices set revoked_at = now() where account_id = ${ACCOUNT}`;
 		await tx`delete from accounts where id = ${ACCOUNT}`;
+		await tx`delete from exit_nodes where id = ${NODE_IN_EUROPE}`;
+		await tx`delete from regions where id in (${EUROPE}, ${ASIA})`;
 	});
 	await sql.end({ timeout: 5 });
 });

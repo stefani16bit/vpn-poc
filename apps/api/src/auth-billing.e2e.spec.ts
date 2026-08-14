@@ -4,18 +4,12 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DATABASE_CONNECTION } from '@vpn-poc/adapters';
-import { ENTITLEMENTS, UNSUBSCRIBED_ENTITLEMENTS } from '@vpn/contracts';
-import {
-	BILLING_PROVIDER,
-	CACHE_STORE,
-	EXIT_NODE,
-	type IExitNode,
-	type SubscriptionStatus,
-} from '@vpn/ports';
+import { DATABASE_CONNECTION, ExitNodeFactory } from '@vpn-poc/adapters';
+import { ENTITLEMENTS, STALE_AFTER_SECONDS, UNSUBSCRIBED_ENTITLEMENTS } from '@vpn/contracts';
+import { BILLING_PROVIDER, CACHE_STORE, type IExitNode, type SubscriptionStatus } from '@vpn/ports';
 import type { MemoryBillingProvider, MemoryCacheStore } from '@vpn/testing/fakes';
 
-import type { createDatabase } from '@vpn-poc/database';
+import { PLATFORM_FLEET, platformNode, type createDatabase } from '@vpn-poc/database';
 
 import { createApp } from './bootstrap.js';
 import { PeerReconciler } from './shared/devices/peer-reconciler.service.js';
@@ -26,6 +20,8 @@ import { OutboxRepository } from './shared/outbox/outbox.repository.js';
 let app: INestApplication;
 let sql: ReturnType<typeof createDatabase>['sql'];
 let db: Awaited<ReturnType<ReturnType<typeof createDatabase>['sql']['reserve']>>;
+
+const SA = platformNode('sa');
 
 const PASSWORD = 'a-sufficiently-long-password';
 const NEW_PASSWORD = 'an-entirely-different-password';
@@ -46,9 +42,33 @@ afterAll(async () => {
 	await app.close();
 });
 
-async function peerKeysOnNode(): Promise<readonly string[]> {
-	const node = app.get<IExitNode>(EXIT_NODE);
-	return (await node.listPeers()).map((peer) => peer.publicKey);
+// Through the factory and not the container token: peers live on a node now,
+// and the factory is what hands out the one that belongs to a row.
+function nodeOf(exitNodeId: string): Promise<IExitNode> {
+	const row = PLATFORM_FLEET.find((node) => node.nodeId === exitNodeId);
+
+	return app.get(ExitNodeFactory).for({
+		id: exitNodeId,
+		controlUrl: row?.controlUrl ?? SA.controlUrl,
+		endpoint: row?.endpoint ?? SA.endpoint,
+		tunnelCidr: row?.tunnelCidr ?? SA.tunnelCidr,
+		credentialRef: row?.credentialRef ?? SA.credentialRef,
+	});
+}
+
+// The memory driver caches one fake per node id on a factory that lives for the
+// whole file. While every session minted a fresh node id each test got a virgin
+// fake; on a seeded fleet they all share one, and its peer map would accumulate
+// across the suite. Wiping the database cannot reach it.
+async function clearFleetPeers(): Promise<void> {
+	for (const row of PLATFORM_FLEET) {
+		const node = await nodeOf(row.nodeId);
+		for (const peer of await node.listPeers()) await node.revokePeer(peer.publicKey);
+	}
+}
+
+async function peerKeysOnNode(exitNodeId: string): Promise<readonly string[]> {
+	return (await (await nodeOf(exitNodeId)).listPeers()).map((peer) => peer.publicKey);
 }
 
 async function drainNotifications(): Promise<void> {
@@ -68,6 +88,10 @@ beforeEach(async () => {
 	// do what a real deletion path has to do: revoke first.
 	await db`UPDATE devices SET revoked_at = now() WHERE revoked_at IS NULL`;
 	await db`DELETE FROM accounts`;
+	// The fleet outlives the accounts now, so anything a test did to it leaks
+	// forward. A backdated node would 409 every later placement.
+	await db`UPDATE exit_nodes SET last_seen_at = now()`;
+	await clearFleetPeers();
 	await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
 });
 
@@ -713,10 +737,13 @@ describe('billing', () => {
 		});
 	}
 
+	// The fleet is seeded, so every session lands on the same node we operate —
+	// which is the point, and what turns two requests per test into a constant.
 	async function subscribed() {
 		const session = await subscribedSession();
 		await deliver(activation(session.accountId)).expect(200, { applied: true });
-		return session;
+
+		return { ...session, regionId: SA.regionId, exitNodeId: SA.nodeId };
 	}
 
 	// Only public endpoints: the admin creates the colleague and the colleague
@@ -1239,11 +1266,11 @@ describe('billing', () => {
 				.send(body);
 		}
 
-		function createDevice(accessToken: string, publicKey = PUBLIC_KEY) {
+		function createDevice(accessToken: string, regionId?: string, publicKey = PUBLIC_KEY) {
 			return request(app.getHttpServer())
 				.post('/devices')
 				.set('Authorization', `Bearer ${accessToken}`)
-				.send({ name: 'laptop', publicKey });
+				.send({ name: 'laptop', publicKey, regionId });
 		}
 
 		it('hands an untouched account exactly the code default', async () => {
@@ -1264,7 +1291,7 @@ describe('billing', () => {
 				granted: false,
 			}).expect(200);
 
-			const denied = await createDevice(colleague.accessToken).expect(403);
+			const denied = await createDevice(colleague.accessToken, owner.regionId).expect(403);
 			expect(denied.body.code).toBe('FORBIDDEN');
 			expect((await grantsOf(colleague.accessToken).expect(200)).body.permissions).toEqual([]);
 		});
@@ -1280,9 +1307,10 @@ describe('billing', () => {
 			const relaxed = await subscribed();
 			const relaxedMember = await colleagueOf(relaxed.accessToken, 'member');
 
-			await createDevice(strictMember.accessToken).expect(403);
+			await createDevice(strictMember.accessToken, strict.regionId).expect(403);
 			await createDevice(
 				relaxedMember.accessToken,
+				relaxed.regionId,
 				'iOoJ0M5vNMDlnKQyMHU5x1O2rZlNMvwXWvYCLzsCLl0=',
 			).expect(201);
 		});
@@ -1301,10 +1329,12 @@ describe('billing', () => {
 				granted: true,
 			}).expect(200);
 
-			await createDevice(ana.accessToken).expect(201);
-			await createDevice(bruno.accessToken, 'iOoJ0M5vNMDlnKQyMHU5x1O2rZlNMvwXWvYCLzsCLl0=').expect(
-				403,
-			);
+			await createDevice(ana.accessToken, owner.regionId).expect(201);
+			await createDevice(
+				bruno.accessToken,
+				owner.regionId,
+				'iOoJ0M5vNMDlnKQyMHU5x1O2rZlNMvwXWvYCLzsCLl0=',
+			).expect(403);
 		});
 
 		it('checks what the company bought before what the person may do', async () => {
@@ -1325,7 +1355,7 @@ describe('billing', () => {
 				}),
 			).expect(200, { applied: true });
 
-			const denied = await createDevice(colleague.accessToken).expect(402);
+			const denied = await createDevice(colleague.accessToken, owner.regionId).expect(402);
 			expect(denied.body.code).toBe('PAYMENT_REQUIRED');
 		});
 
@@ -1440,8 +1470,8 @@ describe('billing', () => {
 			const owner = await subscribed();
 			const colleague = await colleagueOf(owner.accessToken, 'member');
 
-			await createDevice(owner.accessToken).expect(201);
-			await createDevice(colleague.accessToken, SECOND_PUBLIC_KEY).expect(201);
+			await createDevice(owner.accessToken, owner.regionId).expect(201);
+			await createDevice(colleague.accessToken, owner.regionId, SECOND_PUBLIC_KEY).expect(201);
 
 			const mine = await listDevices(colleague.accessToken).expect(200);
 
@@ -1453,8 +1483,8 @@ describe('billing', () => {
 			const owner = await subscribed();
 			const colleague = await colleagueOf(owner.accessToken, 'member');
 
-			await createDevice(owner.accessToken).expect(201);
-			await createDevice(colleague.accessToken, SECOND_PUBLIC_KEY).expect(201);
+			await createDevice(owner.accessToken, owner.regionId).expect(201);
+			await createDevice(colleague.accessToken, owner.regionId, SECOND_PUBLIC_KEY).expect(201);
 
 			await setRoleGrant(owner.accessToken, 'member', {
 				permission: 'devices.readAll',
@@ -1470,7 +1500,7 @@ describe('billing', () => {
 			const owner = await subscribed();
 			const admin = await colleagueOf(owner.accessToken, 'admin');
 
-			await createDevice(owner.accessToken).expect(201);
+			await createDevice(owner.accessToken, owner.regionId).expect(201);
 			expect((await listDevices(admin.accessToken).expect(200)).body.devices).toHaveLength(1);
 
 			await setRoleGrant(owner.accessToken, 'admin', {
@@ -1484,7 +1514,7 @@ describe('billing', () => {
 		it('answers 404 and not 403 when revoking a key the caller cannot reach', async () => {
 			const owner = await subscribed();
 			const colleague = await colleagueOf(owner.accessToken, 'member');
-			const created = await createDevice(owner.accessToken).expect(201);
+			const created = await createDevice(owner.accessToken, owner.regionId).expect(201);
 
 			const denied = await request(app.getHttpServer())
 				.delete(`/devices/${created.body.device.id}`)
@@ -1502,7 +1532,12 @@ describe('billing', () => {
 			const denied = await request(app.getHttpServer())
 				.post('/devices')
 				.set('Authorization', `Bearer ${ana.accessToken}`)
-				.send({ name: 'laptop', publicKey: PUBLIC_KEY, userId: bruno.userId })
+				.send({
+					name: 'laptop',
+					publicKey: PUBLIC_KEY,
+					userId: bruno.userId,
+					regionId: owner.regionId,
+				})
 				.expect(403);
 
 			expect(denied.body.code).toBe('FORBIDDEN');
@@ -1524,7 +1559,12 @@ describe('billing', () => {
 			const created = await request(app.getHttpServer())
 				.post('/devices')
 				.set('Authorization', `Bearer ${admin.accessToken}`)
-				.send({ name: 'laptop', publicKey: PUBLIC_KEY, userId: colleague.userId })
+				.send({
+					name: 'laptop',
+					publicKey: PUBLIC_KEY,
+					userId: colleague.userId,
+					regionId: owner.regionId,
+				})
 				.expect(201);
 
 			expect(created.body.device.userEmail).toBe(colleague.email);
@@ -1823,19 +1863,78 @@ describe('billing', () => {
 		});
 	});
 
+	describe('fleet', () => {
+		function regionsOf(accessToken: string) {
+			return request(app.getHttpServer())
+				.get('/regions')
+				.set('Authorization', `Bearer ${accessToken}`);
+		}
+
+		it('offers every region we operate, and nothing about the machines in them', async () => {
+			const session = await subscribed();
+
+			const response = await regionsOf(session.accessToken).expect(200);
+
+			expect(response.body.regions).toHaveLength(PLATFORM_FLEET.length);
+			expect(response.body.regions).toContainEqual({
+				id: SA.regionId,
+				name: SA.regionName,
+				available: true,
+			});
+			expect(response.body.regions[0]).not.toHaveProperty('nodeCount');
+		});
+
+		// The picker has to agree with the placement query, or it offers a region
+		// the very next call refuses with a 409.
+		it('calls a region unavailable once every node in it has gone quiet', async () => {
+			const session = await subscribed();
+			await db`
+				UPDATE exit_nodes SET last_seen_at = now() - make_interval(secs => ${STALE_AFTER_SECONDS + 60})
+				WHERE region_id = ${SA.regionId}
+			`;
+
+			const response = await regionsOf(session.accessToken).expect(200);
+
+			expect(response.body.regions).toContainEqual(
+				expect.objectContaining({ id: SA.regionId, available: false }),
+			);
+		});
+
+		it('refuses a key in a region whose nodes all went quiet, which is what unavailable meant', async () => {
+			const session = await subscribed();
+			await db`
+				UPDATE exit_nodes SET last_seen_at = now() - make_interval(secs => ${STALE_AFTER_SECONDS + 60})
+				WHERE region_id = ${SA.regionId}
+			`;
+
+			await request(app.getHttpServer())
+				.post('/devices')
+				.set('Authorization', `Bearer ${session.accessToken}`)
+				.send({
+					name: 'laptop',
+					publicKey: 'GJvAqPYlHR3nOMxdI0qc1lPzZLDkP+FCoAKzMEwPUXA=',
+					regionId: SA.regionId,
+				})
+				.expect(409);
+		});
+	});
+
 	describe('devices', () => {
 		const PUBLIC_KEY = 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=';
 
-		function createDevice(accessToken: string, publicKey = PUBLIC_KEY) {
+		function createDevice(accessToken: string, regionId?: string, publicKey = PUBLIC_KEY) {
 			return request(app.getHttpServer())
 				.post('/devices')
 				.set('Authorization', `Bearer ${accessToken}`)
-				.send({ name: 'laptop', publicKey });
+				.send({ name: 'laptop', publicKey, regionId });
 		}
 
 		it('answers 402 when the account never subscribed, which is the gate doing its job', async () => {
 			const session = await subscribedSession();
 
+			// No regionId in the body at all: the gate answers before the body is
+			// ever read, which is the assertion. The fleet exists for everyone now,
+			// so nothing here depends on the account having a region of its own.
 			const response = await createDevice(session.accessToken).expect(402);
 			expect(response.body.code).toBe('PAYMENT_REQUIRED');
 		});
@@ -1852,7 +1951,7 @@ describe('billing', () => {
 		it('creates a device once the subscription grants vpn_access', async () => {
 			const session = await subscribed();
 
-			const response = await createDevice(session.accessToken).expect(201);
+			const response = await createDevice(session.accessToken, session.regionId).expect(201);
 
 			expect(response.body.device.publicKey).toBe(PUBLIC_KEY);
 			expect(response.body.device.tunnelAddress).toMatch(/^10\.13\.13\.\d+\/32$/);
@@ -1863,13 +1962,17 @@ describe('billing', () => {
 		it('never accepts anything shaped like a private key', async () => {
 			const session = await subscribed();
 
-			const response = await createDevice(session.accessToken, 'not-a-key').expect(400);
+			const response = await createDevice(
+				session.accessToken,
+				session.regionId,
+				'not-a-key',
+			).expect(400);
 			expect(response.body.fields.publicKey).toBe('validation.publicKey.invalid');
 		});
 
 		it('writes the provisioning intention in the same transaction as the row', async () => {
 			const session = await subscribed();
-			await createDevice(session.accessToken).expect(201);
+			await createDevice(session.accessToken, session.regionId).expect(201);
 
 			const rows = await db`SELECT kind FROM outbox WHERE kind = 'device.provision'`;
 			expect(rows).toHaveLength(1);
@@ -1879,15 +1982,15 @@ describe('billing', () => {
 			const session = await subscribed();
 			const other = 'sVFHTBiVR0ndYPKZQBFsvHOJmxtfDppNwCPYSPTHZ0Y=';
 
-			const first = await createDevice(session.accessToken).expect(201);
-			const second = await createDevice(session.accessToken, other).expect(201);
+			const first = await createDevice(session.accessToken, session.regionId).expect(201);
+			const second = await createDevice(session.accessToken, session.regionId, other).expect(201);
 
 			expect(second.body.device.tunnelAddress).not.toBe(first.body.device.tunnelAddress);
 		});
 
 		it('lists only the live devices, so a revoked one stops being offered', async () => {
 			const session = await subscribed();
-			const created = await createDevice(session.accessToken).expect(201);
+			const created = await createDevice(session.accessToken, session.regionId).expect(201);
 
 			await request(app.getHttpServer())
 				.delete(`/devices/${created.body.device.id}`)
@@ -1904,38 +2007,38 @@ describe('billing', () => {
 
 		it('lets the same key come back after it was revoked', async () => {
 			const session = await subscribed();
-			const created = await createDevice(session.accessToken).expect(201);
+			const created = await createDevice(session.accessToken, session.regionId).expect(201);
 
 			await request(app.getHttpServer())
 				.delete(`/devices/${created.body.device.id}`)
 				.set('Authorization', `Bearer ${session.accessToken}`)
 				.expect(204);
 
-			await createDevice(session.accessToken).expect(201);
+			await createDevice(session.accessToken, session.regionId).expect(201);
 		});
 
 		it('names the duplicate key rather than blaming the address range', async () => {
 			const session = await subscribed();
-			await createDevice(session.accessToken).expect(201);
+			await createDevice(session.accessToken, session.regionId).expect(201);
 
-			const second = await createDevice(session.accessToken).expect(409);
+			const second = await createDevice(session.accessToken, session.regionId).expect(409);
 
 			expect(second.body.message).toContain('public key');
 		});
 
 		it('names the duplicate key even when the live device belongs to another account', async () => {
 			const first = await subscribed();
-			await createDevice(first.accessToken).expect(201);
+			await createDevice(first.accessToken, first.regionId).expect(201);
 
 			const second = await subscribed();
-			const response = await createDevice(second.accessToken).expect(409);
+			const response = await createDevice(second.accessToken, second.regionId).expect(409);
 
 			expect(response.body.message).toContain('public key');
 		});
 
 		it('shows an admin the devices of the whole account, named by owner', async () => {
 			const owner = await subscribed();
-			await createDevice(owner.accessToken).expect(201);
+			await createDevice(owner.accessToken, owner.regionId).expect(201);
 			const admin = await colleagueOf(owner.accessToken, 'admin');
 
 			const listed = await request(app.getHttpServer())
@@ -1949,7 +2052,7 @@ describe('billing', () => {
 
 		it('shows a member nothing of what a colleague owns', async () => {
 			const owner = await subscribed();
-			await createDevice(owner.accessToken).expect(201);
+			await createDevice(owner.accessToken, owner.regionId).expect(201);
 			const member = await colleagueOf(owner.accessToken, 'member');
 
 			const listed = await request(app.getHttpServer())
@@ -1962,7 +2065,7 @@ describe('billing', () => {
 
 		it('refuses to revoke a device that belongs to another member', async () => {
 			const owner = await subscribed();
-			const created = await createDevice(owner.accessToken).expect(201);
+			const created = await createDevice(owner.accessToken, owner.regionId).expect(201);
 			const colleague = await colleagueOf(owner.accessToken, 'member');
 
 			await request(app.getHttpServer())
@@ -1976,7 +2079,7 @@ describe('billing', () => {
 
 		it('lets an admin revoke a device that is not theirs, which is what offboarding needs', async () => {
 			const owner = await subscribed();
-			const created = await createDevice(owner.accessToken).expect(201);
+			const created = await createDevice(owner.accessToken, owner.regionId).expect(201);
 			const admin = await colleagueOf(owner.accessToken, 'admin');
 
 			await request(app.getHttpServer())
@@ -1990,7 +2093,7 @@ describe('billing', () => {
 
 		it('tells the node to forget a peer an admin revoked', async () => {
 			const owner = await subscribed();
-			const created = await createDevice(owner.accessToken).expect(201);
+			const created = await createDevice(owner.accessToken, owner.regionId).expect(201);
 			const admin = await colleagueOf(owner.accessToken, 'admin');
 
 			await request(app.getHttpServer())
@@ -2003,30 +2106,73 @@ describe('billing', () => {
 			expect((rows[0] as { payload: { publicKey: string } }).payload.publicKey).toBe(PUBLIC_KEY);
 		});
 
-		it('forgets a peer whose account was deleted before the intent was published', async () => {
+		it('forgets a peer whose row was deleted before the intent was published', async () => {
 			const session = await subscribed();
-			const created = await createDevice(session.accessToken).expect(201);
+			const created = await createDevice(session.accessToken, session.regionId).expect(201);
 			await drainNotifications();
 
-			expect(await peerKeysOnNode()).toContain(PUBLIC_KEY);
+			expect(await peerKeysOnNode(session.exitNodeId)).toContain(PUBLIC_KEY);
 
-			// Revoking writes the intent, but the account delete cascades the outbox
-			// row away before the relay ever sees it. Nothing else repairs this.
+			// Revoking writes the intent, and the row is deleted before the relay
+			// ever sees it. Nothing but the sweep repairs this, and the sweep only
+			// reaches the node because the node is still registered.
 			await request(app.getHttpServer())
 				.delete(`/devices/${created.body.device.id}`)
 				.set('Authorization', `Bearer ${session.accessToken}`)
 				.expect(204);
 			await db`DELETE FROM outbox WHERE kind = 'device.revoke'`;
-			await db`DELETE FROM accounts WHERE id = ${session.accountId}`;
+			await db`DELETE FROM devices WHERE id = ${created.body.device.id}`;
 
 			expect(await app.get(PeerReconciler).runOnce()).toMatchObject({ revoked: 1 });
 
-			expect(await peerKeysOnNode()).not.toContain(PUBLIC_KEY);
+			expect(await peerKeysOnNode(session.exitNodeId)).not.toContain(PUBLIC_KEY);
+		});
+
+		// Deleting an account no longer takes a node with it — the fleet is ours.
+		// What still strands peers is retiring a machine: the sweep only reaches
+		// what it has a row for, so the peers stay where they are. There is no
+		// control url left to ask, and inventing one is the SSRF the spec refuses.
+		it('cannot reach the peers of a node that was retired from the fleet', async () => {
+			const RETIRED_REGION = 'f1ee7000-0000-4000-8000-0000000000f1';
+			const RETIRED_NODE = 'f1ee7000-0000-4000-8000-0000000000f2';
+			const session = await subscribed();
+
+			try {
+				await db`
+					INSERT INTO regions (id, slug, name) VALUES (${RETIRED_REGION}, 'retired', 'Retired')
+				`;
+				await db`
+					INSERT INTO exit_nodes (id, region_id, label, endpoint, control_url, public_key, tunnel_cidr, credential_ref, last_seen_at)
+					VALUES (${RETIRED_NODE}, ${RETIRED_REGION}, 'retired-01', '127.0.0.1:21820',
+						'http://127.0.0.1:21821', 'retired-node-public-key', '10.13.99.0/24',
+						'poc-vpn/exit-node/sa', now())
+				`;
+
+				// The only node in that region, so the placement query has one answer.
+				const created = await createDevice(session.accessToken, RETIRED_REGION).expect(201);
+				await drainNotifications();
+				expect(await peerKeysOnNode(RETIRED_NODE)).toContain(PUBLIC_KEY);
+
+				await request(app.getHttpServer())
+					.delete(`/devices/${created.body.device.id}`)
+					.set('Authorization', `Bearer ${session.accessToken}`)
+					.expect(204);
+				await db`DELETE FROM outbox WHERE kind = 'device.revoke'`;
+				await db`DELETE FROM exit_nodes WHERE id = ${RETIRED_NODE}`;
+
+				expect(await app.get(PeerReconciler).runOnce()).toMatchObject({ revoked: 0 });
+				expect(await peerKeysOnNode(RETIRED_NODE)).toContain(PUBLIC_KEY);
+			} finally {
+				await db`UPDATE devices SET revoked_at = now() WHERE region_id = ${RETIRED_REGION}`;
+				await db`DELETE FROM exit_nodes WHERE id = ${RETIRED_NODE}`;
+				await db`DELETE FROM devices WHERE region_id = ${RETIRED_REGION}`;
+				await db`DELETE FROM regions WHERE id = ${RETIRED_REGION}`;
+			}
 		});
 
 		it('lands the peer and stamps the row for a device the queue never delivered', async () => {
 			const session = await subscribed();
-			const created = await createDevice(session.accessToken).expect(201);
+			const created = await createDevice(session.accessToken, session.regionId).expect(201);
 			const deviceId = created.body.device.id as string;
 
 			// The intent is written and never published: this is the DLQ, without
@@ -2035,12 +2181,12 @@ describe('billing', () => {
 			await db`DELETE FROM outbox WHERE kind = 'device.provision'`;
 			await db`UPDATE devices SET created_at = now() - interval '10 minutes' WHERE id = ${deviceId}`;
 
-			expect(await peerKeysOnNode()).not.toContain(PUBLIC_KEY);
+			expect(await peerKeysOnNode(session.exitNodeId)).not.toContain(PUBLIC_KEY);
 
 			const report = await app.get(PeerReconciler).runOnce();
 
 			expect(report).toMatchObject({ provisioned: 1, stamped: 1 });
-			expect(await peerKeysOnNode()).toContain(PUBLIC_KEY);
+			expect(await peerKeysOnNode(session.exitNodeId)).toContain(PUBLIC_KEY);
 
 			const [row] = await db`SELECT provisioned_at FROM devices WHERE id = ${deviceId}`;
 			expect((row as { provisioned_at: Date | null }).provisioned_at).not.toBeNull();
@@ -2048,14 +2194,20 @@ describe('billing', () => {
 
 		it('changes nothing on a second sweep, because wg set converges', async () => {
 			const session = await subscribed();
-			const created = await createDevice(session.accessToken).expect(201);
+			const created = await createDevice(session.accessToken, session.regionId).expect(201);
 			await drainNotifications();
 
-			const before = await app.get<IExitNode>(EXIT_NODE).listPeers();
+			const before = await (await nodeOf(session.exitNodeId)).listPeers();
 			const report = await app.get(PeerReconciler).runOnce();
 
-			expect(report).toEqual({ revoked: 0, provisioned: 0, stamped: 0, failed: 0 });
-			expect(await app.get<IExitNode>(EXIT_NODE).listPeers()).toEqual(before);
+			expect(report).toEqual({
+				revoked: 0,
+				provisioned: 0,
+				stamped: 0,
+				failed: 0,
+				unreachable: 0,
+			});
+			expect(await (await nodeOf(session.exitNodeId)).listPeers()).toEqual(before);
 
 			const [row] =
 				await db`SELECT provisioned_at FROM devices WHERE id = ${created.body.device.id}`;
@@ -2064,7 +2216,7 @@ describe('billing', () => {
 
 		it('answers 404 for revoking a device that is already gone', async () => {
 			const session = await subscribed();
-			const created = await createDevice(session.accessToken).expect(201);
+			const created = await createDevice(session.accessToken, session.regionId).expect(201);
 			const url = `/devices/${created.body.device.id}`;
 
 			await request(app.getHttpServer())
@@ -2082,18 +2234,7 @@ describe('billing', () => {
 	describe('users', () => {
 		const PUBLIC_KEY = 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=';
 
-		function activation(accountId: string) {
-			const billing = provider();
-			return billing.emit('subscription_activated', accountId, {
-				subscription: billing.seedSubscription(`sub_${accountId}`, accountId),
-			});
-		}
-
-		async function ownerSession() {
-			const session = await subscribedSession();
-			await deliver(activation(session.accountId)).expect(200, { applied: true });
-			return session;
-		}
+		const ownerSession = subscribed;
 
 		function createUser(accessToken: string, body: Record<string, unknown>) {
 			return request(app.getHttpServer())
@@ -2309,7 +2450,7 @@ describe('billing', () => {
 			await request(app.getHttpServer())
 				.post('/devices')
 				.set('Authorization', `Bearer ${session.body.accessToken}`)
-				.send({ name: 'laptop', publicKey: PUBLIC_KEY })
+				.send({ name: 'laptop', publicKey: PUBLIC_KEY, regionId: owner.regionId })
 				.expect(201);
 
 			const refused = await request(app.getHttpServer())
@@ -2348,7 +2489,7 @@ describe('billing', () => {
 			await request(app.getHttpServer())
 				.post('/devices')
 				.set('Authorization', `Bearer ${session.body.accessToken}`)
-				.send({ name: 'laptop', publicKey: PUBLIC_KEY })
+				.send({ name: 'laptop', publicKey: PUBLIC_KEY, regionId: owner.regionId })
 				.expect(201);
 
 			const listed = await request(app.getHttpServer())

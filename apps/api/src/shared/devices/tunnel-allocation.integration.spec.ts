@@ -41,17 +41,22 @@ beforeEach(async () => {
 			insert into users (id, account_id, email, password_hash, role)
 			values (${USER}, ${ACCOUNT}, 'owner@alloc.example.com', 'x', 'owner')
 		`;
+		// Spec-owned, not the seeded fleet: these two share one range on purpose so
+		// the per-node index is what refuses the second claim. They outlive the
+		// account now, so afterAll clears them.
+		await tx`delete from exit_nodes where id in (${SAO_PAULO}, ${FRANKFURT})`;
+		await tx`delete from regions where id = ${REGION}`;
 		await tx`
-			insert into regions (id, account_id, name, slug)
-			values (${REGION}, ${ACCOUNT}, 'Europa', 'europa')
+			insert into regions (id, name, slug)
+			values (${REGION}, 'Europa alloc', 'europa-alloc')
 		`;
 		for (const node of [
 			{ id: SAO_PAULO, label: 'sp1' },
 			{ id: FRANKFURT, label: 'fra1' },
 		]) {
 			await tx`
-				insert into exit_nodes (id, account_id, region_id, label, endpoint, control_url, public_key, tunnel_cidr, credential_ref)
-				values (${node.id}, ${ACCOUNT}, ${REGION}, ${node.label}, '203.0.113.30:51820',
+				insert into exit_nodes (id, region_id, label, endpoint, control_url, public_key, tunnel_cidr, credential_ref)
+				values (${node.id}, ${REGION}, ${node.label}, '203.0.113.30:51820',
 					'http://203.0.113.30:51821', ${`alloc-node-${node.label}`}, '10.13.13.0/24', ${`poc-vpn/exit-node/${node.label}`})
 			`;
 		}
@@ -62,6 +67,8 @@ afterAll(async () => {
 	await asSystem(async (tx) => {
 		await tx`update devices set revoked_at = now() where account_id = ${ACCOUNT}`;
 		await tx`delete from accounts where id = ${ACCOUNT}`;
+		await tx`delete from exit_nodes where id in (${SAO_PAULO}, ${FRANKFURT})`;
+		await tx`delete from regions where id = ${REGION}`;
 	});
 	await sql.end({ timeout: 5 });
 });
