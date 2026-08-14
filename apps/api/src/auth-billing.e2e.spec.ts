@@ -15,6 +15,7 @@ import { createApp } from './bootstrap.js';
 import { PeerReconciler } from './shared/devices/peer-reconciler.service.js';
 import { OutboxConsumer } from './shared/outbox/outbox-consumer.js';
 import { OutboxRelay } from './shared/outbox/outbox-relay.js';
+import { TransactionRunner } from './shared/database/transaction-runner.js';
 import { OutboxRepository } from './shared/outbox/outbox.repository.js';
 
 let app: INestApplication;
@@ -2684,6 +2685,16 @@ describe('queued notifications', () => {
 		expect(unpublished).toHaveLength(0);
 	});
 
+	// Two claims that genuinely overlap in time, which three awaited runOnce()
+	// calls do not: they take turns on the pool, so the first drains the table and
+	// the other two find it empty. That version passed with the row lock deleted
+	// outright, and failed instead whenever a worker left running by `pnpm dev`
+	// relayed against this same database — an intermittent count mismatch that
+	// said nothing about locking either way.
+	//
+	// Here the first transaction is held open while the second claims, so what is
+	// asserted is what `for update skip locked` is for: the second sees none of
+	// the rows the first is holding.
 	it('does not hand the same row to two relays running at once', async () => {
 		const emails = Array.from({ length: 12 }, () => freshEmail());
 		for (const email of emails) {
@@ -2693,14 +2704,33 @@ describe('queued notifications', () => {
 				.expect(202);
 		}
 
-		const relay = app.get(OutboxRelay);
-		const counts = await Promise.all([relay.runOnce(), relay.runOnce(), relay.runOnce()]);
+		const runner = app.get(TransactionRunner);
+		const outbox = app.get(OutboxRepository);
 
-		expect(counts.reduce((total, count) => total + count, 0)).toBe(emails.length);
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
 
-		const published =
-			await db`SELECT count(*)::int AS count FROM outbox WHERE published_at IS NOT NULL`;
-		expect(published[0]?.['count']).toBe(emails.length);
+		let first: readonly { id: string }[] = [];
+		const holding = runner.runAsSystem(async (executor) => {
+			first = await outbox.claimPending(20, executor);
+			await held;
+		});
+
+		while (first.length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+
+		const second = await runner.runAsSystem((executor) => outbox.claimPending(20, executor));
+
+		release();
+		await holding;
+
+		// Disjointness and not a count: whatever else is reading this table may take
+		// rows too, but nothing may take a row this transaction is holding.
+		const heldIds = new Set(first.map((entry) => entry.id));
+
+		expect(first.length).toBeGreaterThan(0);
+		expect(second.filter((entry) => heldIds.has(entry.id))).toEqual([]);
 	});
 
 	it('delivers one e-mail even when the consumer runs twice over the same job', async () => {
