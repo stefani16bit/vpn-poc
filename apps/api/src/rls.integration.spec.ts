@@ -2,7 +2,7 @@ import './e2e.setup.js';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { createDatabase } from '@vpn-poc/database';
+import { createDatabase, platformNode } from '@vpn-poc/database';
 
 const DATABASE_URL =
 	process.env['DATABASE_URL'] ?? 'postgres://vpn_app:vpn_app_dev@127.0.0.1:25432/poc_vpn_dev';
@@ -11,6 +11,8 @@ const { sql } = createDatabase({ url: DATABASE_URL, maxConnections: 2 });
 
 const A = '11111111-1111-1111-1111-111111111111';
 const B = '22222222-2222-2222-2222-222222222222';
+
+const SEEDED = platformNode('sa');
 
 type Row = Record<string, unknown>;
 
@@ -70,9 +72,13 @@ beforeAll(async () => {
 				insert into outbox (account_id, kind, payload)
 				values (${id}, 'auth.welcome', ${JSON.stringify({ kind: 'auth.welcome', userId: userIdFor(id) })}::jsonb)
 			`;
+			// Both accounts land on the same platform node on purpose: two tenants
+			// sharing one machine, isolated by the policy on devices and by nothing
+			// on the node itself, is exactly what the fleet being ours means.
 			await tx`
-				insert into devices (account_id, user_id, name, public_key, tunnel_address, account_slot)
-				values (${id}, ${userIdFor(id)}, 'laptop', ${`pk-${slug}`}, ${`10.13.13.${id === A ? 101 : 102}/32`}, 0)
+				insert into devices (account_id, user_id, name, public_key, tunnel_address, account_slot, region_id, exit_node_id)
+				values (${id}, ${userIdFor(id)}, 'laptop', ${`pk-${slug}`}, ${`10.13.13.${id === A ? 101 : 102}/32`}, 0,
+					${SEEDED.regionId}, ${SEEDED.nodeId})
 			`;
 			await tx`
 				insert into role_permissions (account_id, role, permission, granted)
@@ -191,6 +197,29 @@ describe.each(TABLES)('$name is isolated by account', ({ read }) => {
 	});
 });
 
+// The fleet is ours, so it is deliberately not isolated — every tenant sees the
+// same five regions. What replaces the isolation is a narrower grant: read, and
+// nothing else. These two tests are the whole difference between a platform
+// table and a table somebody forgot to put a policy on.
+describe('the platform fleet', () => {
+	it('reads the same to whichever account is scoped', async () => {
+		const forA = await asAccount(A, (tx) => tx`select id from exit_nodes` as Promise<Row[]>);
+		const forB = await asAccount(B, (tx) => tx`select id from exit_nodes` as Promise<Row[]>);
+
+		expect(forA).toHaveLength(5);
+		expect(forA).toEqual(forB);
+	});
+
+	it.each(['regions', 'exit_nodes'])('refuses a tenant writing %s', async (table) => {
+		await expect(
+			asAccount(A, async (tx) => {
+				await tx`update ${tx(table)} set created_at = now()`;
+				return [];
+			}),
+		).rejects.toMatchObject({ code: '42501' });
+	});
+});
+
 describe('write side', () => {
 	it('refuses to plant a row in another account', async () => {
 		await expect(
@@ -218,7 +247,7 @@ describe('write side', () => {
 });
 
 describe('the policy set itself', () => {
-	it('is exactly the twenty-four policies the schema declares', async () => {
+	it('is exactly the twenty-four policies the schema declares, and none for the fleet', async () => {
 		const rows = await sql`
 			select tablename, policyname from pg_policies
 			where schemaname = 'public' order by tablename, policyname
@@ -252,15 +281,19 @@ describe('the policy set itself', () => {
 		]);
 	});
 
-	it('leaves no domain table with row level security switched off', async () => {
+	// Set equality and not an exclusion list: this fails if a third table shows up
+	// without RLS, and it fails just as loudly if somebody switches RLS on for one
+	// of these two, which would silently hide the whole fleet from every tenant.
+	it('leaves exactly the two platform tables outside row level security', async () => {
 		const rows = await sql`
 			select c.relname from pg_class c
 			join pg_namespace n on n.oid = c.relnamespace
 			where n.nspname = 'public' and c.relkind = 'r'
 				and c.relname <> '__drizzle_migrations' and not c.relrowsecurity
+			order by c.relname
 		`;
 
-		expect(rows.map((row) => row['relname'])).toEqual([]);
+		expect(rows.map((row) => row['relname'])).toEqual(['exit_nodes', 'regions']);
 	});
 });
 

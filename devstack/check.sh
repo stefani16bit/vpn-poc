@@ -27,7 +27,6 @@ LOCALSTACK_PORT=${LOCALSTACK_PORT:-24566}
 LOCALSTRIPE_PORT=${LOCALSTRIPE_PORT:-28420}
 MAILPIT_UI_PORT=${MAILPIT_UI_PORT:-28025}
 CADDY_HTTPS_PORT=${CADDY_HTTPS_PORT:-20443}
-EXIT_NODE_API_PORT=${EXIT_NODE_API_PORT:-21821}
 
 # The public half of the throwaway pair in wireguard/peers/. Asserting the value
 # rather than a peer count is what makes a silently empty wg0.conf fail here.
@@ -37,10 +36,17 @@ WIREGUARD_PEER_PUBLIC_KEY='StZtsGF+hrd7nHOYtH0GhM/759qnBuUbKdVMEeFyLVU='
 # shared token is the password. DEC-073.
 EXIT_NODE_API_USER='worker'
 
-# The node's pinned foot in the canary network. Both assertions below are about
-# poc-vpn alone: this file has to stay green on a machine that has never heard of
-# the canary repository. DEC-075.
+# The fleet, as name:control-port:tunnel-address. One region per node, and the
+# only one wired to the canary is the first: that asymmetry is what the last
+# assertion of the loop below exists to prove.
+FLEET='sa:21821:10.13.13.1:na na:21831:10.13.14.1:eu eu:21841:10.13.15.1:as as:21851:10.13.16.1:af af:21861:10.13.17.1:sa'
+CANARY_NODE='sa'
+
+# The canary node's pinned foot in that network. Every canary assertion here is
+# about poc-vpn alone: this file has to stay green on a machine that has never
+# heard of the canary repository. DEC-075.
 CANARY_NODE_ADDRESS='172.30.13.2/24'
+CANARY_SUBNET='172.30.13.'
 
 # The adjacency, not merely the presence of both rules. POSTROUTING is evaluated
 # in insertion order, so a RETURN appended after the MASQUERADE would leave every
@@ -65,7 +71,15 @@ read_env() {
 	[ -n "$ENV_FILES" ] && sed -n "s/^$1=//p" $ENV_FILES 2>/dev/null | tr -d '\r' | head -1
 }
 
-EXIT_NODE_API_TOKEN=${EXIT_NODE_API_TOKEN:-$(read_env EXIT_NODE_API_TOKEN)}
+# Read from Secrets Manager rather than from the root .env. That is what turns
+# the probe below from "the env file and the node agree" into "the secret store,
+# the compose interpolation, the node's httpd.conf and the published port all
+# agree" — which is the chain the API walks at runtime.
+node_credential() {
+	docker compose exec -T localstack awslocal secretsmanager get-secret-value \
+		--secret-id "poc-vpn/exit-node/$1" --query SecretString --output text 2>/dev/null |
+		tr -d '\r\n'
+}
 
 PASSED=0
 FAILED=0
@@ -116,6 +130,24 @@ check_exec() {
 	case "$_out" in
 	*"$_needle"*) pass "$_label" ;;
 	*) fail "$_label" "'$_needle' not in output: $(printf '%s' "$_out" | tr '\n' ' ' | cut -c1-120)" ;;
+	esac
+}
+
+# The same probe read the other way. An absence has to fail when the command
+# itself fails, or a container that will not exec at all reports as proof that
+# the thing is not there.
+check_exec_absent() {
+	_label=$1
+	_needle=$2
+	shift 2
+	if ! _out=$(docker compose exec -T "$@" 2>&1); then
+		fail "$_label" "could not run the probe: $(printf '%s' "$_out" | tr '\n' ' ' | cut -c1-120)"
+		return
+	fi
+
+	case "$_out" in
+	*"$_needle"*) fail "$_label" "'$_needle' was present in the output" ;;
+	*) pass "$_label" ;;
 	esac
 }
 
@@ -171,11 +203,21 @@ check_exec 'vpn_app cannot bypass RLS' 'CONFINED' \
 	"SELECT CASE WHEN rolsuper OR rolbypassrls THEN 'ESCAPES' ELSE 'CONFINED' END FROM pg_roles WHERE rolname='vpn_app'"
 
 # A table added without a policy is the failure DEC-035's per-table mandate
-# exists to prevent, and it is invisible until something leaks. Catch it here,
-# at the moment someone forgets, rather than in a review.
-check_exec 'every domain table is under RLS' 'COVERED' \
+# exists to prevent, and it is invisible until something leaks. The mandate has
+# exactly two named exceptions — the fleet is the platform's and hangs off no
+# account — so this asserts the set rather than counting zero: a third table
+# without RLS fails, and switching RLS on for one of these two fails too.
+check_exec 'only the platform fleet sits outside RLS' 'exit_nodes,regions' \
 	postgres psql -U postgres -d poc_vpn_dev -tAc \
-	"SELECT CASE WHEN count(*) = 0 THEN 'COVERED' ELSE 'UNCOVERED' END FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '__drizzle_migrations' AND NOT c.relrowsecurity"
+	"SELECT coalesce(string_agg(c.relname, ',' ORDER BY c.relname), '') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '__drizzle_migrations' AND NOT c.relrowsecurity"
+
+# The REVOKE is what makes "platform table" a fact instead of a naming
+# convention: without it the default privileges hand vpn_app INSERT, UPDATE and
+# DELETE, and dropping the policy would have widened the tenant role, not
+# narrowed it.
+check_exec 'the tenant role may read the fleet and nothing else' 'READONLY' \
+	postgres psql -U postgres -d poc_vpn_dev -tAc \
+	"SELECT CASE WHEN bool_and(has_table_privilege('vpn_app', t, 'SELECT')) AND NOT bool_or(has_table_privilege('vpn_app', t, 'INSERT') OR has_table_privilege('vpn_app', t, 'UPDATE') OR has_table_privilege('vpn_app', t, 'DELETE')) THEN 'READONLY' ELSE 'WRITABLE' END FROM unnest(ARRAY['regions','exit_nodes']) AS t"
 
 check_exec 'redis answers PING' 'PONG' redis redis-cli ping
 
@@ -209,42 +251,81 @@ check_body 'app.localhost terminates TLS and routes by Host' 'ok' \
 	-k --resolve "app.localhost:${CADDY_HTTPS_PORT}:127.0.0.1" \
 	"https://app.localhost:${CADDY_HTTPS_PORT}/__devstack/health"
 
-# Proves three things at once: the interface exists, wg0.conf was read, and the
-# peer was added. A container that came up without NET_ADMIN has no wg0 at all.
-check_exec 'wireguard has the seeded peer on the tunnel' "$WIREGUARD_PEER_PUBLIC_KEY" \
-	wireguard wg show wg0 peers
+for _entry in $FLEET; do
+	_node=${_entry%%:*}
+	_rest=${_entry#*:}
+	_port=${_rest%%:*}
+	_rest=${_rest#*:}
+	_tunnel=${_rest%%:*}
+	_neighbour=${_rest##*:}
+	_credential=$(node_credential "$_node")
 
-check_exec 'the node has its pinned address on the canary network' "$CANARY_NODE_ADDRESS" \
-	wireguard ip -4 -o addr show
+	# Proves the interface exists and that wg0.conf was read. A container that
+	# came up without NET_ADMIN has no wg0 at all.
+	check_exec "the ${_node} node has its tunnel up" "$_tunnel" \
+		"wireguard-${_node}" ip -4 -o addr show dev wg0
 
-check_exec 'the node returns canary traffic before it masquerades the rest' "$POSTROUTING_ORDER" \
-	wireguard sh -c "iptables -t nat -S POSTROUTING | tr '\n' ' '"
+	# The rules asserted as text below; this asserts that one of them fires. The
+	# two are not the same assertion, and only this one fails when the rule
+	# matches an interface that stopped being the way out: the packet leaves
+	# unmasqueraded and every textual probe stays green. Sourced from the tunnel
+	# and aimed at another container by name, because that is the path
+	# data-plane.md's NAT probe uses.
+	#
+	# No reply is needed — NAT happens on the way out — so this asserts the
+	# counter, not reachability.
+	check_exec "the ${_node} node masquerades tunnel traffic whatever interface it leaves by" 'MASQUERADED' \
+		"wireguard-${_node}" sh -c "iptables -t nat -Z POSTROUTING >/dev/null;
+			ping -c 1 -W 2 -I ${_tunnel} verdaccio >/dev/null 2>&1;
+			iptables -t nat -L POSTROUTING -v -n | awk '/MASQUERADE/ && \$1 > 0 { print \"MASQUERADED\" }'"
 
-# The rule above asserted as text; this one asserts that it fires. The two are
-# not the same assertion, and only this one fails when the rule matches an
-# interface that stopped being the way out: the packet leaves unmasqueraded and
-# every textual probe stays green. Sourced from the tunnel and aimed at another
-# container by name, because that is the path data-plane.md's NAT probe uses.
-#
-# No reply is needed — NAT happens on the way out — so this asserts the counter,
-# not reachability.
-check_exec 'the node masquerades tunnel traffic whatever interface it leaves by' 'MASQUERADED' \
-	wireguard sh -c "iptables -t nat -Z POSTROUTING >/dev/null;
-		ping -c 1 -W 2 -I 10.13.13.1 verdaccio >/dev/null 2>&1;
-		iptables -t nat -L POSTROUTING -v -n | awk '/MASQUERADE/ && \$1 > 0 { print \"MASQUERADED\" }'"
+	# From the host, not from inside: the worker reaches each node over its own
+	# published port, and a control plane bound to the wrong interface passes
+	# every in-container probe there is.
+	check_body "the ${_node} control plane answers the credential Secrets Manager holds for it" 'publicKey=' \
+		-u "${EXIT_NODE_API_USER}:${_credential}" \
+		"http://127.0.0.1:${_port}/cgi-bin/describe"
 
-# From the host, not from inside: the worker reaches the node over the published
-# port, and a control plane bound to the wrong interface passes every in-container
-# probe there is. The credential comes from the repository .env, so this also
-# proves the two halves agree.
-check_body 'the exit node control plane answers with its own public key' 'publicKey=' \
-	-u "${EXIT_NODE_API_USER}:${EXIT_NODE_API_TOKEN}" \
-	"http://127.0.0.1:${EXIT_NODE_API_PORT}/cgi-bin/describe"
+	# The assertion that actually earns the per-node credential. Without it five
+	# identical tokens would pass every other probe in this file, including the
+	# positive one above.
+	check_status "the ${_node} control plane refuses the credential of ${_neighbour}" 401 \
+		-u "${EXIT_NODE_API_USER}:$(node_credential "$_neighbour")" \
+		"http://127.0.0.1:${_port}/cgi-bin/describe"
 
-# The whole point of DEC-073. An unauthenticated caller that gets 200 here can add
-# or remove any peer, and every other probe in this file stays green while it can.
-check_status 'the exit node control plane refuses an anonymous caller' 401 \
-	"http://127.0.0.1:${EXIT_NODE_API_PORT}/cgi-bin/describe"
+	# The whole point of DEC-073. An unauthenticated caller that gets 200 here can
+	# add or remove any peer, and every other probe in this file stays green while
+	# it can.
+	check_status "the ${_node} control plane refuses an anonymous caller" 401 \
+		"http://127.0.0.1:${_port}/cgi-bin/describe"
+
+	# The negative that makes a region mean something. Four of the five have no
+	# address in the canary subnet, and that absence — not a rule anybody can
+	# misconfigure — is why a key created in their region reaches nothing there.
+	# Asserted as the cause rather than as a failed ping, so it stays a real
+	# assertion on a machine where the canary is not running at all.
+	if [ "$_node" != "$CANARY_NODE" ]; then
+		check_exec_absent "the ${_node} node has no foot in the canary network" "$CANARY_SUBNET" \
+			"wireguard-${_node}" ip -4 -o addr show
+	fi
+done
+
+# The seeded peer and the two rules that only the canary node carries.
+check_exec 'the canary node has the seeded peer on the tunnel' "$WIREGUARD_PEER_PUBLIC_KEY" \
+	"wireguard-${CANARY_NODE}" wg show wg0 peers
+
+check_exec 'the canary node has its pinned address on the canary network' "$CANARY_NODE_ADDRESS" \
+	"wireguard-${CANARY_NODE}" ip -4 -o addr show
+
+check_exec 'the canary node returns canary traffic before it masquerades the rest' "$POSTROUTING_ORDER" \
+	"wireguard-${CANARY_NODE}" sh -c "iptables -t nat -S POSTROUTING | tr '\n' ' '"
+
+# A partial seed has to fail. Four credentials and one missing is a node the
+# worker cannot reach, and it would be discovered much later and far away.
+check_exec 'localstack seeded a credential for every exit node' 'credentials=5' \
+	localstack sh -c "awslocal secretsmanager list-secrets --output text \
+		--query 'length(SecretList[?starts_with(Name, \`poc-vpn/exit-node/\`)])' |
+		sed 's/^/credentials=/'"
 
 check_env_drift
 
