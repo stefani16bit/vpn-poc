@@ -81,6 +81,13 @@ node_credential() {
 		tr -d '\r\n'
 }
 
+# Straight from the interface, not from describe(): this is the value the seeded
+# row is checked against, so reading it through the same control plane the row
+# points at would make the comparison agree with itself.
+node_public_key() {
+	docker compose exec -T "wireguard-$1" wg show wg0 public-key 2>/dev/null | tr -d '\r\n'
+}
+
 PASSED=0
 FAILED=0
 
@@ -298,6 +305,14 @@ for _entry in $FLEET; do
 	# it can.
 	check_status "the ${_node} control plane refuses an anonymous caller" 401 \
 		"http://127.0.0.1:${_port}/cgi-bin/describe"
+
+	# This is where the custody rule lives now. Nothing calls describe() before
+	# writing a row any more — the fleet is seeded — so what keeps the seeded key
+	# honest is asking the machine on every run. Registration proved it once, at
+	# insert; this proves it every time. DEC-100.
+	check_exec "the ${_node} row carries the key the machine answers with" 'MATCHES' \
+		postgres psql -U postgres -d poc_vpn_dev -tAc \
+		"SELECT CASE WHEN public_key = '$(node_public_key "$_node")' THEN 'MATCHES' ELSE 'DRIFTED' END FROM exit_nodes WHERE label = '${_node}-01'"
 
 	# The negative that makes a region mean something. Four of the five have no
 	# address in the canary subnet, and that absence — not a rule anybody can

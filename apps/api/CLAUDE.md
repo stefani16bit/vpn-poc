@@ -63,6 +63,17 @@ lançado **fora** dela; lançar dentro desfaz a revogação da família e devolv
 token roubado funcionando. O e2e `revokes the whole family when a refresh token
 is replayed` é o que pega isso.
 
+**Uma `Date` dentro de um template `sql` cru não passa por encoder nenhum.** Nos
+operadores do drizzle — `gte(exitNodes.lastSeenAt, staleBefore)` — o valor é
+ligado à coluna e sai pelo `mapToDriverValue` dela. Interpolado direto no
+template `sql`, não há coluna de onde inferir o tipo: o `Date` chega cru ao
+postgres.js e o bind estoura com _"Received an instance of Date"_. É 500 em
+runtime, não erro de tipo, e só no caminho que executa aquele fragmento — nenhum
+teste unitário pega, porque a falha é do driver e não da consulta. Ou o valor
+entra por um operador que carrega a coluna, ou vai explícito como
+`${at.toISOString()}::timestamptz`, que é o que as duas projeções de billing
+fazem. `listRegions` é o caso vivo, e quem o cobre é integração.
+
 **Guard roda antes de interceptor, e a transação é um interceptor.** Dentro de um
 `canActivate` não existe escopo de banco: `currentExecutor()` lança. É por isso
 que o `CapabilityGuard` lê o tier pelo cache e, no miss, o

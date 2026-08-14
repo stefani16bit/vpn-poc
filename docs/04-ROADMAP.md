@@ -50,7 +50,7 @@ de dispositivos por account virou índice. DEC-084 a DEC-087.
 Junto veio o alocador de endereços lendo a máscara do CIDR, o que fecha uma
 dívida antiga e desarma uma armadilha nova: o contrato de servidores já aceita
 `tunnelCidr`, então um `/25` tratado como `/24` deixaria de ser teórico assim
-que um tenant registrasse o primeiro nó.
+que a frota ganhasse o primeiro nó com faixa diferente.
 
 E duas armadilhas do devstack saíram de cena antes do segundo nó, que é o que as
 tornaria caras. A do NAT **já tinha disparado**: a regra casava por interface e
@@ -62,31 +62,43 @@ controle passou a valer com `restart` em vez de `build`, copiado para dentro no
 boot em vez de servido do mount — porque o bit de execução viaja com o host e
 esses arquivos são `100644` no git. DEC-088, DEC-089.
 
-| Suíte                                                       | Testes   | Precisa do devstack |
-| ----------------------------------------------------------- | -------- | ------------------- |
-| `packages/` — portas, contratos, i18n, fakes                | 288      | não                 |
-| `libs/env`                                                  | 23       | não                 |
-| `libs/adapters` — render de e-mail/SMS, redação, webhook    | 26       | não                 |
-| `apps/api` — kernel, serviços, controllers                  | 628      | não                 |
-| `apps/web` — store, telas, normalização de erro, locale     | 288      | não                 |
-| `infra` — validação de config CDK                           | 11       | não                 |
-| **Subtotal `pnpm verify`**                                  | **1264** | **não**             |
-| `libs/adapters` — as mesmas suítes contra os serviços reais | 93       | sim                 |
-| `apps/api` — RLS, transações, a view e o trigger            | 71       | sim                 |
-| `apps/api` — fluxo completo mais a matriz de locale         | 159      | sim                 |
-| **Total**                                                   | **1587** |                     |
+| Suíte                                                         | Testes   | Precisa do devstack |
+| ------------------------------------------------------------- | -------- | ------------------- |
+| `packages/` — portas, contratos, i18n, fakes                  | 332      | não                 |
+| `libs/env`                                                    | 23       | não                 |
+| `libs/adapters` — render de e-mail/SMS, redação, webhook, nós | 36       | não                 |
+| `apps/api` — kernel, serviços, controllers                    | 650      | não                 |
+| `apps/web` — store, telas, normalização de erro, locale       | 306      | não                 |
+| `apps/worker` — o laço não esqueceu nenhuma varredura         | 10       | não                 |
+| `infra` — validação de config CDK                             | 11       | não                 |
+| **Subtotal `pnpm verify`**                                    | **1368** | **não**             |
+| `libs/adapters` — as mesmas suítes contra os serviços reais   | 93       | sim                 |
+| `apps/api` — RLS, transações, o endereço por nó e o trigger   | 81       | sim                 |
+| `apps/api` — fluxo completo mais a matriz de locale           | 160      | sim                 |
+| **Total**                                                     | **1702** |                     |
 
 Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 94/87/88/93 (linhas/funções/ramos/statements), `apps/web` em 97/95/92/96.
 Conferido como portão: `--coverage.thresholds.branches=99` falha citando o
 valor real.
 
-`make check` 20/20 · `cdk synth` 6 stacks · `consumer-check` verde ·
+`make check` 53/53 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
 
 `pnpm verify` roda com o Docker parado, de propósito: `*.integration.spec.ts` e
 `*.e2e.spec.ts` estão excluídos do config unitário. Uma suíte que fica vermelha
 sem Docker ensina a ignorar suíte vermelha.
+
+A frota fechou a maior peça que faltava, e ela chegou com três defeitos que só
+o portão inteiro pegou. O módulo de devices nunca importou o de frota, então o
+container não montava e **a API não subia** — o e2e não estava falhando em 26
+casos, estava falhando em todos, e a diferença só apareceu ao rodar o e2e em vez
+de confiar na suíte de integração. O `NodeHealth` existia inteiro, com teste e
+janela própria, e ninguém o chamava: uma varredura órfã não falha, ela só não
+acontece, e `last_seen_at` congelado faz toda região ler como inalcançável. E o
+par região/nó, que a DEC-090 chamou de o ponto inteiro, era guardado por duas FKs
+separadas que aceitavam um device na Ásia atribuído a um nó da Europa. DEC-091,
+DEC-094, e o guard do laço em `apps/worker`.
 
 ## Próximo
 
@@ -117,14 +129,26 @@ sem Docker ensina a ignorar suíte vermelha.
       credencial, cobrada pelo `httpd` do nó antes de qualquer CGI rodar, e
       `EXIT_NODE_DRIVER=http` sem token falha no boot. A porta não mudou, então
       `packages/` não se moveu. DEC-073.
-- [ ] **A credencial do nó é um token só, para a frota inteira.** Trocá-lo
-      derruba todos os nós ao mesmo tempo, e não há como distinguir no log qual
-      chamador o usou. O alvo é mTLS, que é certificado de cliente num dispatcher
-      de `fetch` mais terminação TLS no nó — o `busybox httpd` não fala TLS, então
-      isso é trabalho de nó real e da stack `network`. DEC-073, DEC-011.
+- [x] ~~**A credencial do nó é um token só, para a frota inteira.**~~ Cada nó tem
+      a sua, guardada no Secrets Manager e lida pela referência que a linha dele
+      carrega — `credential_ref`, que existia desde a DEC-090 e não tinha leitor
+      nenhum. Rotacionar é um nó de cada vez, e `make check` prova o isolamento
+      com uma negativa cíclica: cada nó recusa o token do vizinho. DEC-098.
+- [ ] **O plano de controle do nó fala HTTP puro.** O alvo continua sendo mTLS,
+      que é certificado de cliente num dispatcher de `fetch` mais terminação TLS
+      no nó — o `busybox httpd` é 1.37.0 e não fala TLS, então isso é trabalho de
+      nó real e da stack `network`. A credencial por nó não adianta caminho para
+      ele, e a DEC-073 já explicava por quê: mTLS não reaproveita esquema de
+      cabeçalho nenhum. DEC-073, DEC-098, DEC-011.
+- [ ] **A rotação da credencial de um nó exige recriá-lo.** O `entrypoint.sh`
+      escreve o `httpd.conf` no boot, então no devstack trocar o segredo de um nó
+      é subir o contêiner de novo. Uma janela em que ele aceite os dois valores
+      depende de o `busybox httpd` casar duas linhas para o mesmo caminho, e isso
+      não foi verificado. DEC-098.
 - [ ] Preencher as stacks CDK. Ordem: `network` → `data` → `events` → `api`.
 - [ ] Secrets Manager em vez de variáveis de ambiente para `AUTH_JWT_SECRET` e
-      `STRIPE_WEBHOOK_SECRET`.
+      `STRIPE_WEBHOOK_SECRET`. A porta existe desde a DEC-098 e já roda contra o
+      localstack; o que falta é estes dois deixarem de ser lidos do ambiente.
 - [ ] Rotação de `AUTH_JWT_SECRET` — hoje uma troca invalida todo access token
       em circulação de uma vez. Precisa aceitar dois segredos durante a janela.
 
@@ -279,13 +303,12 @@ sem Docker ensina a ignorar suíte vermelha.
       endereços, então nada observável mudou no devstack — o que mudou é que
       `EXIT_NODE_TUNNEL_CIDR` passou a significar o que diz.
       `firstFreeHost` virou `firstFreeAddress` e fala em endereço, não em octeto.
-- [ ] **O teto de endereços continua sendo do sistema inteiro.** O que saiu de
-      cena foi a starvation: `devices.account_slot` com índice único parcial impede
-      uma account de consumir a faixa toda, e estourar `seats × devicesPerUser`
-      responde `QUOTA_EXCEEDED` (DEC-086). O teto **global** de um `/24` segue
-      sendo `251 ÷ (25 × 5)`, ou seja duas accounts totalmente assinantes, e o
-      conserto estrutural continua sendo o índice por nó da DEC-077 com a página de
-      servidores.
+- [x] ~~**O teto de endereços deixou de ser do sistema, e ainda não virou
+      capacidade utilizável.**~~ Virou: o índice é `(exit_node_id,
+tunnel_address)` e o alocador lê o CIDR da linha do nó. Dois nós são duas
+      faixas de 251 endereços, e o teto praticável passa a ser quantos nós
+      operamos — 251 por nó **somando as accounts**, porque o nó é compartilhado.
+      A starvation já não existia desde a DEC-086.
 - [x] ~~**O intervalo do reconciler é de processo.**~~ Virou contador no cache:
       quem o leva de 0 a 1 é dono da janela, e o TTL a rearma. Linha travada
       custaria uma transação por turno de um laço que roda a cada 500 ms. As três
@@ -298,10 +321,14 @@ sem Docker ensina a ignorar suíte vermelha.
       neste Windows, onde o Docker Desktop reporta `rwxrwxrwx` e o defeito ficaria
       invisível para quem escreveu. A diferença entre dev e produção é a presença
       do mount, não uma variável. DEC-089.
-- [ ] **`monthlyTrafficGb` e `regions` são anunciados e não aplicados.** Estão no
-      tipo para os tiers se descreverem, e os dois dependem do data plane.
-      `seats × devicesPerUser` **passou** a ser aplicado, na escrita e por índice
-      (DEC-086); `seats` sozinho, no convite de usuário, ainda não é.
+- [ ] **`monthlyTrafficGb` é anunciado e não aplicado.** Está no tipo para os
+      tiers se descreverem. `regions` **saiu** do tipo: contar regiões só fazia
+      sentido enquanto o nome era do cliente, e agora que são nossas a forma
+      honesta é uma lista — que espera um segundo tier para ter o que decidir
+      (DEC-043, DEC-099). `monthlyTrafficGb` continua no data plane, e é
+      `docs/specs/traffic-metering.md`. `seats × devicesPerUser` **passou** a ser
+      aplicado, na escrita e por índice (DEC-086); `seats` sozinho, no convite de
+      usuário, ainda não é.
 - [x] ~~**`pnpm --filter @vpn-poc/api build` falha.**~~ Falhava, e os builds de
       `api-lambda` e `worker` **saíam com 0** emitindo `.js` dentro de
       `libs/*/src/` e um `dist` que morre com `ERR_UNKNOWN_FILE_EXTENSION`
@@ -367,13 +394,16 @@ plane que ainda não existe.
       colega com SQL cru agora o criam pelo endpoint e entram com a senha
       devolvida — se "nasce verificado" estivesse errado, eles ficariam vermelhos.
       `docs/specs/user-management.md`.
-- [ ] **Servidores e regiões.** Escopo obrigatório do brief, e a peça que subiu
-      da Fase 3. O tenant registra os próprios nós e os agrupa em regiões que
-      **ele** nomeia; o usuário final escolhe região e a atribuição do nó é
-      nossa. `exit_nodes` e `regions` viram tabelas sob RLS, a faixa de endereços
-      passa a ser por nó — o que levanta um teto de duas accounts — e a varredura
-      passa a rodar por nó. DEC-077, DEC-078, e
-      `docs/specs/servers-and-regions.md`.
+- [x] ~~**Servidores e regiões.**~~ A frota é **nossa**: cinco regiões e cinco
+      nós semeados por migration, sem rota, tela ou permissão que os altere. Quem
+      gera a chave escolhe a região e a atribuição do nó é nossa, no menos
+      carregado que respondeu há menos de 180s. `exit_nodes` e `regions` são as
+      duas únicas tabelas de domínio fora do RLS, com escrita revogada do papel do
+      tenant; o endereço de túnel é único **por nó**; e tanto a varredura quanto o
+      provisionamento rodam por nó, com um nó calado pulado em vez de lido como
+      vazio. O devstack sobe **cinco**, um por região demonstrada, e só um deles
+      alcança o canário: é essa assimetria que faz a escolha decidir por onde o
+      pacote sai. DEC-090 a DEC-100, e `docs/specs/servers-and-regions.md`.
 - [x] **Spike do WireGuard, depois a spec.** Contêiner com `NET_ADMIN`,
       `/dev/net/tun` e `21820/udp`, um peer semeado à mão, handshake provado da
       GUI do WireGuard for Windows e egress provado por NAT — o publish de UDP
@@ -394,13 +424,13 @@ plane que ainda não existe.
       slug, e **nenhum fluxo de compra**. DEC-041, DEC-042.
 - [ ] Metering de tráfego. `monthlyTrafficGb` existe no tipo para os tiers
       anunciarem; a aplicação depende de medição contínua e continua adiada.
-- [~] ~~Regiões.~~ **Subiu para a Fase 2, atropelado pelo brief.** Esta linha
-  dizia "quando o produto exigir" e chamava a aplicação de "explicitamente
-  adiada"; o brief pede gerenciamento de servidores e regiões como escopo
-  obrigatório, então a condição foi satisfeita por fora. Fica registrado em
-  vez de reordenado em silêncio, porque a razão do adiamento — não havia o
-  segundo nó — continua sendo a razão pela qual isto é caro. DEC-077,
-  DEC-078.
+- [x] ~~Regiões.~~ **Subiu para a Fase 2 e fechou lá.** Esta linha dizia "quando
+      o produto exigir" e chamava a aplicação de "explicitamente adiada"; o brief
+      pede servidores e regiões como escopo obrigatório, então a condição foi
+      satisfeita por fora. A razão do adiamento era não haver o segundo nó, e é ela
+      que a entrega desfez: são cinco. O entitlement de região saiu do tier: contar
+      só fazia sentido enquanto o nome era do cliente, e ele volta como lista de
+      slugs nossos quando houver um segundo tier. DEC-090, DEC-099.
 - [ ] SMS de verdade atrás de `ISmsSender` (SNS ou Twilio).
 - [ ] Expurgo do `outbox` publicado. Como `verification_tokens` e
       `refresh_tokens`, cresce para sempre; é o mesmo job.
@@ -410,7 +440,7 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 20/20
+make up && make check                                # devstack: 53/53
 pnpm --filter @vpn-poc/api test:e2e                  # 122, o fluxo inteiro
 pnpm --filter @vpn-poc/api test:integration          # 65, RLS e formas de SQL
 pnpm --filter @vpn-poc/adapters test:integration     # 90, adapters reais

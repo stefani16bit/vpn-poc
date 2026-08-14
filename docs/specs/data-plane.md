@@ -251,6 +251,17 @@ a leia como projeto.
   volta a ser coisa a medir.
 - **Um `.conf` por peer, escrito à mão.** Não há reconciliação, nem revogação,
   nem contagem de devices. O nó não sabe o que é uma account.
+- **As duas portas do nó não têm a mesma exposição, e nada aqui a impõe.** A do
+  túnel (UDP 51820) **precisa** ser pública: é o que todo `.conf` nomeia em
+  `Endpoint` e a única coisa que o cliente disca. Ela custa menos do que parece —
+  o WireGuard é silencioso para pacote não autenticado, então não responde a
+  portscan e não tem handshake TLS para atacar. A do plano de controle
+  (TCP 51821) **não pode** ser: quem a alcança adiciona ou remove qualquer peer,
+  inclusive movendo o endereço de um device de outra account (DEC-073). No
+  devstack as duas estão publicadas no host, porque é assim que a máquina de
+  desenvolvimento chega nelas; num nó real a fronteira é firewall, e ela pertence
+  à stack `network` da DEC-011, hoje vazia. Nenhum documento deste repositório
+  dizia isso até a DEC-098.
 
 ## Como validar
 
@@ -265,7 +276,7 @@ Depois, o que nenhum comando faz sozinho — e que é o item inteiro:
    Windows (Import tunnel(s) from file → Activate) e confirmar do lado do nó:
 
    ```bash
-   docker compose exec wireguard wg show wg0
+   docker compose exec wireguard-sa wg show wg0
    ```
 
    Sucesso é `latest handshake: N seconds ago` **mais** `transfer:` diferente de
@@ -290,7 +301,7 @@ Depois, o que nenhum comando faz sozinho — e que é o item inteiro:
    Então remover a regra e ver a mesma requisição morrer:
 
    ```bash
-   docker compose exec wireguard \
+   docker compose exec wireguard-sa \
      iptables -t nat -D POSTROUTING -s 10.13.13.0/24 ! -d 10.13.13.0/24 -j MASQUERADE
    ```
 

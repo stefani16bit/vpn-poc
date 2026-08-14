@@ -147,8 +147,8 @@ Isso é resultado, não sorte, e é conferível:
   entrada;
 - `wireguard-config.spec.ts` já afirma o caso de duas faixas.
 
-Uma segunda faixa em `AllowedIPs` atravessa `HttpExitNode.describe()` →
-`ExitNodeDirectory` → `DevicesService` → `buildWireguardConfig` sem que nada no
+Uma segunda faixa em `AllowedIPs` atravessa `clientAllowedIps()` →
+`ExitNodeFactory` → `DevicesService` → `buildWireguardConfig` sem que nada no
 caminho precise saber que ela existe. Se algum desses três pontos tivesse
 precisado de edição, a conclusão seria sobre o desenho e não sobre o canário.
 
@@ -187,7 +187,7 @@ que torna a espera do provador segura contra a varredura rodando ao mesmo tempo.
 ## Como validar
 
 ```bash
-make up && make check                    # 19/19
+make up && make check                    # 53/53
 pnpm dev                                 # o provador precisa da API e do worker
 pnpm billing:activate                    # POST /devices responde 402 sem isto
 
@@ -207,7 +207,7 @@ Depois, o que nenhum comando faz sozinho:
 3. **A origem sobrevive.**
 
    ```bash
-   docker compose exec wireguard iptables -t nat -S POSTROUTING
+   docker compose exec wireguard-sa iptables -t nat -S POSTROUTING
    ```
 
    `RETURN` tem que aparecer **antes** do MASQUERADE. Se a página mostrar

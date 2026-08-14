@@ -3831,6 +3831,18 @@ O `.conf` continua nomeando um nó específico, e um device continua preso ao n�
 lhe foi atribuído — se ele sair do ar o `.conf` é reemitido, não reapontado. O
 que muda é quem conserta: era o cliente, agora somos nós.
 
+**Sobre o próprio arco.** As decisões DEC-090 a DEC-098 anteriores descreviam a
+frota do tenant, e foram reescritas junto com o código que as implementava: se
+aquele arco não aconteceu, não há o que superar. As que sobrevivem intactas
+mantiveram o número, para que `superseded by DEC-095` e `superseded by DEC-098`
+continuem apontando para algo.
+
+Os commits são narrativa, não estados independentes: o teto de endereços, o
+repositório, a atribuição e o adapter mudam juntos, e separá-los em commits
+verdes exigiria fundir cinco num só. O que é verificado é a **ponta** — `verify`,
+integração, e2e duas vezes sem resetar o banco, e `make check` 53/53 —, e é assim
+que este arco deve ser lido.
+
 ---
 
 ### DEC-091 — O lugar de um device é um par que o banco cobra, e remover um nó solta quem já foi revogado
@@ -4298,7 +4310,7 @@ chega para quem sobe api e web sem o worker, nem depois de um `db:migrate` seco.
 `STALE_AFTER_SECONDS` um nó que nunca respondeu sai de circulação sozinho, o que
 é o mesmo desfecho de um nó que morreu um segundo depois de responder.
 
-**Consequências.** `make check` passa de 47 para 52 asserções.
+**Consequências.** `make check` passa de 47 para 53 asserções.
 
 `DELETE FROM accounts` deixa de levar a frota junto, que é o ponto — e cobra duas
 coisas do `beforeEach` do e2e. `last_seen_at` precisa ser restaurado, porque o

@@ -8,7 +8,7 @@ cd poc-vpn
 cp .env.example .env.local
 
 make up                      # sobe os 8 contêineres e espera ficarem saudáveis
-make check                   # 47 asserções; tem que dar 47/47
+make check                   # 53 asserções; tem que dar 53/53
 
 pnpm install
 pnpm packages:publish:local  # publica @vpn/* no Verdaccio local
