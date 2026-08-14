@@ -97,7 +97,7 @@ describe('HttpExitNode', () => {
 	};
 
 	it('refuses to be built without a credential, so the registry cannot fall back to anonymous', () => {
-		expect(() => new HttpExitNode({ ...options, token: '' })).toThrow(/EXIT_NODE_API_TOKEN/);
+		expect(() => new HttpExitNode({ ...options, token: '' })).toThrow(/credential/i);
 	});
 
 	it('accepts a credential', () => {

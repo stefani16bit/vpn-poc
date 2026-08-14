@@ -48,12 +48,6 @@ describe('loadEnv', () => {
 	it('rejects an unknown driver rather than falling back to a default', () => {
 		expect(() => loadEnv({ source: { ...minimal, CACHE_DRIVER: 'memcached' } })).toThrow();
 	});
-
-	it('rejects an exit node token short enough to be guessed', () => {
-		expect(() => loadEnv({ source: { ...minimal, EXIT_NODE_API_TOKEN: 'changeme' } })).toThrow(
-			/EXIT_NODE_API_TOKEN/,
-		);
-	});
 });
 
 describe('loadEnv and the dotenv files', () => {
@@ -233,23 +227,14 @@ describe('assertDriverConfiguration', () => {
 		);
 	});
 
-	it('demands a credential when the exit node driver is http, since an unset one is anonymous', () => {
+	// No credential is demanded here any more: each node's comes from the secret
+	// store at the ref its row carries, so the environment has nothing to hold.
+	it('lets the http exit node through once it has somewhere to call', () => {
 		expect(() =>
 			assertDriverConfiguration({
 				...base,
 				EXIT_NODE_DRIVER: 'http',
 				EXIT_NODE_API_URL: 'http://127.0.0.1:21821',
-			}),
-		).toThrow(/EXIT_NODE_API_TOKEN/);
-	});
-
-	it('lets the http exit node through once it has somewhere to call and a credential', () => {
-		expect(() =>
-			assertDriverConfiguration({
-				...base,
-				EXIT_NODE_DRIVER: 'http',
-				EXIT_NODE_API_URL: 'http://127.0.0.1:21821',
-				EXIT_NODE_API_TOKEN: 'x'.repeat(32),
 			}),
 		).not.toThrow();
 	});

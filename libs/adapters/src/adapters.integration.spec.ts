@@ -5,11 +5,18 @@ import {
 	describeEmailSenderContract,
 	describeObjectStorageContract,
 	describePasswordHasherContract,
+	describeSecretStoreContract,
 	describeSmsSenderContract,
 	type SentEmail,
 } from '@vpn/testing/contracts';
 import type { IObjectStorage } from '@vpn/ports';
 import { FixedClock, MemoryCacheStore } from '@vpn/testing/fakes';
+import {
+	CreateSecretCommand,
+	DeleteSecretCommand,
+	PutSecretValueCommand,
+	SecretsManagerClient,
+} from '@aws-sdk/client-secrets-manager';
 import { Redis } from 'ioredis';
 import { createTransport } from 'nodemailer';
 
@@ -18,6 +25,7 @@ import { ScryptPasswordHasher } from './crypto/ScryptPasswordHasher.js';
 import { SmtpEmailSender } from './email/SmtpEmailSender.js';
 import { INTEGRATION } from './integration.env.js';
 import { ConsoleSmsSender } from './sms/ConsoleSmsSender.js';
+import { SecretsManagerSecretStore } from './secrets/SecretsManagerSecretStore.js';
 import { S3ObjectStorage } from './storage/S3ObjectStorage.js';
 
 let sharedRedis: Redis;
@@ -192,6 +200,50 @@ describe('S3ObjectStorage', () => {
 		const response = await fetch(url);
 		expect(response.status).toBe(200);
 		await expect(response.text()).resolves.toBe('signed');
+	});
+});
+
+describe('SecretsManagerSecretStore', () => {
+	const store = new SecretsManagerSecretStore({
+		region: INTEGRATION.awsRegion,
+		endpoint: INTEGRATION.secretsEndpoint,
+	});
+
+	const client = new SecretsManagerClient({
+		region: INTEGRATION.awsRegion,
+		endpoint: INTEGRATION.secretsEndpoint,
+	});
+
+	// Namespaced per run, and never under poc-vpn/exit-node/*: those are devstack
+	// fixtures that check.sh asserts on, and a suite that borrowed one would take
+	// a node offline to prove a point about a port.
+	const namespace = `it-secrets-${Date.now()}`;
+	const created = new Set<string>();
+
+	describeSecretStoreContract('SecretsManagerSecretStore', () => ({
+		store: { read: (ref) => store.read(`${namespace}/${ref}`) },
+		seed: async (ref, value) => {
+			const id = `${namespace}/${ref}`;
+			created.add(id);
+
+			await client
+				.send(new CreateSecretCommand({ Name: id, SecretString: value }))
+				.catch(() => client.send(new PutSecretValueCommand({ SecretId: id, SecretString: value })));
+		},
+		forget: (ref) => forget(`${namespace}/${ref}`),
+	}));
+
+	// DeleteSecret is soft by default: without the force flag the name is only
+	// scheduled for deletion, and the next run of this suite fails to recreate it
+	// with "marked for deletion" — green once, red forever after, on the same
+	// machine.
+	async function forget(id: string): Promise<void> {
+		created.delete(id);
+		await client.send(new DeleteSecretCommand({ SecretId: id, ForceDeleteWithoutRecovery: true }));
+	}
+
+	afterAll(async () => {
+		for (const id of created) await forget(id).catch(() => undefined);
 	});
 });
 

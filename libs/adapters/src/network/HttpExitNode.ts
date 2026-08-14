@@ -23,7 +23,7 @@ export class HttpExitNode implements IExitNode {
 	constructor(options: HttpExitNodeOptions) {
 		if (!options.token) {
 			throw new Error(
-				'HttpExitNode refuses to talk to a node without a credential: set EXIT_NODE_API_TOKEN',
+				'HttpExitNode refuses to talk to a node without a credential: the row credential_ref resolved to nothing',
 			);
 		}
 

@@ -10,7 +10,7 @@ import {
 	CLOCK,
 	EMAIL_SENDER,
 	ERROR_REPORTER,
-	EXIT_NODE,
+	SECRET_STORE,
 	OBJECT_STORAGE,
 	PASSWORD_HASHER,
 	JOB_QUEUE,
@@ -20,8 +20,8 @@ import {
 	type IClock,
 	type IEmailSender,
 	type IErrorReporter,
-	type IExitNode,
 	type IObjectStorage,
+	type ISecretStore,
 	type IPasswordHasher,
 	type IJobQueue,
 	type ISmsSender,
@@ -30,7 +30,7 @@ import {
 	MemoryBillingProvider,
 	MemoryCacheStore,
 	MemoryEmailSender,
-	MemoryExitNode,
+	MemorySecretStore,
 	MemoryObjectStorage,
 	MemoryJobQueue,
 	MemorySmsSender,
@@ -41,7 +41,8 @@ import { RedisCacheStore } from './cache/RedisCacheStore.js';
 import { ScryptPasswordHasher } from './crypto/ScryptPasswordHasher.js';
 import { SystemClock } from './crypto/SystemClock.js';
 import { SmtpEmailSender } from './email/SmtpEmailSender.js';
-import { HttpExitNode } from './network/HttpExitNode.js';
+import { ExitNodeFactory } from './network/exit-node.factory.js';
+import { SecretsManagerSecretStore } from './secrets/SecretsManagerSecretStore.js';
 import { NoopErrorReporter, SentryErrorReporter } from './observability/reporters.js';
 import { defineAdapter, toProviders, tokensOf } from './registry.js';
 import { ConsoleSmsSender } from './sms/ConsoleSmsSender.js';
@@ -58,6 +59,21 @@ type DatabaseConnection = ReturnType<typeof createDatabase>;
 
 const infrastructure: Provider[] = [
 	{ provide: ENV, useFactory: (): Env => loadEnv() },
+
+	// One adapter per row of exit_nodes, built where the row is read. The single
+	// EXIT_NODE below stays for the driver check at boot; a fleet has no single
+	// node to inject. DEC-090.
+	{
+		provide: ExitNodeFactory,
+		inject: [ENV, SECRET_STORE, CLOCK],
+		useFactory: (env: Env, secrets: ISecretStore, clock: IClock) =>
+			new ExitNodeFactory({
+				driver: env.EXIT_NODE_DRIVER,
+				secrets,
+				clock,
+				clientAllowedIps: env.EXIT_NODE_CLIENT_ALLOWED_IPS,
+			}),
+	},
 
 	{
 		provide: DATABASE_CONNECTION,
@@ -174,6 +190,22 @@ export const ADAPTERS = [
 		},
 	}),
 
+	// Region and endpoint come from the storage block rather than SECRETS_ twins:
+	// one AWS account is one set of coordinates, and a second copy is a second
+	// thing to point at the wrong place.
+	defineAdapter<ISecretStore>({
+		token: SECRET_STORE,
+		driver: (env) => env.SECRETS_DRIVER,
+		drivers: {
+			aws: ({ env }) =>
+				new SecretsManagerSecretStore({
+					region: env.AWS_REGION,
+					endpoint: env.AWS_ENDPOINT_URL,
+				}),
+			memory: () => new MemorySecretStore(),
+		},
+	}),
+
 	defineAdapter<IJobQueue>({
 		token: JOB_QUEUE,
 		driver: (env) => env.QUEUE_DRIVER,
@@ -186,24 +218,6 @@ export const ADAPTERS = [
 					endpoint: env.AWS_ENDPOINT_URL,
 				}),
 			memory: ({ resolve }) => new MemoryJobQueue(resolve<IClock>(CLOCK)),
-		},
-	}),
-
-	defineAdapter<IExitNode>({
-		token: EXIT_NODE,
-		driver: (env) => env.EXIT_NODE_DRIVER,
-		drivers: {
-			http: ({ env }) =>
-				new HttpExitNode({
-					apiUrl: env.EXIT_NODE_API_URL ?? '',
-					token: env.EXIT_NODE_API_TOKEN ?? '',
-					endpoint: env.EXIT_NODE_ENDPOINT,
-					allowedIps: (env.EXIT_NODE_CLIENT_ALLOWED_IPS ?? env.EXIT_NODE_TUNNEL_CIDR)
-						.split(',')
-						.map((entry) => entry.trim())
-						.filter(Boolean),
-				}),
-			memory: () => new MemoryExitNode(),
 		},
 	}),
 
@@ -225,7 +239,7 @@ export const ADAPTERS = [
 @Global()
 @Module({
 	providers: [...infrastructure, ...toProviders(ADAPTERS, ENV)],
-	exports: [ENV, DATABASE, ...tokensOf(ADAPTERS)],
+	exports: [ENV, DATABASE, ExitNodeFactory, ...tokensOf(ADAPTERS)],
 })
 export class AdaptersModule implements OnApplicationShutdown {
 	constructor(

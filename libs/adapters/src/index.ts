@@ -27,6 +27,7 @@ export { StripeBillingProvider } from './billing/StripeBillingProvider.js';
 export type { StripeBillingProviderOptions } from './billing/StripeBillingProvider.js';
 
 export { S3ObjectStorage } from './storage/S3ObjectStorage.js';
+export { SecretsManagerSecretStore } from './secrets/SecretsManagerSecretStore.js';
 
 export { SqsJobQueue } from './queue/SqsJobQueue.js';
 export type { SqsJobQueueOptions } from './queue/SqsJobQueue.js';
@@ -37,3 +38,10 @@ export {
 	redactObject,
 	SENSITIVE_KEYS,
 } from './observability/reporters.js';
+
+export {
+	clientAllowedIps,
+	ExitNodeFactory,
+	ExitNodeCredentialError,
+} from './network/exit-node.factory.js';
+export type { ExitNodeRow, ExitNodeFactoryOptions } from './network/exit-node.factory.js';

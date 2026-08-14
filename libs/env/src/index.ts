@@ -15,6 +15,7 @@ import {
 	observabilityEnvSchema,
 	queueEnvSchema,
 	runtimeEnvSchema,
+	secretsEnvSchema,
 	smsEnvSchema,
 	storageEnvSchema,
 } from './concerns.js';
@@ -29,6 +30,7 @@ const fullSchema = runtimeEnvSchema
 	.merge(smsEnvSchema)
 	.merge(billingEnvSchema)
 	.merge(storageEnvSchema)
+	.merge(secretsEnvSchema)
 	.merge(queueEnvSchema)
 	.merge(exitNodeEnvSchema)
 	.merge(observabilityEnvSchema);
