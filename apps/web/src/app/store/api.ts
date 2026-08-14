@@ -13,6 +13,8 @@ export const api = createApi({
 		'Users',
 		'Permissions',
 		'Invoices',
+		'Regions',
+		'ExitNodes',
 	],
 	endpoints: () => ({}),
 });

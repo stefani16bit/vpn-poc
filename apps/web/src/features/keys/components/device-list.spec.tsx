@@ -12,6 +12,8 @@ function device(overrides: Partial<Device> = {}): Device {
 		name: 'laptop',
 		publicKey: 'hAcCPVXqcJRVvi/JIn1jjnpUAxbfEbAJPBUlkAcO8k4=',
 		tunnelAddress: '10.13.13.4/32',
+		regionId: '22222222-2222-2222-2222-222222222222',
+		exitNodeId: '33333333-3333-3333-3333-333333333333',
 		userId: '11111111-1111-1111-1111-111111111111',
 		userEmail: 'ada@example.com',
 		provisionedAt: '2026-08-09T00:00:00.000Z',

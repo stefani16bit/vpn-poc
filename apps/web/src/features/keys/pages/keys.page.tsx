@@ -22,6 +22,7 @@ import {
 import {
 	useDeviceAssigneesQuery,
 	useDevicesQuery,
+	useRegionsQuery,
 	useRevokeDeviceMutation,
 } from '@/features/keys/api/keys.api.js';
 import { DeviceList } from '@/features/keys/components/device-list.tsx';
@@ -39,16 +40,24 @@ export function KeysPage() {
 	const currentUserId = useSelector((state: RootState) => state.auth.user?.id);
 	const [name, setName] = useState('');
 	const [owner, setOwner] = useState(SELF);
+	const [region, setRegion] = useState('');
 	const [awaitingProvision, setAwaitingProvision] = useState(false);
 
 	const devices = useDevicesQuery(undefined, {
 		pollingInterval: awaitingProvision ? PROVISION_POLL_INTERVAL_MS : 0,
 	});
 	const assignees = useDeviceAssigneesQuery(undefined, { skip: !canAssign });
+	const regions = useRegionsQuery(undefined, { skip: !canCreate });
 	const generator = useGenerateDevice();
 	const [revokeDevice, revokeState] = useRevokeDeviceMutation();
 
 	const pending = generator.pending || revokeState.isLoading;
+	const available = regions.data?.regions ?? [];
+	// The first region that can actually serve, not the first region: defaulting
+	// to a silent one arms the form for a call the server is about to refuse.
+	const chosen = region || available.find((option) => option.available)?.id || '';
+	const reachable = available.some((option) => option.available);
+	const chosenIsAvailable = available.some((option) => option.id === chosen && option.available);
 	const list = devices.data?.devices ?? [];
 	const unprovisioned = list.some((device) => !device.provisionedAt);
 
@@ -65,7 +74,11 @@ export function KeysPage() {
 			<CardContent>
 				<p className="text-muted-foreground">{t('keys.intro')}</p>
 
-				<FormError error={normalizeError(generator.error ?? revokeState.error ?? devices.error)} />
+				<FormError
+					error={normalizeError(
+						generator.error ?? revokeState.error ?? devices.error ?? regions.error,
+					)}
+				/>
 
 				{generator.unsupported ? (
 					<Alert variant="destructive" className="mt-4">
@@ -89,7 +102,7 @@ export function KeysPage() {
 							onSubmit={(event) => {
 								event.preventDefault();
 								void generator
-									.generate(name, owner === SELF ? undefined : owner)
+									.generate(name, chosen, owner === SELF ? undefined : owner)
 									.then(() => setName(''));
 							}}
 						>
@@ -103,6 +116,31 @@ export function KeysPage() {
 									/>
 								)}
 							</Field>
+
+							<Field label={t('keys.regionLabel')}>
+								{(control) => (
+									<Select value={chosen} onValueChange={setRegion}>
+										<SelectTrigger {...control} className="w-full">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{available.map((option) => (
+												<SelectItem key={option.id} value={option.id} disabled={!option.available}>
+													{option.name}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								)}
+							</Field>
+
+							<p className="-mt-2 mb-4 text-sm text-muted-foreground">
+								{available.length === 0
+									? t('keys.regionEmpty')
+									: chosenIsAvailable
+										? t('keys.regionHelp')
+										: t('keys.regionUnavailable')}
+							</p>
 
 							{canAssign ? (
 								<Field label={t('keys.ownerLabel')}>
@@ -126,7 +164,9 @@ export function KeysPage() {
 								</Field>
 							) : null}
 
-							<SubmitButton pending={pending}>{t('keys.generate')}</SubmitButton>
+							<SubmitButton pending={pending} disabled={!reachable || !chosenIsAvailable}>
+								{t('keys.generate')}
+							</SubmitButton>
 						</form>
 
 						<p className="mt-4 text-sm text-muted-foreground">{t('keys.downloadWarning')}</p>

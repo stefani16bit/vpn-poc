@@ -3,6 +3,7 @@ import type {
 	CreateDeviceResponse,
 	DeviceAssigneeListResponse,
 	DeviceListResponse,
+	RegionListResponse,
 } from '@vpn/contracts';
 
 import { api } from '@/app/store/api.js';
@@ -10,6 +11,14 @@ import { api } from '@/app/store/api.js';
 export const keysApi = api.injectEndpoints({
 	overrideExisting: false,
 	endpoints: (builder) => ({
+		// The fleet is ours and no screen manages it, so the one read the key form
+		// needs lives beside the form rather than next to the store: there is no
+		// second feature to share it with any more.
+		regions: builder.query<RegionListResponse, void>({
+			query: () => 'regions',
+			providesTags: ['Regions'],
+		}),
+
 		devices: builder.query<DeviceListResponse, void>({
 			query: () => 'devices',
 			providesTags: ['Devices'],
@@ -33,6 +42,7 @@ export const keysApi = api.injectEndpoints({
 });
 
 export const {
+	useRegionsQuery,
 	useDevicesQuery,
 	useDeviceAssigneesQuery,
 	useCreateDeviceMutation,

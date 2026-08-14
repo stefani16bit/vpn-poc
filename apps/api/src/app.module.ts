@@ -8,6 +8,7 @@ import { loadEnv } from '@vpn-poc/env';
 
 import { MaintenanceModule } from './shared/maintenance/maintenance.module.js';
 import { DatabaseModule } from './shared/database/database.module.js';
+import { FleetModule } from './shared/fleet/fleet.module.js';
 import { TenantTransactionInterceptor } from './shared/database/tenant-transaction.interceptor.js';
 import { GlobalExceptionFilter } from './shared/errors/exception.filter.js';
 import { loggerConfig } from './shared/http/logger.config.js';
@@ -24,6 +25,7 @@ import { DevicesApiModule } from './modules/devices/devices.module.js';
 import { UsersApiModule } from './modules/users/users.module.js';
 import { EntitlementsApiModule } from './modules/entitlements/entitlements.module.js';
 import { PermissionsApiModule } from './modules/permissions/permissions.module.js';
+import { FleetApiModule } from './modules/fleet/fleet-api.module.js';
 
 @Module({
 	imports: [
@@ -38,6 +40,7 @@ import { PermissionsApiModule } from './modules/permissions/permissions.module.j
 		),
 		AdaptersModule,
 		DatabaseModule,
+		FleetModule,
 		MaintenanceModule,
 		HealthModule.forRoot({
 			readiness: [
@@ -59,6 +62,7 @@ import { PermissionsApiModule } from './modules/permissions/permissions.module.j
 		DevicesApiModule,
 		UsersApiModule,
 		PermissionsApiModule,
+		FleetApiModule,
 		EntitlementsApiModule,
 	],
 	providers: [

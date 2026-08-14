@@ -11,6 +11,7 @@ import {
 	UNSUBSCRIBED_ENTITLEMENTS,
 	type AnyErrorCode,
 	type Permission,
+	type Region,
 	type SupportedLocale,
 	type TierId,
 } from '@vpn/contracts';
@@ -88,7 +89,20 @@ export interface ApiStub {
 	// broken login is not a test about a broken authorization read.
 	breakGrants(): void;
 	subscribe(tier: TierId | null): void;
+	// The key form asks which regions exist before it can offer to generate
+	// anything, so the stub answers it by route like the two above. A test about
+	// downloading a .conf should not have to opt into the fleet existing.
+	regions(...regions: readonly Region[]): void;
 	lastRequest(): RecordedRequest | undefined;
+}
+
+export function testRegion(overrides: Partial<Region> = {}): Region {
+	return {
+		id: '22222222-2222-2222-2222-222222222222',
+		name: 'Sao Paulo',
+		available: true,
+		...overrides,
+	};
 }
 
 export interface SlowApiStub {
@@ -139,6 +153,7 @@ export function stubApi(): ApiStub {
 	let granted: readonly Permission[] = PERMISSIONS;
 	let grantsBroken = false;
 	let tier: TierId | null = 'pro';
+	let fleet: readonly Region[] = [testRegion()];
 
 	const stub: ApiStub = {
 		requests,
@@ -154,6 +169,9 @@ export function stubApi(): ApiStub {
 		},
 		subscribe(next) {
 			tier = next;
+		},
+		regions(...next) {
+			fleet = next;
 		},
 		// normalizeError only trusts a body carrying a string correlationId, which
 		// the API's exception filter always sends; omitting it here would make
@@ -188,6 +206,13 @@ export function stubApi(): ApiStub {
 
 			return new Response(JSON.stringify(body), {
 				status: grantsBroken ? 500 : 200,
+				headers: { 'content-type': 'application/json' },
+			});
+		}
+
+		if (request.method === 'GET' && path.endsWith('/regions')) {
+			return new Response(JSON.stringify({ regions: fleet }), {
+				status: 200,
 				headers: { 'content-type': 'application/json' },
 			});
 		}

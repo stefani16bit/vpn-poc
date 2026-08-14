@@ -6,6 +6,7 @@ export const API_MODULES = [
 	'health',
 	'http',
 	'permissions',
+	'fleet',
 	'system',
 	'users',
 ] as const;
@@ -22,6 +23,7 @@ export const MODULE_BY_ROUTE_PREFIX: ReadonlyArray<readonly [string, ApiModule]>
 	['/entitlements', 'entitlements'],
 	['/health', 'health'],
 	['/permissions', 'permissions'],
+	['/regions', 'fleet'],
 	['/users', 'users'],
 ];
 

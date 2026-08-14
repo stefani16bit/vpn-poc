@@ -8,7 +8,7 @@ import { generateKeyPair } from '@/features/keys/lib/keypair.js';
 import { buildWireguardConfig, configFileName } from '@/features/keys/lib/wireguard-config.js';
 
 export interface GenerateDevice {
-	readonly generate: (name: string, userId?: string) => Promise<void>;
+	readonly generate: (name: string, regionId: string, userId?: string) => Promise<void>;
 	readonly pending: boolean;
 	readonly downloaded: string | null;
 	readonly unsupported: boolean;
@@ -21,7 +21,7 @@ export function useGenerateDevice(): GenerateDevice {
 	const [unsupported, setUnsupported] = useState(false);
 	const [generating, setGenerating] = useState(false);
 
-	async function generate(name: string, userId?: string): Promise<void> {
+	async function generate(name: string, regionId: string, userId?: string): Promise<void> {
 		setGenerating(true);
 		setUnsupported(false);
 
@@ -34,6 +34,7 @@ export function useGenerateDevice(): GenerateDevice {
 
 			const result = await createDevice({
 				name,
+				regionId,
 				publicKey: pair.publicKey,
 				...(userId ? { userId } : {}),
 			});

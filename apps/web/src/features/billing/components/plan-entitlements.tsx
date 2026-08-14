@@ -15,7 +15,6 @@ export function PlanEntitlements({ tier }: { tier: TierId }): ReactNode {
 				<li>{t('billing.seats', { count: entitlements.seats })}</li>
 				<li>{t('billing.devicesPerUser', { count: entitlements.devicesPerUser })}</li>
 				<li>{t('billing.monthlyTrafficGb', { count: entitlements.monthlyTrafficGb })}</li>
-				<li>{t('billing.regions', { regions: entitlements.regions })}</li>
 			</ul>
 		</section>
 	);

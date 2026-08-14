@@ -7,6 +7,7 @@ import {
 	makeStore,
 	renderWithProviders,
 	stubApi,
+	testRegion,
 	type ApiStub,
 	type TestStore,
 } from '@/test-utils.tsx';
@@ -20,6 +21,9 @@ vi.mock('@/lib/download.js', () => ({
 		downloads.push({ name, contents });
 	},
 }));
+
+const FRANKFURT = '44444444-4444-4444-4444-444444444444';
+const SINGAPORE = '55555555-5555-5555-5555-555555555555';
 
 const NODE = {
 	publicKey: 'rKCjjZR5cgoZSG0BE1Cjs5wHcOAOYU5Vweb/Gj0rPWg=',
@@ -106,7 +110,7 @@ describe('KeysPage', () => {
 		await waitFor(() => expect(downloads).toHaveLength(1));
 
 		const posted = api.requests.find((request) => request.method === 'POST');
-		expect(Object.keys(posted?.body as object)).toEqual(['name', 'publicKey']);
+		expect(Object.keys(posted?.body as object)).toEqual(['name', 'regionId', 'publicKey']);
 	});
 
 	it('never lets the private key reach the network, in any request', async () => {
@@ -141,6 +145,81 @@ describe('KeysPage', () => {
 		expect(downloads[0]?.contents).toContain('Address = 10.13.13.4/32');
 		expect(downloads[0]?.contents).toContain(`PublicKey = ${NODE.publicKey}`);
 		expect(downloads[0]?.contents).toContain('AllowedIPs = 10.13.13.0/24');
+	});
+
+	describe('the region', () => {
+		it('travels with the key, because it is the one choice the person makes', async () => {
+			api.reply({ devices: [] });
+			api.regions(testRegion({ id: FRANKFURT, name: 'Frankfurt' }));
+			render();
+
+			await userEvent.type(await screen.findByLabelText('Device name'), 'work laptop');
+			api.reply({ device: { ...device(), node: NODE } }, 201);
+			await userEvent.click(screen.getByRole('button', { name: /generate key/i }));
+
+			await waitFor(() => expect(downloads).toHaveLength(1));
+
+			const posted = api.requests.find((request) => request.method === 'POST');
+			expect((posted?.body as { regionId: string }).regionId).toBe(FRANKFURT);
+		});
+
+		it('starts on the first one, so the form is never unsubmittable for an invisible reason', async () => {
+			api.reply({ devices: [] });
+			api.regions(
+				testRegion({ id: FRANKFURT, name: 'Frankfurt' }),
+				testRegion({ id: SINGAPORE, name: 'Singapore' }),
+			);
+			render();
+
+			await waitFor(() =>
+				expect(screen.getByRole('combobox', { name: 'Region' })).toHaveTextContent('Frankfurt'),
+			);
+			expect(screen.getByRole('button', { name: /generate key/i })).toBeEnabled();
+		});
+
+		it('is the one the person picked, and not the default they were handed', async () => {
+			api.reply({ devices: [] });
+			api.regions(
+				testRegion({ id: FRANKFURT, name: 'Frankfurt' }),
+				testRegion({ id: SINGAPORE, name: 'Singapore' }),
+			);
+			render();
+
+			await userEvent.type(await screen.findByLabelText('Device name'), 'laptop');
+			await userEvent.click(screen.getByRole('combobox', { name: 'Region' }));
+			await userEvent.click(await screen.findByRole('option', { name: 'Singapore' }));
+
+			api.reply({ device: { ...device(), node: NODE } }, 201);
+			await userEvent.click(screen.getByRole('button', { name: /generate key/i }));
+
+			await waitFor(() => expect(downloads).toHaveLength(1));
+
+			const posted = api.requests.find((request) => request.method === 'POST');
+			expect((posted?.body as { regionId: string }).regionId).toBe(SINGAPORE);
+		});
+
+		// An empty list can only mean our seed did not run, so the copy points at
+		// waiting rather than at an administrator nobody has.
+		it('says there is nowhere to put a key, instead of offering to make one', async () => {
+			api.reply({ devices: [] });
+			api.regions();
+			render();
+
+			expect(await screen.findByText(/try again in a few minutes/i)).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /generate key/i })).toBeDisabled();
+		});
+
+		// The region exists, so hiding it would read as "we do not serve there".
+		// It is offered and refused instead, and the refusal is the same window
+		// the server will pick a node by.
+		it('offers a silent region disabled rather than hiding it, and will not submit', async () => {
+			api.reply({ devices: [] });
+			api.regions(testRegion({ id: FRANKFURT, name: 'Frankfurt', available: false }));
+			render();
+
+			expect(await screen.findByText(/no server in this region is answering/i)).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /generate key/i })).toBeDisabled();
+		});
 	});
 
 	it('warns that the file cannot be downloaded again, which is what DEC-045 requires', async () => {

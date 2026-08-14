@@ -180,7 +180,6 @@ describe('BillingPage', () => {
 		expect(await screen.findByText('The plan includes')).toBeInTheDocument();
 		expect(screen.getByText('25 users')).toBeInTheDocument();
 		expect(screen.getByText('5 devices per user')).toBeInTheDocument();
-		expect(screen.getByText('Regions: 2')).toBeInTheDocument();
 	});
 
 	it('clears the session when the user signs out', async () => {
