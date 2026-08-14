@@ -57,7 +57,7 @@ export class OutboxConsumer {
 			case 'device.provision':
 				return this.provisioner.provision(message.deviceId);
 			case 'device.revoke':
-				return this.provisioner.revoke(message.publicKey);
+				return this.provisioner.revoke(message.publicKey, message.exitNodeId);
 			case 'billing.invoice_archive':
 				return this.archiver.archive(accountId, message.invoiceId, message.externalInvoiceId);
 			default:

@@ -163,16 +163,33 @@ describe('OutboxConsumer routing', () => {
 		expect(dispatcher.send).not.toHaveBeenCalled();
 	});
 
-	it('revokes a peer by its public key, which is the only name the node knows', async () => {
+	it('revokes a peer by its public key, on the node the intent names', async () => {
+		await queue.enqueue({
+			name: 'device.revoke',
+			data: {
+				accountId: 'acc-1',
+				message: { kind: 'device.revoke', publicKey: 'pk-1', exitNodeId: 'node-1' },
+			},
+		});
+
+		await consumer.runOnce();
+
+		expect(provisioner.revoke).toHaveBeenCalledWith('pk-1', 'node-1');
+		expect(dispatcher.send).not.toHaveBeenCalled();
+	});
+
+	// Without the node there is nothing to ask, and asking every node to forget
+	// a key it never had is a fleet-wide broadcast for one device.
+	it('refuses a revocation that does not say which node, rather than guessing', async () => {
 		await queue.enqueue({
 			name: 'device.revoke',
 			data: { accountId: 'acc-1', message: { kind: 'device.revoke', publicKey: 'pk-1' } },
 		});
 
-		await consumer.runOnce();
+		const report = await consumer.runOnce();
 
-		expect(provisioner.revoke).toHaveBeenCalledWith('pk-1');
-		expect(dispatcher.send).not.toHaveBeenCalled();
+		expect(report.unknown).toEqual(['device.revoke']);
+		expect(provisioner.revoke).not.toHaveBeenCalled();
 	});
 
 	it('archives an invoice without sending anyone an e-mail', async () => {

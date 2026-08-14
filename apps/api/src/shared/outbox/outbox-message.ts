@@ -45,7 +45,11 @@ export type OutboxMessage =
 			readonly externalInvoiceId: string;
 	  }
 	| { readonly kind: 'device.provision'; readonly deviceId: string }
-	| { readonly kind: 'device.revoke'; readonly publicKey: string };
+	| {
+			readonly kind: 'device.revoke';
+			readonly publicKey: string;
+			readonly exitNodeId: string;
+	  };
 
 export type OutboxKind = OutboxMessage['kind'];
 
@@ -109,8 +113,13 @@ function parseOutboxMessage(name: string, data: unknown): OutboxMessage | null {
 		return { ...candidate, kind: name } as OutboxMessage;
 	}
 
+	// Both halves, because the key names a peer and the node says on which
+	// machine to go looking for it. The row is revoked by the time this is
+	// delivered, so nothing else can answer the second question.
 	if (name === 'device.revoke') {
-		if (!isNonEmptyString((candidate as { publicKey?: unknown }).publicKey)) return null;
+		const revoke = candidate as { publicKey?: unknown; exitNodeId?: unknown };
+		if (!isNonEmptyString(revoke.publicKey) || !isNonEmptyString(revoke.exitNodeId)) return null;
+
 		return { ...candidate, kind: name } as OutboxMessage;
 	}
 

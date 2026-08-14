@@ -12,13 +12,13 @@
     "@nestjs/core": "^11.0.0",
     "@vpn-poc/api": "workspace:*",
     "@vpn-poc/env": "workspace:*",
-    "@vpn/ports": "^0.14.0",
+    "@vpn/ports": "^0.15.0",
     "nestjs-pino": "^4.3.0",
     "reflect-metadata": "^0.2.2"
   },
   "devDependencies": {
     "@vpn/config": "^0.1.0",
-    "@vpn/testing": "^0.15.0",
+    "@vpn/testing": "^0.16.0",
     "vite-node": "^6.0.0"
   },
   "nx": {

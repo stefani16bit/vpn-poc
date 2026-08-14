@@ -5,6 +5,7 @@ import { Logger } from 'nestjs-pino';
 
 import {
 	AppModule,
+	NodeHealth,
 	OutboxConsumer,
 	OutboxRelay,
 	PeerReconciler,
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
 	const relay = context.get(OutboxRelay);
 	const consumer = context.get(OutboxConsumer);
 	const reconciler = context.get(PeerReconciler);
+	const health = context.get(NodeHealth);
 	const subscriptions = context.get(SubscriptionReconciler);
 	const retention = context.get(RetentionSweeper);
 
@@ -59,6 +61,10 @@ async function main(): Promise<void> {
 
 		// Each of these owns its own window in the cache, so the loop can ask
 		// every turn and only one worker ever answers.
+		await health.runIfDue().catch((error: unknown) => {
+			logger.error({ event: 'worker.health_failed', error });
+		});
+
 		await subscriptions.runIfDue().catch((error: unknown) => {
 			logger.error({ event: 'worker.billing_reconcile_failed', error });
 		});
