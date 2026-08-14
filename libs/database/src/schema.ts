@@ -1,10 +1,10 @@
-import { isNull, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import {
 	boolean,
+	check,
 	foreignKey,
 	pgPolicy,
 	pgRole,
-	pgView,
 	index,
 	integer,
 	jsonb,
@@ -261,6 +261,53 @@ export const outbox = pgTable(
 	],
 );
 
+// The fleet is the platform's, so these two carry no account_id and no policy —
+// the only domain tables that do not. Not being under a policy is not the same
+// as being writable: the migration REVOKEs INSERT, UPDATE and DELETE from
+// vpn_app, which is what the default privileges would otherwise have granted.
+export const regions = pgTable(
+	'regions',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		name: text('name').notNull(),
+		slug: text('slug').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [uniqueIndex('regions_slug_key').on(table.slug)],
+);
+
+export const exitNodes = pgTable(
+	'exit_nodes',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		regionId: uuid('region_id').notNull(),
+		label: text('label').notNull(),
+		endpoint: text('endpoint').notNull(),
+		controlUrl: text('control_url').notNull(),
+		publicKey: text('public_key').notNull(),
+		tunnelCidr: text('tunnel_cidr').notNull(),
+		// Where the credential lives, never the credential: a token on the row
+		// travels into every backup and every SELECT *. Not nullable, because a
+		// node with nowhere to read a credential from has no credential.
+		credentialRef: text('credential_ref').notNull(),
+		lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		foreignKey({
+			columns: [table.regionId],
+			foreignColumns: [regions.id],
+			name: 'exit_nodes_region_fk',
+		}).onDelete('restrict'),
+		// The key is the node's identity on both ends and travels inside every
+		// .conf, so two rows carrying one key are two names for one machine and no
+		// config could tell them apart.
+		uniqueIndex('exit_nodes_public_key_key').on(table.publicKey),
+		unique('exit_nodes_id_region_key').on(table.id, table.regionId),
+		index('exit_nodes_region_idx').on(table.regionId),
+	],
+);
+
 export const devices = pgTable(
 	'devices',
 	{
@@ -272,6 +319,10 @@ export const devices = pgTable(
 		name: text('name').notNull(),
 		publicKey: text('public_key').notNull(),
 		tunnelAddress: text('tunnel_address').notNull(),
+		// The choice and the assignment, never one column: a device outlives the
+		// node it landed on, and only the pair says which node served which choice.
+		regionId: uuid('region_id'),
+		exitNodeId: uuid('exit_node_id'),
 		// The account's seat for this device. The unique index below is what caps
 		// a tenant: a count() read before the INSERT is the check two concurrent
 		// requests walk through together. DEC-043.
@@ -286,13 +337,32 @@ export const devices = pgTable(
 			foreignColumns: [users.id, users.accountId],
 			name: 'devices_user_account_fk',
 		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.regionId],
+			foreignColumns: [regions.id],
+			name: 'devices_region_fk',
+		}).onDelete('restrict'),
+		// Two columns and not one: the region is the choice and the node is the
+		// assignment, and nothing but this refuses a device whose choice disagrees
+		// with the node it was placed on. The migration narrows the SET NULL to
+		// exit_node_id by hand — drizzle has no way to say it, and nulling
+		// region_id would erase the choice when a machine is retired.
+		foreignKey({
+			columns: [table.exitNodeId, table.regionId],
+			foreignColumns: [exitNodes.id, exitNodes.regionId],
+			name: 'devices_exit_node_region_fk',
+		}).onDelete('set null'),
 		index('devices_user_idx').on(table.userId),
 		uniqueIndex('devices_live_public_key_key')
 			.on(table.publicKey)
 			.where(sql`${table.revokedAt} is null`),
 		uniqueIndex('devices_live_address_key')
-			.on(table.tunnelAddress)
+			.on(table.exitNodeId, table.tunnelAddress)
 			.where(sql`${table.revokedAt} is null`),
+		check(
+			'devices_live_has_placement',
+			sql`${table.revokedAt} is not null or (${table.regionId} is not null and ${table.exitNodeId} is not null)`,
+		),
 		uniqueIndex('devices_live_account_slot_key')
 			.on(table.accountId, table.accountSlot)
 			.where(sql`${table.revokedAt} is null`),
@@ -347,11 +417,4 @@ export const userPermissions = pgTable(
 		),
 		...scopedPolicies('user_permissions'),
 	],
-);
-
-export const liveTunnelAddresses = pgView('live_tunnel_addresses').as((qb) =>
-	qb
-		.select({ tunnelAddress: devices.tunnelAddress })
-		.from(devices)
-		.where(isNull(devices.revokedAt)),
 );

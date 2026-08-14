@@ -29,7 +29,15 @@ pergunta de incidente que "foi revogado" não responde.
 Toda tabela de domínio tem `account_id`, `ENABLE ROW LEVEL SECURITY` e **duas**
 policies: `<tabela>_tenant` para `vpn_app` contra
 `current_setting('app.account_id')`, e `<tabela>_system` para `app_system` com
-`USING (true)`. A segunda não é frouxidão: `app_system` é `NOBYPASSRLS`, então
+`USING (true)`.
+
+**Duas exceções, e são nominais:** `regions` e `exit_nodes`. A frota é da
+plataforma e não pende de account nenhuma, então não há o que uma policy isole.
+Isso **não** as deixa escrevíveis: o `ALTER DEFAULT PRIVILEGES` daria
+INSERT/UPDATE/DELETE a `vpn_app` de graça, e o que segura é um `REVOKE` explícito
+no fim da `0007`. Quem cobra são dois portões que afirmam o conjunto exato
+(`exit_nodes,regions`) e não uma lista de exclusão — então uma terceira tabela sem
+RLS reprova, e ligar RLS numa destas duas também. Ver DEC-090. A segunda não é frouxidão: `app_system` é `NOBYPASSRLS`, então
 sem policy explícita ele lê zero linhas igual a `vpn_app` — o "bypass
 deliberado" da DEC-005 precisa ser escrito. Ver DEC-050.
 

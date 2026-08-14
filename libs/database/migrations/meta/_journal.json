@@ -50,6 +50,20 @@
       "when": 1786631747957,
       "tag": "0006_device_account_slot",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786719537730,
+      "tag": "0007_regions_and_exit_nodes",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786719538730,
+      "tag": "0008_seed_platform_fleet",
+      "breakpoints": true
     }
   ]
 }
