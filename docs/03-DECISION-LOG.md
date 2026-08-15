@@ -4695,3 +4695,42 @@ pelo catch-all.
 esperavam aterrissar; passaram a declarar o endereço que esse lugar tem. E o
 destino pós-login, que era a linha mais visível da mudança, não era coberto por
 teste nenhum — agora é.
+
+---
+
+### DEC-107 — O preço mora em `@vpn/contracts`, e o script vira o detector
+
+**Data:** 2026-08-15 · **Status:** accepted
+
+**Contexto.** O app nunca exibiu um preço. Os únicos valores do repositório
+estavam em `scripts/billing-prices.mjs`, um utilitário manual que semeia o Stripe
+e que nada importa. Uma página de preços precisa do número, e não havia de onde
+tirá-lo.
+
+**Decisão.** `PLAN_PRICES: Record<TierId, Record<Cadence, PlanPrice>>` em
+`@vpn/contracts`, com `amountCents` e `currency`. O script deriva as duas prices
+dele, e o root ganha `@vpn/contracts` em `devDependencies`.
+
+**Rationale.** É o precedente da DEC-036: o mapa de entitlements já mora em
+contracts porque todo cliente precisa dele e a regra tem que ser uma só. O preço
+tem exatamente essa forma, e pende do par tier × cadence — que é o que o checkout
+já pede.
+
+A dependência no root não é cerimônia: `billing:prices` roda `node
+scripts/billing-prices.mjs` direto, e o resolver de ESM do Node parte do
+diretório do próprio módulo. Sem a entrada, o import quebra — o root não tinha
+bloco `dependencies`, e o `shamefully-hoist=false` do `.npmrc` garante que nada
+de `apps/*` vaze para a raiz.
+
+**O risco residual dito em voz alta.** Contracts diz o que a página **anuncia**;
+o `STRIPE_PRICE_ID` aponta o que o cartão **paga**. São dois lugares, e uma price
+é imutável no Stripe — não dá para reconciliar editando. Então o script passa a
+recusar: o ramo que antes reusava por `lookup_key` sem olhar o valor agora compara
+`unit_amount` e `currency` e falha mostrando os dois lados. Antes, mudar
+`PLAN_PRICES` e rodar o script imprimia "reused" e não mudava nada — o pior dos
+mundos, porque parecia sucesso.
+
+**O `--currency` sai.** Um valor em centavos só significa algo ao lado de uma
+moeda, e agora contracts nomeia as duas juntas. A flag permitia semear $29,90
+enquanto a landing anunciava R$ 29,90. Não estava documentada em lugar nenhum
+fora do próprio cabeçalho do script.

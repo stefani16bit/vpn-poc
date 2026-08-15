@@ -11,7 +11,11 @@
  * Usage:
  *   pnpm billing:prices                     read STRIPE_API_KEY from .env
  *   pnpm billing:prices --key sk_test_...    use this key instead
- *   pnpm billing:prices --currency usd       default is brl
+ *
+ * The amounts are not this script's to choose: they come from PLAN_PRICES in
+ * @vpn/contracts, which is also what the landing page advertises. Running this
+ * is what keeps the two equal, and a price already in the account that disagrees
+ * is a failure here rather than a silent "reused".
  *
  * Idempotent: prices carry a lookup_key, so a second run finds them instead of
  * creating a second pair. Refuses any key that is not sk_test_ — this script
@@ -22,14 +26,22 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { CADENCES, PLAN_PRICES } from '@vpn/contracts';
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const API = 'https://api.stripe.com';
 const PRODUCT_ID = 'poc_vpn_pro';
+const TIER = 'pro';
 
-const PRICES = [
-	{ cadence: 'monthly', interval: 'month', amount: 2990, lookupKey: 'poc_vpn_pro_monthly' },
-	{ cadence: 'yearly', interval: 'year', amount: 29900, lookupKey: 'poc_vpn_pro_yearly' },
-];
+const STRIPE_INTERVAL_BY_CADENCE = { monthly: 'month', yearly: 'year' };
+
+const PRICES = CADENCES.map((cadence) => ({
+	cadence,
+	interval: STRIPE_INTERVAL_BY_CADENCE[cadence],
+	amountCents: PLAN_PRICES[TIER][cadence].amountCents,
+	currency: PLAN_PRICES[TIER][cadence].currency,
+	lookupKey: `poc_vpn_${TIER}_${cadence}`,
+}));
 
 const ENV_VAR_BY_CADENCE = { monthly: 'STRIPE_PRICE_ID', yearly: 'STRIPE_PRICE_ID_YEARLY' };
 
@@ -56,7 +68,6 @@ function die(message) {
 }
 
 const apiKey = argOf('key') ?? process.env['STRIPE_API_KEY'] ?? keyFromDotenv();
-const currency = argOf('currency') ?? 'brl';
 
 if (!apiKey) {
 	die('no STRIPE_API_KEY: pass --key sk_test_... or put one in .env');
@@ -109,7 +120,7 @@ async function ensureProduct() {
 
 const lines = [];
 
-process.stdout.write(`\nstripe test mode, currency ${currency}\n\n`);
+process.stdout.write(`\nstripe test mode\n\n`);
 
 const product = await ensureProduct();
 
@@ -117,6 +128,17 @@ for (const price of PRICES) {
 	const existing = await findPrice(price.lookupKey);
 
 	if (existing) {
+		if (existing.unit_amount !== price.amountCents || existing.currency !== price.currency) {
+			die(
+				`the ${price.cadence} price in this account disagrees with @vpn/contracts:\n` +
+					`  contracts  ${price.amountCents} ${price.currency}\n` +
+					`  ${existing.id}  ${existing.unit_amount} ${existing.currency}\n` +
+					'A price is immutable in Stripe: archive that one and change its lookup_key,\n' +
+					'or put the account amount back into PLAN_PRICES. Reusing it would make the\n' +
+					'landing page advertise a number the card never gets charged.',
+			);
+		}
+
 		process.stdout.write(`  reused  ${price.cadence.padEnd(7)} ${existing.id}\n`);
 		lines.push(`${ENV_VAR_BY_CADENCE[price.cadence]}=${existing.id}`);
 		continue;
@@ -124,8 +146,8 @@ for (const price of PRICES) {
 
 	const created = await call('POST', '/v1/prices', {
 		product,
-		currency,
-		unit_amount: String(price.amount),
+		currency: price.currency,
+		unit_amount: String(price.amountCents),
 		'recurring[interval]': price.interval,
 		lookup_key: price.lookupKey,
 		nickname: `poc-vpn pro ${price.cadence}`,
