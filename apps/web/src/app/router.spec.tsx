@@ -58,6 +58,12 @@ describe('Router', () => {
 		expect(await screen.findByText('Nothing was charged')).toBeInTheDocument();
 	});
 
+	it('gives the account page an address of its own, now that / is public', async () => {
+		renderAt('/account');
+
+		expect(await screen.findByText('Your account')).toBeInTheDocument();
+	});
+
 	it('still sends an unknown billing subpath to the account page', async () => {
 		renderAt('/billing/whatever');
 

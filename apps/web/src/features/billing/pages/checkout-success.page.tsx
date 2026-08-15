@@ -41,7 +41,7 @@ export function CheckoutSuccessPage(): ReactNode {
 
 	const backToAccount = (
 		<p className="mt-4">
-			<Link to="/" className="text-primary underline-offset-4 hover:underline">
+			<Link to="/account" className="text-primary underline-offset-4 hover:underline">
 				{t('billing.backToAccount')}
 			</Link>
 		</p>

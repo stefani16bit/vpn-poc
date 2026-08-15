@@ -17,7 +17,7 @@ export function Nav(): ReactNode {
 	const canManagePermissions = useHasPermission('permissions.manage');
 
 	const elsewhere = [
-		{ to: '/', label: t('billing.accountTitle') },
+		{ to: '/account', label: t('billing.accountTitle') },
 		// No subscription needed: whoever cancelled still needs the receipts.
 		...(canManageBilling ? [{ to: '/billing/invoices', label: t('billing.invoices.link') }] : []),
 		...(subscribed && canUseKeys ? [{ to: '/keys', label: t('keys.link') }] : []),

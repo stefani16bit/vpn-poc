@@ -55,7 +55,7 @@ function renderGuard(anyOf: readonly Permission[], store: TestStore = signedIn()
 					</RequirePermission>
 				}
 			/>
-			<Route path="/" element={<p>the account home</p>} />
+			<Route path="/account" element={<p>the account home</p>} />
 		</Routes>,
 		{ locale: 'en', route: '/users', store },
 	);

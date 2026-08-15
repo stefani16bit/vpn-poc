@@ -4658,3 +4658,40 @@ implicado por uma suíte verde.
 `STRIPE_WEBHOOK_SECRET_REF` e a versão nova são independentes: um endpoint criado
 hoje nasce em dahlia, e rotacionar o segredo dele não muda a versão que ele
 guarda.
+
+---
+
+### DEC-106 — A conta se muda para `/account`, e `/` fica livre
+
+**Data:** 2026-08-15 · **Status:** accepted · **Amends:** DEC-058, DEC-082
+
+**Contexto.** `/` era a página de conta atrás de `RequireAuth`. Um estranho que
+abrisse a raiz do site caía no `/login`, e não havia endereço público que
+dissesse o que o produto é. Toda negação apontava para lá também: os dois
+catch-all, o `RequireSubscription`, o `RequirePermission` e o destino padrão
+pós-login.
+
+**Decisão.** A página de conta passa a ser `/account`. `/` fica reservada para a
+landing pública (DEC-108).
+
+**Rationale.** A porta da frente tem que ser a página que um estranho consegue
+ler. Enquanto os seis destinos apontassem para uma rota guardada, não havia onde
+colocar uma landing sem que ela ficasse atrás do portão ou sem duplicar o
+`RequireAuth` dentro de um componente que decide quem é você — uma rota com duas
+identidades.
+
+**Os catch-all continuam apontando para `/account`, não para `/`.** Isso preserva
+o comportamento de hoje inteiro: um caminho desconhecido aberto sem sessão segue
+`/account` → `RequireAuth` → `/login`, exatamente como seguia `/` → `/login`.
+Mandá-los para a landing faria o typo de quem já está logado desembocar em
+marketing, e faria os e-mails de cobrança — que linkam `/billing` e caem no
+`/billing/*` (DEC-058) — pararem numa página de vendas em vez da conta.
+
+**Nada muda na API.** `WEB_ORIGIN` e as URLs de retorno do checkout apontam para
+`/billing/success`, `/billing/cancel` e `/billing`, e as três seguem funcionando
+pelo catch-all.
+
+**Consequências.** As duas suítes de guarda declaravam `/` como o lugar onde
+esperavam aterrissar; passaram a declarar o endereço que esse lugar tem. E o
+destino pós-login, que era a linha mais visível da mudança, não era coberto por
+teste nenhum — agora é.

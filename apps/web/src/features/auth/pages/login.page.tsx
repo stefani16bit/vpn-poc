@@ -26,7 +26,7 @@ export function LoginPage() {
 	const form = useForm<LoginRequest>({ resolver: zodResolver(loginRequestSchema) });
 	const normalized = normalizeError(error);
 
-	const from = (location.state as { from?: string } | null)?.from ?? '/';
+	const from = (location.state as { from?: string } | null)?.from ?? '/account';
 
 	async function onSubmit(values: LoginRequest) {
 		const result = await login(values);

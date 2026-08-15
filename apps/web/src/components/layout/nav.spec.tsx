@@ -17,7 +17,7 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-function render(granted: Permission[], route = '/') {
+function render(granted: Permission[], route = '/account') {
 	api.grant(...granted);
 
 	const store = makeStore();

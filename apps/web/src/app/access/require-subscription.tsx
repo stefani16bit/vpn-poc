@@ -8,7 +8,7 @@ export function RequireSubscription({ children }: { children: ReactNode }): Reac
 	const status = useSubscriptionStatus();
 
 	if (status === 'unknown') return <Loading />;
-	if (status === 'unsubscribed') return <Navigate to="/" replace />;
+	if (status === 'unsubscribed') return <Navigate to="/account" replace />;
 
 	return children;
 }

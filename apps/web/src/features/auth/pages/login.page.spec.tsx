@@ -1,5 +1,6 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { makeStore, renderWithProviders } from '@/test-utils.tsx';
@@ -99,6 +100,24 @@ describe('LoginPage', () => {
 		await waitFor(() => expect(store.getState().auth.status).toBe('authenticated'));
 		expect(lastRequest?.url).toContain('auth/login');
 		expect(store.getState().auth.accessToken).toBe('access-1');
+	});
+
+	it('sends a visitor who came in through the front door to the account page', async () => {
+		next = { status: 200, body: SESSION };
+
+		renderWithProviders(
+			<Routes>
+				<Route path="/login" element={<LoginPage />} />
+				<Route path="/account" element={<p>the account page</p>} />
+			</Routes>,
+			{ locale: 'en', route: '/login' },
+		);
+
+		await userEvent.type(screen.getByLabelText('E-mail'), 'ada@example.com');
+		await userEvent.type(screen.getByLabelText('Password'), 'a-long-enough-password');
+		await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+		expect(await screen.findByText('the account page')).toBeInTheDocument();
 	});
 
 	it('surfaces a rejected credential as a translated alert', async () => {

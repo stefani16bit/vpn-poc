@@ -9,6 +9,16 @@ Os primitivos são **copiados** para `components/ui/`, não instalados: o
 componente copiado é editável, e a regra de "nenhum literal voltado ao usuário"
 é impossível de cumprir dentro de um `node_modules`. Ver DEC-019.
 
+## Rotas
+
+`/account` é a home de quem está logado. `/` era ela, e deixou de ser para
+liberar a raiz (DEC-106).
+
+Os dois catch-all — `*` e `/billing/*` — apontam para `/account` e **não** para
+`/`. Sem sessão isso vira `/login` pelo `RequireAuth`, que é o que eles já
+faziam; mandá-los para a raiz faria o typo de quem está logado desembocar fora
+do app, e os e-mails de cobrança linkam `/billing`.
+
 ## Sessão
 
 `auth-slice` é uma máquina de três estados — `unknown | authenticated |

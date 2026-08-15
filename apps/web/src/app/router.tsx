@@ -30,7 +30,7 @@ export function Router() {
 			<Route path="/verify-email" element={<VerifyEmailPage />} />
 
 			<Route
-				path="/"
+				path="/account"
 				element={
 					<RequireAuth>
 						<BillingPage />
@@ -106,8 +106,9 @@ export function Router() {
 				}
 			/>
 
-			<Route path="/billing/*" element={<Navigate to="/" replace />} />
-			<Route path="*" element={<Navigate to="/" replace />} />
+			{/* Never to the landing: a signed-out typo still has to reach the login. */}
+			<Route path="/billing/*" element={<Navigate to="/account" replace />} />
+			<Route path="*" element={<Navigate to="/account" replace />} />
 		</Routes>
 	);
 }

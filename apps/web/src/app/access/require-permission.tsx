@@ -16,7 +16,7 @@ export function RequirePermission({
 	const status = usePermissionStatus(anyOf);
 
 	if (status === 'unknown') return <Loading />;
-	if (status === 'denied') return <Navigate to="/" replace />;
+	if (status === 'denied') return <Navigate to="/account" replace />;
 
 	return children;
 }
