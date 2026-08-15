@@ -374,7 +374,8 @@ produto:
 - **O plano de controle fala HTTP puro.** Cada nó tem a sua credencial desde a
   DEC-098 — `credential_ref` é lida, não só escrita —, mas ela viaja em Basic
   sobre HTTP. mTLS continua sendo o teto e continua sendo trabalho de nó real: o
-  `busybox httpd` do contêiner não fala TLS.
+  `busybox httpd` do contêiner não fala TLS. **Adiado por escrito**, com os dois
+  atalhos recusados e o motivo de cada um. DEC-103.
 - **Rotacionar a credencial de um nó não o derruba.** Ele aceita o corrente e o
   anterior enquanto a janela está aberta, e o `busybox httpd` relê o `httpd.conf`
   no `SIGHUP` — então trocar o segredo de um nó deixou de ser recriá-lo, e nenhum

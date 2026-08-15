@@ -153,9 +153,12 @@ DEC-094, e o guard do laço em `apps/worker`.
 - [ ] **O plano de controle do nó fala HTTP puro.** O alvo continua sendo mTLS,
       que é certificado de cliente num dispatcher de `fetch` mais terminação TLS
       no nó — o `busybox httpd` é 1.37.0 e não fala TLS, então isso é trabalho de
-      nó real e da stack `network`. A credencial por nó não adianta caminho para
-      ele, e a DEC-073 já explicava por quê: mTLS não reaproveita esquema de
-      cabeçalho nenhum. DEC-073, DEC-098, DEC-011.
+      nó real e da stack `network`. **Adiado explicitamente, com os dois atalhos
+      recusados por escrito** (proxy por nó, troca de imagem): os dois destroem
+      uma decisão recente para chegar a um nó que ainda não é o de produção, e a
+      stack `network` sequer começou. A credencial por nó não adianta caminho, e
+      a DEC-073 já explicava por quê: mTLS não reaproveita esquema de cabeçalho
+      nenhum. DEC-103, DEC-073, DEC-098, DEC-011.
 - [x] ~~**A rotação da credencial de um nó exige recriá-lo.**~~ O spike foi feito
       e a resposta é sim, duas vezes: o `busybox httpd` guarda **as duas** linhas
       para o mesmo caminho (`parse_conf` não deduplica, e a guarda `prev` de

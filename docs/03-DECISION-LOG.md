@@ -4489,3 +4489,56 @@ constante. É pré-existente, não é introduzido aqui, e continua valendo — o
 protege é a credencial não ser adivinhável, não o comparador. E `IExitNode`,
 `describeExitNodeContract` e `HttpExitNode` não mudaram uma linha: a rotação é do
 nó, e a porta nunca soube o que é uma credencial.
+
+---
+
+### DEC-103 — mTLS espera um nó de verdade, e isso fica escrito
+
+**Data:** 2026-08-14 · **Status:** accepted · **Supersedes:** DEC-073 (o parágrafo de mTLS)
+
+**Contexto.** O plano de controle fala **HTTP puro**. A credencial é por nó desde
+a DEC-098 e rotaciona sem reiniciar desde a DEC-102, mas ela viaja em Basic sobre
+HTTP. O alvo sempre foi mTLS, e o `busybox httpd` não fala TLS — então não há
+como escrever o dispatcher de `fetch` contra um nó que não sabe responder a ele.
+
+Três caminhos existiam, e escolher **nenhum** também é uma decisão. Ela precisa
+estar escrita, senão o item volta para a mesa a cada leitura do roadmap.
+
+**Decisão.** mTLS é adiado, explicitamente, para quando existir um nó real e a
+stack `network`. O item continua **aberto** no roadmap, apontando para aqui.
+
+**Rationale.** Os dois caminhos que trariam mTLS para o devstack hoje custam mais
+do que entregam, e cada um destrói uma coisa que já foi decidida.
+
+**Um proxy de terminação TLS na frente de cada nó** tira o TLS do artefato. A
+DEC-062 diz que `devstack/wireguard/` é _"o arquivo que alguém copia em direção a
+um nó real"_, e o que se aprenderia com cinco sidecars é como configurar um proxy
+que o nó real não vai ter. O dispatcher do lado da aplicação ficaria exercitado
+contra uma topologia que não é a de destino.
+
+**Trocar a imagem do nó** por uma que termine TLS reescreve o plano de controle
+inteiro: os três CGI, o `-h`, e o mecanismo de cópia no boot que a DEC-089 acabou
+de assentar por uma razão que continua valendo (o bit de execução viaja com o
+host). Seria refazer duas decisões recentes para chegar a um nó que ainda não é o
+de produção.
+
+E a stack `network` **está vazia** — é um item não iniciado do próprio roadmap.
+mTLS é certificado de cliente mais terminação no nó mais uma autoridade que emite
+e rotaciona os dois lados; a parte difícil é a autoridade, e ela não existe em
+lugar nenhum ainda. Construí-la contra contêineres seria construí-la duas vezes.
+
+A DEC-073 já registrava por que nada disso ganha caminho de graça: **mTLS não
+reaproveita esquema de cabeçalho nenhum.** Nem o `Basic` de hoje nem um `Bearer`
+adiantam um passo. Por isso o custo de adiar é exatamente o custo de fazer depois,
+e não cresce enquanto se espera — o que é a condição para adiar honestamente.
+
+**Consequências.** A credencial continua viajando em Basic sobre HTTP entre a
+aplicação e o nó. No devstack isso é loopback; num deploy, é a stack `network` que
+decide se esse tráfego atravessa alguma coisa — e é lá que a pergunta pertence.
+
+Este parágrafo supera o de mTLS da DEC-073, que a DEC-098 carregou adiante. As
+três dizem a mesma coisa sobre o esquema de cabeçalho; o que esta acrescenta é a
+recusa dos dois atalhos, para que ela não precise ser redescoberta.
+
+O roadmap continua com a linha **aberta**. Adiar não é entregar, e um `[x]` aqui
+seria a única mentira que este arquivo já teria contado.
