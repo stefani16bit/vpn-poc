@@ -11,13 +11,21 @@ componente copiado é editável, e a regra de "nenhum literal voltado ao usuári
 
 ## Rotas
 
-`/account` é a home de quem está logado. `/` era ela, e deixou de ser para
-liberar a raiz (DEC-106).
+`/` é a landing pública e `/account` é a home de quem está logado. `/` era a
+conta, e deixou de ser para liberar a raiz (DEC-106).
 
 Os dois catch-all — `*` e `/billing/*` — apontam para `/account` e **não** para
 `/`. Sem sessão isso vira `/login` pelo `RequireAuth`, que é o que eles já
 faziam; mandá-los para a raiz faria o typo de quem está logado desembocar fora
 do app, e os e-mails de cobrança linkam `/billing`.
+
+`features/marketing` não faz chamada de rede: preço e limites vêm de
+`PLAN_PRICES` e `ENTITLEMENTS`, e os CTAs são `Link`. Um clique deslogado em
+`useStartCheckout` falharia em silêncio — sem sessão o `base-query` nem tenta
+refresh — então a landing só linka.
+
+Sessão em `unknown` renderiza o cabeçalho deslogado, não `<Loading />`: a landing
+é lida por anônimos, e é o único lugar do app onde `unknown` **não** vira espera.
 
 ## Sessão
 

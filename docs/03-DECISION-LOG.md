@@ -4734,3 +4734,42 @@ mundos, porque parecia sucesso.
 moeda, e agora contracts nomeia as duas juntas. A flag permitia semear $29,90
 enquanto a landing anunciava R$ 29,90. Não estava documentada em lugar nenhum
 fora do próprio cabeçalho do script.
+
+---
+
+### DEC-108 — A landing é `features/marketing`, e não uma página de billing
+
+**Data:** 2026-08-15 · **Status:** accepted
+
+**Contexto.** A landing mostra preço e entitlements, o que a aproxima de
+`features/billing` — onde `PlanEntitlements` e `SubscribeButtons` já existem e de
+onde a regra de fronteira do ESLint a proíbe de importar.
+
+**Decisão.** `features/marketing/pages/landing.page.tsx`. Os três bullets de
+entitlements são reescritos dentro do cartão de preço em vez de extraídos.
+
+**Rationale.** A landing não faz chamada de billing e não guarda estado de
+billing. O que ela divide com a feature é o **catálogo** — `PLAN_PRICES` e
+`ENTITLEMENTS`, ambos em `@vpn/contracts`, alcançáveis de qualquer lugar. Dividir
+fonte de dado não é dividir feature. E toda página sob `features/billing/pages/`
+está atrás de `RequireAuth`; colocar uma pública lá deixaria a feature meio
+pública sem nada marcando qual metade.
+
+Criar o diretório já gera as proibições marketing↔{auth,billing,...} nos dois
+sentidos, porque `siblingZones` lê o disco no carregamento do config. A fronteira
+se defende sozinha.
+
+**Sobre a duplicação dos bullets.** São cinco linhas lendo o mesmo
+`ENTITLEMENTS.pro`. As duas renderizações têm moldura diferente — lá uma
+`<section>` com cabeçalho próprio, aqui dentro do cartão de preço — e um
+componente compartilhado com prop `variant` seria mais código do que a duplicação
+remove. Se aparecer um terceiro chamador, o movimento é levar para `components/`;
+`nav.tsx` já mostra que um arquivo de `components/` pode importar
+`@vpn/contracts`.
+
+**Duas decisões de tela.** Sessão em `unknown` renderiza o cabeçalho
+**deslogado**, não um spinner: `useBootstrapAuth` roda em toda rota, quase todo
+visitante da landing é anônimo, e fazer um leitor anônimo esperar é falhar no
+único trabalho que a página tem. E os títulos dos cartões são `<h2>`/`<h3>` de
+verdade, não `CardTitle` — que é uma `div`. Numa página que um estranho lê com
+leitor de tela, o esboço do documento é conteúdo.

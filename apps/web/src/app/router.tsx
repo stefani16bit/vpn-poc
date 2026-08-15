@@ -15,12 +15,15 @@ import { CheckoutCancelPage } from '@/features/billing/pages/checkout-cancel.pag
 import { CheckoutSuccessPage } from '@/features/billing/pages/checkout-success.page.tsx';
 import { InvoicesPage } from '@/features/billing/pages/invoices.page.tsx';
 import { KeysPage } from '@/features/keys/pages/keys.page.tsx';
+import { LandingPage } from '@/features/marketing/pages/landing.page.tsx';
 import { PermissionsPage } from '@/features/permissions/pages/permissions.page.tsx';
 import { UsersPage } from '@/features/users/pages/users.page.tsx';
 
 export function Router() {
 	return (
 		<Routes>
+			<Route path="/" element={<LandingPage />} />
+
 			<Route path="/login" element={<LoginPage />} />
 			<Route path="/signup" element={<SignupPage />} />
 			<Route path="/forgot-password" element={<ForgotPasswordPage />} />
