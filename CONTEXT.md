@@ -193,6 +193,20 @@ que nada no nome dissesse isso; um plano é o par **tier × cadence**, e o preç
 pende do par enquanto os entitlements pendem só do tier. Hoje os dois nomes
 existem separados (`TIER_IDS`, `CADENCES`), e o checkout pede o par.
 
+**Preço do plano** — quanto custa o par tier × cadence, em centavos e numa moeda
+só. Mora em `PLAN_PRICES`, em `@vpn/contracts`, pelo mesmo motivo dos
+entitlements (DEC-036): é o número que a página **anuncia**, e todo cliente
+precisa dele. Não é o que o cartão paga — isso é o preço no provider, apontado
+por `STRIPE_PRICE_ID`. Os dois só continuam iguais porque `pnpm billing:prices`
+recusa semear um valor que discorde do que já está lá. DEC-107.
+
+**Cadência pretendida** — a cadência que a pessoa escolheu na landing **antes**
+de ter conta. Não é uma assinatura nem uma reserva: é uma preferência guardada no
+navegador que atravessa o cadastro e a verificação de e-mail e reaparece nomeada
+em `/account`. Vale 24h, o mesmo prazo do link de verificação que ela acompanha.
+Verificar o e-mail em outro navegador a perde, e perdê-la não custa nada — a tela
+de conta mostra os dois planos de qualquer jeito. DEC-109.
+
 **Account sem tier** — a que não tem subscription em estado que dê acesso.
 `active` e `trialing` dão; `past_due`, `canceled`, `incomplete` e a ausência de
 linha não dão. Não é um tier chamado "free": é a **ausência** de tier, o mapa não
