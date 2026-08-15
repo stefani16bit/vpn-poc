@@ -39,6 +39,9 @@ não está de pé.
   esquema de cabeçalho nenhum.
 - **Rotação do token do nó.** Um token só serve a frota inteira, então trocá-lo
   derruba todos os nós ao mesmo tempo. Está no roadmap.
+  _Fechado depois: a credencial virou por nó (DEC-098) e passou a rotacionar sem
+  reiniciar, com uma janela de dois valores que o `httpd` relê no `SIGHUP`
+  (DEC-102). Ver `docs/specs/secret-rotation.md`._
 - **Rotação da chave do próprio nó.** Invalidaria todo `.conf` já baixado e não há
   como reemiti-los. Decisão de produto, como a spec anterior já dizia.
 - **Regiões, segundo nó e metering.** Continuam dependendo de mais de um nó.
@@ -85,25 +88,41 @@ Quando  ele descreve o nó ou provisiona um peer
 Então   ele lança, e a mensagem diz 401
 ```
 
-```
-Dado    EXIT_NODE_DRIVER=http e nenhum EXIT_NODE_API_TOKEN
-Quando  a aplicação sobe
-Então   loadEnv lança nomeando a variável e o driver que a exige
-```
+> As duas cenas seguintes descreviam `EXIT_NODE_API_TOKEN` sendo cobrado por
+> `loadEnv` com uma regra de 32 caracteres do zod. **Nenhum dos dois existe desde
+> a DEC-098**: a credencial saiu do ambiente da aplicação e virou uma referência
+> na linha do nó. O que substituiu as duas está abaixo, e o resto em
+> `docs/specs/secret-rotation.md`.
 
 ```
-Dado    um token com menos de 32 caracteres
-Quando  a aplicação sobe
-Então   o zod recusa antes de qualquer chamada ao nó
+Dado    uma linha de nó cuja credential_ref não nomeia segredo nenhum
+Quando  a varredura abre aquele nó
+Então   ela lança ExitNodeCredentialError nomeando a referência
+E       a varredura dos outros nós continua
 ```
-
-O prazo de validade de `changeme` é o boot, não o primeiro `wg set`.
 
 ```
 Dado    o contêiner do nó sem EXIT_NODE_API_TOKEN no ambiente
 Quando  ele sobe
 Então   o entrypoint recusa em vez de servir sem nada para conferir
 ```
+
+```
+Dado    um nó com o valor corrente e o anterior configurados
+Quando  um chamador apresenta qualquer um dos dois
+Então   a resposta é 200
+```
+
+```
+Dado    a janela fechada com rotate.sh, só com o corrente
+Quando  um chamador apresenta o valor aposentado
+Então   a resposta é 401
+E       o httpd é o mesmo processo que atendia antes
+```
+
+O `busybox httpd` guarda as duas linhas e as tenta em ordem, e relê o arquivo no
+`SIGHUP` — as duas coisas lidas em `networking/httpd.c` e medidas contra o
+contêiner. DEC-102.
 
 ```
 Dado    o healthcheck do contêiner

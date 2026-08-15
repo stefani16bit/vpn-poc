@@ -414,6 +414,10 @@ lugar que ela nomeia. Cada nó tem a sua, e é isso que faz rotacionar ser um n�
 de cada vez em vez de uma parada da frota — o preço que a DEC-073 tinha
 registrado para o token compartilhado. DEC-098.
 
+Rotacionar a de um nó não o derruba nem o recria: o plano de controle aceita o
+corrente e o anterior enquanto a **janela de rotação** está aberta, e quem a
+abre e a fecha é quem escreve no cofre. DEC-102.
+
 Ela é da conversa entre **nós** e o plano de controle, e não tem nada a ver com
 a chave do túnel: quem autentica um device no WireGuard é o par de chaves, e o
 `.conf` não carrega senha nenhuma.

@@ -77,8 +77,16 @@ read_env() {
 # agree" — which is the chain the API walks at runtime.
 node_credential() {
 	docker compose exec -T localstack awslocal secretsmanager get-secret-value \
-		--secret-id "poc-vpn/exit-node/$1" --query SecretString --output text 2>/dev/null |
+		--secret-id "poc-vpn/exit-node/$1" --version-stage "${2:-AWSCURRENT}" \
+		--query SecretString --output text 2>/dev/null |
 		tr -d '\r\n'
+}
+
+# The httpd the control plane runs on. Compared before and after a rotation,
+# because "without restarting" is the claim item 3 makes and a container that
+# quietly came back up would satisfy every other probe in this file.
+node_httpd_pid() {
+	docker compose exec -T "wireguard-$1" pidof httpd 2>/dev/null | tr -d '\r\n'
 }
 
 # Straight from the interface, not from describe(): this is the value the seeded
@@ -291,6 +299,14 @@ for _entry in $FLEET; do
 	# every in-container probe there is.
 	check_body "the ${_node} control plane answers the credential Secrets Manager holds for it" 'publicKey=' \
 		-u "${EXIT_NODE_API_USER}:${_credential}" \
+		"http://127.0.0.1:${_port}/cgi-bin/describe"
+
+	# The other half of the window. Every node here stands mid-rotation, because a
+	# window nobody has to arrange is a window every run checks. This is also the
+	# assertion that would have caught busybox keeping only one of two config
+	# lines for the same path — the thing DEC-098 could not promise. DEC-102.
+	check_body "the ${_node} control plane accepts the credential it is rotating away from" 'publicKey=' \
+		-u "${EXIT_NODE_API_USER}:$(node_credential "$_node" AWSPREVIOUS)" \
 		"http://127.0.0.1:${_port}/cgi-bin/describe"
 
 	# The assertion that actually earns the per-node credential. Without it five

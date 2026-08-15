@@ -8,7 +8,7 @@ cd poc-vpn
 cp .env.example .env.local
 
 make up                      # sobe os 8 contêineres e espera ficarem saudáveis
-make check                   # 56 asserções; tem que dar 56/56
+make check                   # 65 asserções; tem que dar 65/65
 
 pnpm install
 pnpm packages:publish:local  # publica @vpn/* no Verdaccio local
@@ -116,8 +116,8 @@ quebram para quem consome.
 3. Entre com a senha
 4. Assine — ver a seção 7, que tem dois modos
 5. **Dispositivos e chaves** → gere um device; o `.conf` baixa na hora e o peer
-   aparece no nó em segundos. O plano de controle pede credencial, então a consulta
-   à mão leva a do `.env`:
+   aparece no nó em segundos. O plano de controle pede credencial, e ela vem do
+   Secrets Manager — o `.env` carrega a **referência**, nunca o valor:
 
    ```bash
    TOKEN=$(docker compose exec -T localstack awslocal secretsmanager get-secret-value \n     --secret-id poc-vpn/exit-node/sa --query SecretString --output text)
@@ -125,6 +125,42 @@ quebram para quem consome.
    ```
 
 6. "Esqueci minha senha" → mailpit → redefinir → entrar com a senha nova
+
+### Rotacionar a credencial de um nó
+
+Cada nó sobe com uma **janela de rotação** aberta: ele aceita o valor corrente e
+o anterior, os dois vindos do Secrets Manager. Rotacionar é escrever o valor novo
+e mandar um sinal — o `busybox httpd` relê o `httpd.conf` no `SIGHUP`, então o
+contêiner não reinicia, o túnel não cai e nenhum peer é perdido. DEC-102.
+
+```bash
+cd devstack
+NEW=$(openssl rand -hex 24)
+OLD=$(docker compose exec -T localstack awslocal secretsmanager get-secret-value \
+  --secret-id poc-vpn/exit-node/eu --query SecretString --output text | tr -d '\r\n')
+
+# 1. o cofre primeiro: o novo vira corrente, o antigo vira anterior
+docker compose exec -T localstack awslocal secretsmanager put-secret-value \
+  --secret-id poc-vpn/exit-node/eu --secret-string "$NEW"
+
+# 2. abre a janela no nó — os dois valores respondem 200
+docker compose exec -T wireguard-eu /rotate.sh "$NEW" "$OLD"
+
+# 3. fecha quando a frota já estiver usando o novo — o antigo passa a dar 401
+docker compose exec -T wireguard-eu /rotate.sh "$NEW"
+```
+
+O passo 2 pode vir antes do 1 sem quebrar nada: a janela existe exatamente para
+que os dois lados se movam em ordens diferentes. A API lê só o **corrente**, e o
+cache dela é de 300s — então o passo 3 espera pelo menos uma varredura.
+
+`/rotate.sh` recusa dois formatos de valor: um que comece com `$` seguido de
+dígito (o busybox o lê como hash de `crypt`) e um que contenha `:` (parte o campo
+do `httpd.conf` ao meio). Nos dois casos o nó subiria e recusaria todo mundo.
+
+O segredo de assinatura rotaciona do mesmo jeito, sem o passo do nó — só o
+`put-secret-value` em `poc-vpn/auth/jwt-secret`. Um access token emitido antes
+continua valendo até a rotação seguinte.
 
 ## 7. Cobrança: os dois modos
 

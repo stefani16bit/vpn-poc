@@ -4414,3 +4414,78 @@ a 0.17.0.
 O que **não** mudou: `IBillingProvider` e `IExitNode`. Se a rotação tivesse
 chegado a qualquer uma das duas, o segredo teria vazado para a porta — o mesmo
 teste que a DEC-098 já tinha escrito para a credencial do nó.
+
+---
+
+### DEC-102 — A credencial de um nó rotaciona sem reiniciar, porque o `httpd` relê no SIGHUP
+
+**Data:** 2026-08-14 · **Status:** accepted · **Supersedes:** DEC-098 (parcial)
+
+**Contexto.** A DEC-098 fechou a rotação por nó e deixou uma pergunta em aberto,
+como spike e não como promessa: _"uma janela em que o nó aceite os dois valores
+exigiria descobrir se o `busybox httpd` casa duas linhas para o mesmo caminho, e
+isso não foi verificado"_. Sem essa janela, rotacionar um nó no devstack era
+recriar o contêiner — o que derruba o túnel e todo peer nele, para trocar uma
+senha.
+
+**Decisão.** O `httpd.conf` do nó carrega **duas** linhas para `/` enquanto uma
+janela está aberta, e um `/rotate.sh` no imagem as reescreve e manda `SIGHUP`.
+Rotacionar são duas chamadas: `rotate.sh NOVO VELHO` abre, `rotate.sh NOVO`
+fecha. Nada reinicia em nenhuma das duas.
+
+**Rationale.** O spike foi feito, e a resposta é sim — duas vezes sim, e a
+segunda não estava na pergunta.
+
+Lendo `networking/httpd.c` (o código de autenticação é byte a byte o mesmo entre
+`1_36_1` e `master`, então o 1.37.0 do `busybox-extras` é esse código):
+
+1. `parse_conf` insere **cada** linha `/path:user:pass` em `g_auth`, ordenada por
+   comprimento decrescente de caminho, **sem deduplicar nem substituir**. Duas
+   linhas com o mesmo caminho sobrevivem as duas.
+2. `check_user_passwd` percorre a lista inteira. A guarda `prev` só pula entradas
+   cujo prefixo **difere** de um que já casou; prefixos idênticos passam. Senha
+   errada cai no fim do laço e continua. A recusa só acontece com a lista
+   esgotada (`return (prev == NULL)`).
+3. E o que a pergunta não previa: `signal(SIGHUP, sighup_handler)` chama
+   `parse_conf(…, SIGNALED_PARSE)`, que **libera `g_auth` e relê o arquivo**.
+
+Medido no contêiner, não só lido: `busybox-extras-1.37.0-r14`, e o `httpd` do nó
+reporta `SigCgt: 0000000000000001` — SIGHUP capturado. Com as duas linhas no
+lugar, os dois valores respondem 200 e o do vizinho continua respondendo 401.
+
+**O entrypoint chama o mesmo script.** Bootar com uma janela aberta e rotacionar
+para dentro de uma produzem config idêntica byte a byte, e um nó que sobe no meio
+de uma rotação é o caso normal — quem escreveu o segredo novo no cofre pode não
+ter alcançado a máquina ainda.
+
+**Dois formatos de valor são recusados pelo script**, e vêm do mesmo código-fonte:
+um valor começando com `$` seguido de dígito é lido como hash de `crypt` e
+comparado contra uma cifra do que o chamador mandou; um `:` parte o campo, e tudo
+depois dele silenciosamente deixa de ser o segredo. Nos dois casos o nó sobe e
+recusa todo mundo com um 401 que não aponta para nada.
+
+**Consequências.** O devstack fica **permanentemente com as janelas abertas** —
+cinco nós, cada um com o corrente e o anterior. Uma janela que alguém precisa
+arranjar antes de poder ser conferida é uma janela que nada confere; assim o
+`check.sh` afirma uma por nó a cada rodada. Foi essa asserção que teria pegado o
+busybox guardando só uma das duas linhas, se ele guardasse.
+
+E o `check.sh` fecha e reabre uma janela **de verdade**, num nó, ao vivo: o valor
+aposentado passa a dar 401, o corrente segue dando 200, e reabrir o traz de volta.
+A quarta asserção do bloco é a que carrega a decisão — o **PID do `httpd` é o
+mesmo** antes e depois. "Sem reiniciar" é a afirmação inteira, e um contêiner que
+voltou calado satisfaria todas as outras. O bloco termina onde começou, então o
+arquivo continua idempotente.
+
+`ExitNodeFactory` continua lendo só `.current`. A janela existe para que os dois
+lados se movam em ordens diferentes, não para manter viva a metade aposentada:
+alcançá-la do lado da aplicação a manteria funcionando depois do ponto em que
+alguém deliberadamente parou de publicá-la.
+
+`make check` passa de 56 para **65**.
+
+O que **não** mudou: a comparação do busybox é `strcmp`, que não é de tempo
+constante. É pré-existente, não é introduzido aqui, e continua valendo — o que a
+protege é a credencial não ser adivinhável, não o comparador. E `IExitNode`,
+`describeExitNodeContract` e `HttpExitNode` não mudaram uma linha: a rotação é do
+nó, e a porta nunca soube o que é uma credencial.

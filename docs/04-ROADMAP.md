@@ -70,6 +70,14 @@ vez: assina com o corrente, verifica contra os dois, e o **mesmo** `jwtVerify`
 confere issuer e audience nas duas tentativas. Um terceiro valor aposenta o
 primeiro, e é a suíte de conformidade que cobra isso. DEC-101.
 
+A pergunta que a DEC-098 deixou como spike foi respondida, e a resposta foi
+melhor que a pergunta: o `busybox httpd` guarda **as duas** linhas para o mesmo
+caminho **e** relê o arquivo no `SIGHUP`. Então rotacionar a credencial de um nó
+não é recriá-lo — é escrever e mandar um sinal, com o túnel de pé e nenhum peer
+perdido. O `check.sh` fecha e reabre uma janela de verdade a cada rodada e afirma
+que o **PID do `httpd` não mudou**. mTLS, o item vizinho, foi adiado por escrito,
+com os dois atalhos recusados e o motivo de cada um. DEC-102, DEC-103.
+
 | Suíte                                                         | Testes   | Precisa do devstack |
 | ------------------------------------------------------------- | -------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                  | 332      | não                 |
@@ -90,7 +98,7 @@ Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 Conferido como portão: `--coverage.thresholds.branches=99` falha citando o
 valor real.
 
-`make check` 56/56 · `cdk synth` 6 stacks · `consumer-check` verde ·
+`make check` 65/65 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
 
 `pnpm verify` roda com o Docker parado, de propósito: `*.integration.spec.ts` e
@@ -148,11 +156,15 @@ DEC-094, e o guard do laço em `apps/worker`.
       nó real e da stack `network`. A credencial por nó não adianta caminho para
       ele, e a DEC-073 já explicava por quê: mTLS não reaproveita esquema de
       cabeçalho nenhum. DEC-073, DEC-098, DEC-011.
-- [ ] **A rotação da credencial de um nó exige recriá-lo.** O `entrypoint.sh`
-      escreve o `httpd.conf` no boot, então no devstack trocar o segredo de um nó
-      é subir o contêiner de novo. Uma janela em que ele aceite os dois valores
-      depende de o `busybox httpd` casar duas linhas para o mesmo caminho, e isso
-      não foi verificado. DEC-098.
+- [x] ~~**A rotação da credencial de um nó exige recriá-lo.**~~ O spike foi feito
+      e a resposta é sim, duas vezes: o `busybox httpd` guarda **as duas** linhas
+      para o mesmo caminho (`parse_conf` não deduplica, e a guarda `prev` de
+      `check_user_passwd` só pula prefixos **diferentes**), e — o que a pergunta
+      não previa — ele **relê o `httpd.conf` no `SIGHUP`**. Então rotacionar não é
+      recriar o contêiner: é `rotate.sh NOVO VELHO` para abrir a janela e
+      `rotate.sh NOVO` para fechá-la, sem derrubar o túnel nem perder um peer. O
+      `check.sh` fecha e reabre uma de verdade a cada rodada e afirma que o **PID
+      do `httpd` não mudou**. DEC-102.
 - [ ] Preencher as stacks CDK. Ordem: `network` → `data` → `events` → `api`.
 - [x] ~~Secrets Manager em vez de variáveis de ambiente para `AUTH_JWT_SECRET` e
       `STRIPE_WEBHOOK_SECRET`.~~ Os dois viraram `*_REF`: o que o ambiente carrega
@@ -459,7 +471,7 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 56/56
+make up && make check                                # devstack: 65/65
 pnpm --filter @vpn-poc/api test:e2e                  # 122, o fluxo inteiro
 pnpm --filter @vpn-poc/api test:integration          # 65, RLS e formas de SQL
 pnpm --filter @vpn-poc/adapters test:integration     # 90, adapters reais

@@ -187,7 +187,7 @@ que torna a espera do provador segura contra a varredura rodando ao mesmo tempo.
 ## Como validar
 
 ```bash
-make up && make check                    # 56/56
+make up && make check                    # 65/65
 pnpm dev                                 # o provador precisa da API e do worker
 pnpm billing:activate                    # POST /devices responde 402 sem isto
 

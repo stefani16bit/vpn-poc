@@ -44,11 +44,20 @@ seed_secret() {
 # The values come from the compose file, which hands the same interpolation to
 # the node itself — so what is stored here is what the node was started with,
 # and neither can drift from the other.
-seed_secret poc-vpn/exit-node/sa "$EXIT_NODE_API_TOKEN_SA"
-seed_secret poc-vpn/exit-node/na "$EXIT_NODE_API_TOKEN_NA"
-seed_secret poc-vpn/exit-node/eu "$EXIT_NODE_API_TOKEN_EU"
-seed_secret poc-vpn/exit-node/as "$EXIT_NODE_API_TOKEN_AS"
-seed_secret poc-vpn/exit-node/af "$EXIT_NODE_API_TOKEN_AF"
+#
+# Twice per node, retired value first, for the same reason as the signing secret
+# below: the fleet stands with its rotation windows open, so check.sh asserts a
+# window every run instead of having to arrange one.
+seed_exit_node() {
+	seed_secret "poc-vpn/exit-node/$1" "$2"
+	seed_secret "poc-vpn/exit-node/$1" "$3"
+}
+
+seed_exit_node sa "$EXIT_NODE_API_TOKEN_PREVIOUS_SA" "$EXIT_NODE_API_TOKEN_SA"
+seed_exit_node na "$EXIT_NODE_API_TOKEN_PREVIOUS_NA" "$EXIT_NODE_API_TOKEN_NA"
+seed_exit_node eu "$EXIT_NODE_API_TOKEN_PREVIOUS_EU" "$EXIT_NODE_API_TOKEN_EU"
+seed_exit_node as "$EXIT_NODE_API_TOKEN_PREVIOUS_AS" "$EXIT_NODE_API_TOKEN_AS"
+seed_exit_node af "$EXIT_NODE_API_TOKEN_PREVIOUS_AF" "$EXIT_NODE_API_TOKEN_AF"
 
 # The signing secret, seeded twice with the retired value first, so the devstack
 # permanently carries an open rotation window. A window somebody has to arrange

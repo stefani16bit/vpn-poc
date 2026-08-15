@@ -375,15 +375,15 @@ produto:
   DEC-098 — `credential_ref` é lida, não só escrita —, mas ela viaja em Basic
   sobre HTTP. mTLS continua sendo o teto e continua sendo trabalho de nó real: o
   `busybox httpd` do contêiner não fala TLS.
-- **Rotacionar a credencial de um nó é recriá-lo.** O `httpd.conf` é escrito no
-  boot, então não há janela em que o nó aceite o valor velho e o novo. Um nó de
-  cada vez já não derruba a frota, que era o problema; ficar sem janela nenhuma
-  não é.
+- **Rotacionar a credencial de um nó não o derruba.** Ele aceita o corrente e o
+  anterior enquanto a janela está aberta, e o `busybox httpd` relê o `httpd.conf`
+  no `SIGHUP` — então trocar o segredo de um nó deixou de ser recriá-lo, e nenhum
+  peer se perde no caminho. DEC-102.
 
 ## Como validar
 
 ```bash
-make up && make check                    # 56/56, e as cinco regiões entram aqui
+make up && make check                    # 65/65, e as cinco regiões entram aqui
 pnpm verify
 pnpm --filter @vpn-poc/adapters test:integration
 pm2 stop worker && pnpm --filter @vpn-poc/api test:e2e && pm2 start worker

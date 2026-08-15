@@ -5,9 +5,11 @@ CONTROL_PORT=${CONTROL_PORT:-51821}
 
 : "${EXIT_NODE_API_TOKEN:?refusing to serve the control plane with no credential to check}"
 
-# Written outside -h so httpd can never serve the file that holds the credential.
-printf '/:%s:%s\n' "$CONTROL_USER" "$EXIT_NODE_API_TOKEN" >/etc/httpd.conf
-chmod 600 /etc/httpd.conf
+# The same script an operator calls to rotate, so booting with a window open and
+# rotating into one produce byte-identical config. A node started mid-rotation is
+# the normal case, not a special one: whoever wrote the new secret to the vault
+# may not have reached this machine yet.
+/rotate.sh "$EXIT_NODE_API_TOKEN" ${EXIT_NODE_API_TOKEN_PREVIOUS:+"$EXIT_NODE_API_TOKEN_PREVIOUS"}
 
 # The image carries /srv/control, because a real node has no repository to mount.
 # The devstack mounts the same directory at /srv/control-src, and copying it over
