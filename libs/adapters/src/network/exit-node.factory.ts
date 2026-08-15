@@ -1,4 +1,4 @@
-import type { IClock, IExitNode, ISecretStore } from '@vpn/ports';
+import type { IExitNode, ISecretStore } from '@vpn/ports';
 import { MemoryExitNode } from '@vpn/testing/fakes';
 
 import { HttpExitNode } from './HttpExitNode.js';
@@ -14,7 +14,6 @@ export interface ExitNodeRow {
 export interface ExitNodeFactoryOptions {
 	readonly driver: string;
 	readonly secrets: ISecretStore;
-	readonly clock: IClock;
 	readonly clientAllowedIps?: string | undefined;
 }
 
@@ -27,11 +26,6 @@ export class ExitNodeCredentialError extends Error {
 		this.name = 'ExitNodeCredentialError';
 	}
 }
-
-// Long enough that neither sweep pays for a resolution per node per run — the
-// health one runs every 60s — and short enough that a rotated secret is picked
-// up within one peer sweep.
-const CREDENTIAL_TTL_SECONDS = 300;
 
 // What the client routes into the tunnel: the node's own range, plus whatever
 // else the operator wants reachable through it. The extra routes are added, not
@@ -52,19 +46,12 @@ export function clientAllowedIps(
 export class ExitNodeFactory {
 	readonly #driver: string;
 	readonly #secrets: ISecretStore;
-	readonly #clock: IClock;
 	readonly #clientAllowedIps: string | undefined;
 	readonly #offline = new Map<string, IExitNode>();
-	// Keyed by ref rather than by node: two nodes pointed at one secret resolve
-	// once, and a row whose ref was edited misses immediately. In process and
-	// never in ICacheStore — the shared cache is a place the credential would be
-	// written to disk, which is what keeping it out of the row was for.
-	readonly #credentials = new Map<string, { value: string; expiresAt: number }>();
 
 	constructor(options: ExitNodeFactoryOptions) {
 		this.#driver = options.driver;
 		this.#secrets = options.secrets;
-		this.#clock = options.clock;
 		this.#clientAllowedIps = options.clientAllowedIps;
 	}
 
@@ -79,19 +66,15 @@ export class ExitNodeFactory {
 		});
 	}
 
+	// The current value only. The node accepts the previous one too during a
+	// rotation window, but that window exists so the two sides can move in either
+	// order — reaching for the retired half here would keep it alive past the
+	// point where somebody deliberately stopped publishing it.
 	async #credentialFor(ref: string): Promise<string> {
-		const now = this.#clock.now().getTime();
-		const cached = this.#credentials.get(ref);
-		if (cached && cached.expiresAt > now) return cached.value;
+		const versions = await this.#secrets.read(ref);
+		if (!versions) throw new ExitNodeCredentialError(ref);
 
-		const value = await this.#secrets.read(ref);
-		// A missing secret is never cached: the fix is somebody creating it, and
-		// that should take effect on the next sweep rather than in five minutes.
-		if (!value) throw new ExitNodeCredentialError(ref);
-
-		this.#credentials.set(ref, { value, expiresAt: now + CREDENTIAL_TTL_SECONDS * 1000 });
-
-		return value;
+		return versions.current;
 	}
 
 	#memoryFor(id: string): IExitNode {

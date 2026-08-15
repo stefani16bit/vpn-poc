@@ -342,6 +342,69 @@ check_exec 'localstack seeded a credential for every exit node' 'credentials=5' 
 		--query 'length(SecretList[?starts_with(Name, \`poc-vpn/exit-node/\`)])' |
 		sed 's/^/credentials=/'"
 
+# The refs the API resolves at boot. It reads these instead of its own
+# environment now, so a missing one is a container that will not start — and the
+# ref names live in .env while the values live here, which is the join that
+# nothing else checks.
+check_exec 'the signing secret resolves at the ref the api reads' 'signing=1' \
+	localstack sh -c "awslocal secretsmanager get-secret-value \
+		--secret-id '$(read_env AUTH_JWT_SECRET_REF)' --query SecretString --output text |
+		wc -l | tr -d ' ' | sed 's/^/signing=/'"
+
+# The standing rotation window. Seeded twice on purpose (01-resources.sh), so a
+# token signed before a rotation is a state this stack is always in rather than
+# one somebody has to arrange to test.
+check_exec 'the signing secret carries the value a rotation retired' 'previous=1' \
+	localstack sh -c "awslocal secretsmanager get-secret-value \
+		--secret-id '$(read_env AUTH_JWT_SECRET_REF)' --version-stage AWSPREVIOUS \
+		--query SecretString --output text | wc -l | tr -d ' ' | sed 's/^/previous=/'"
+
+# Seeded even though billing runs on the memory driver here (DEC-009): what
+# breaks in a deploy is the ref not resolving, and that is checkable offline.
+check_exec 'the billing webhook secret resolves at its ref' 'webhook=1' \
+	localstack sh -c "awslocal secretsmanager get-secret-value \
+		--secret-id 'poc-vpn/billing/stripe-webhook-secret' --query SecretString --output text |
+		wc -l | tr -d ' ' | sed 's/^/webhook=/'"
+
+# Closing a window and reopening it, on one node, live. The loop above proves a
+# window is open; nothing there proves it can be *shut*, and a window that never
+# ends is not a rotation — it is a second permanent credential.
+#
+# Ends where it started, so the file is idempotent: the last call restores the
+# pair the entrypoint wrote. If this block dies halfway, `docker compose restart
+# wireguard-eu` puts it back, because the entrypoint writes the same two lines.
+ROTATION_NODE='eu'
+ROTATION_PORT='21841'
+_pid_before=$(node_httpd_pid "$ROTATION_NODE")
+_current=$(node_credential "$ROTATION_NODE")
+_previous=$(node_credential "$ROTATION_NODE" AWSPREVIOUS)
+
+docker compose exec -T "wireguard-${ROTATION_NODE}" /rotate.sh "$_current" >/dev/null 2>&1
+
+check_status "the ${ROTATION_NODE} control plane drops the retired value when the window closes" 401 \
+	-u "${EXIT_NODE_API_USER}:${_previous}" \
+	"http://127.0.0.1:${ROTATION_PORT}/cgi-bin/describe"
+
+check_body "the ${ROTATION_NODE} control plane keeps serving the current value throughout" 'publicKey=' \
+	-u "${EXIT_NODE_API_USER}:${_current}" \
+	"http://127.0.0.1:${ROTATION_PORT}/cgi-bin/describe"
+
+docker compose exec -T "wireguard-${ROTATION_NODE}" /rotate.sh "$_current" "$_previous" >/dev/null 2>&1
+
+check_body "the ${ROTATION_NODE} control plane takes the retired value back when the window reopens" 'publicKey=' \
+	-u "${EXIT_NODE_API_USER}:${_previous}" \
+	"http://127.0.0.1:${ROTATION_PORT}/cgi-bin/describe"
+
+# The claim itself. Rotating used to mean recreating the container, which drops
+# the tunnel and every peer on it; busybox httpd re-reads its config on SIGHUP,
+# so the same process served all four probes above. DEC-102.
+if [ -n "$_pid_before" ] && [ "$_pid_before" = "$(node_httpd_pid "$ROTATION_NODE")" ]; then
+	pass "the ${ROTATION_NODE} control plane served the whole rotation without restarting"
+else
+	fail "the ${ROTATION_NODE} control plane served the whole rotation without restarting" \
+		"httpd was ${_pid_before} before and $(node_httpd_pid "$ROTATION_NODE") after"
+fi
+
 check_env_drift
 
 printf '\n%s passed, %s failed\n\n' "$PASSED" "$FAILED"

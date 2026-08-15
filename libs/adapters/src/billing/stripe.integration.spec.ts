@@ -9,7 +9,7 @@ const PRODUCT_ID = 'prod_pocvpn_it';
 
 const provider = new StripeBillingProvider({
 	apiKey: INTEGRATION.stripeApiKey,
-	webhookSecret: INTEGRATION.stripeWebhookSecret,
+	webhookSecrets: [INTEGRATION.stripeWebhookSecret],
 	apiBase: INTEGRATION.stripeApiBase,
 });
 

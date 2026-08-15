@@ -111,6 +111,12 @@ services:
       EXIT_NODE_API_TOKEN_EU: ${EXIT_NODE_API_TOKEN_EU:-exit_node_dev_eu_3b8d1f6a4c9e2705d8b3a1f6c4e97052}
       EXIT_NODE_API_TOKEN_AS: ${EXIT_NODE_API_TOKEN_AS:-exit_node_dev_as_9e4c7a2f1b8d6503c9a4e7b2f1d86045}
       EXIT_NODE_API_TOKEN_AF: ${EXIT_NODE_API_TOKEN_AF:-exit_node_dev_af_5d1a8f3c6b9e2074a5d1c8f3b6e29047}
+      # The signing secret is a secret here and nowhere else: the API reads it
+      # through AUTH_JWT_SECRET_REF, never from its own environment. Two values
+      # because the devstack keeps a rotation window standing open. DEC-101.
+      AUTH_JWT_SECRET_CURRENT: ${AUTH_JWT_SECRET_CURRENT:-auth_jwt_dev_current_6f2c8a41e9b7d350c8f1a6b4e2d97053}
+      AUTH_JWT_SECRET_PREVIOUS: ${AUTH_JWT_SECRET_PREVIOUS:-auth_jwt_dev_previous_4b9e1d76c3a805f2e7b4d1c9a6f30528}
+      STRIPE_WEBHOOK_SECRET_FIXTURE: ${STRIPE_WEBHOOK_SECRET_FIXTURE:-whsec_dev_fixture_not_a_real_endpoint_secret}
     ports:
       - '${LOCALSTACK_PORT:-24566}:4566'
     volumes:

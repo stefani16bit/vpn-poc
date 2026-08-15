@@ -48,11 +48,7 @@ function device(exitNodeId: string | null): StoredDevice {
 }
 
 async function provisioner(live: StoredDevice | undefined, fleet = [nodeRow(SAO_PAULO)]) {
-	const nodes = new ExitNodeFactory({
-		driver: 'memory',
-		secrets: new MemorySecretStore(),
-		clock: new FixedClock(),
-	});
+	const nodes = new ExitNodeFactory({ driver: 'memory', secrets: new MemorySecretStore() });
 	const markProvisioned = vi.fn(() => Promise.resolve());
 
 	const devices = {

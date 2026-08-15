@@ -4,7 +4,7 @@ Este arquivo faz as vezes de issue tracker. Não abra issues; edite aqui.
 
 ---
 
-## Estado — 2026-08-13
+## Estado — 2026-08-14
 
 **Fase 1 + i18n entregues. Fase 2: outbox, webhook, Account/User + RLS e
 entitlements entregues.** Cadastro, verificação, login, rotação de sessão, reset
@@ -62,6 +62,14 @@ controle passou a valer com `restart` em vez de `build`, copiado para dentro no
 boot em vez de servido do mount — porque o bit de execução viaja com o host e
 esses arquivos são `100644` no git. DEC-088, DEC-089.
 
+E o segredo saiu do ambiente. `AUTH_JWT_SECRET` e `STRIPE_WEBHOOK_SECRET` viraram
+referências, e a porta que as resolve passou a nomear a **janela de rotação** —
+uma mudança de porta e não duas, porque tirar do ambiente e rotacionar eram um
+desenho só. Trocar o segredo de assinatura deixou de derrubar todo mundo de uma
+vez: assina com o corrente, verifica contra os dois, e o **mesmo** `jwtVerify`
+confere issuer e audience nas duas tentativas. Um terceiro valor aposenta o
+primeiro, e é a suíte de conformidade que cobra isso. DEC-101.
+
 | Suíte                                                         | Testes   | Precisa do devstack |
 | ------------------------------------------------------------- | -------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                  | 332      | não                 |
@@ -82,7 +90,7 @@ Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 Conferido como portão: `--coverage.thresholds.branches=99` falha citando o
 valor real.
 
-`make check` 53/53 · `cdk synth` 6 stacks · `consumer-check` verde ·
+`make check` 56/56 · `cdk synth` 6 stacks · `consumer-check` verde ·
 `pnpm lint` verde e provado que falha num import proibido.
 
 `pnpm verify` roda com o Docker parado, de propósito: `*.integration.spec.ts` e
@@ -146,11 +154,22 @@ DEC-094, e o guard do laço em `apps/worker`.
       depende de o `busybox httpd` casar duas linhas para o mesmo caminho, e isso
       não foi verificado. DEC-098.
 - [ ] Preencher as stacks CDK. Ordem: `network` → `data` → `events` → `api`.
-- [ ] Secrets Manager em vez de variáveis de ambiente para `AUTH_JWT_SECRET` e
-      `STRIPE_WEBHOOK_SECRET`. A porta existe desde a DEC-098 e já roda contra o
-      localstack; o que falta é estes dois deixarem de ser lidos do ambiente.
-- [ ] Rotação de `AUTH_JWT_SECRET` — hoje uma troca invalida todo access token
-      em circulação de uma vez. Precisa aceitar dois segredos durante a janela.
+- [x] ~~Secrets Manager em vez de variáveis de ambiente para `AUTH_JWT_SECRET` e
+      `STRIPE_WEBHOOK_SECRET`.~~ Os dois viraram `*_REF`: o que o ambiente carrega
+      é o **nome** de onde o valor mora. `SECRETS_DRIVER` perdeu `memory` — um
+      driver de memória semeado do ambiente manteria o ambiente como fonte de
+      segredo —, então o e2e passou a apontar para o localstack que ele já
+      dependia. O segredo do webhook é resolvido na construção do provider e
+      nunca por requisição: a assinatura cobre os bytes exatos. DEC-101.
+- [x] ~~Rotação de `AUTH_JWT_SECRET`.~~ `read()` devolve
+      `{ current, previous }` — uma mudança de porta, não duas, porque este item e
+      o de cima eram um desenho só. Assina com o corrente, verifica contra os
+      dois, e o **mesmo** `jwtVerify` confere issuer e audience nas duas
+      tentativas. Um terceiro valor aposenta o primeiro, e é a suíte de
+      conformidade que cobra isso — sem essa asserção, "aceita dois" e "aceita
+      todos os que já existiram" passam pelos mesmos testes. O devstack semeia o
+      segredo duas vezes, então a janela está sempre aberta e o `check.sh` a
+      afirma a cada rodada. DEC-101.
 
 ### Dívida conhecida
 
@@ -440,7 +459,7 @@ plane que ainda não existe.
 ## Como validar o que está pronto
 
 ```bash
-make up && make check                                # devstack: 53/53
+make up && make check                                # devstack: 56/56
 pnpm --filter @vpn-poc/api test:e2e                  # 122, o fluxo inteiro
 pnpm --filter @vpn-poc/api test:integration          # 65, RLS e formas de SQL
 pnpm --filter @vpn-poc/adapters test:integration     # 90, adapters reais

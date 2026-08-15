@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { FixedClock, MemoryExitNode, MemorySecretStore } from '@vpn/testing/fakes';
+import { MemoryExitNode, MemorySecretStore } from '@vpn/testing/fakes';
 
 import { clientAllowedIps, ExitNodeCredentialError, ExitNodeFactory } from './exit-node.factory.js';
 import { HttpExitNode } from './HttpExitNode.js';
@@ -28,9 +28,8 @@ const SEEDED = {
 
 function factoryOn(driver: string, seed: Record<string, string> = SEEDED) {
 	const secrets = new MemorySecretStore(seed);
-	const clock = new FixedClock();
 
-	return { factory: new ExitNodeFactory({ driver, secrets, clock }), secrets, clock };
+	return { factory: new ExitNodeFactory({ driver, secrets }), secrets };
 }
 
 describe('ExitNodeFactory on the http driver', () => {
@@ -68,50 +67,16 @@ describe('ExitNodeFactory on the http driver', () => {
 		await expect(factory.for(SP)).rejects.toThrow('poc-vpn/exit-node/sp');
 	});
 
-	describe('the credential cache', () => {
-		it('reads a ref once inside the window, so a sweep is not a call per node', async () => {
-			const { factory, secrets } = factoryOn('http');
-			const read = vi.spyOn(secrets, 'read');
+	// The node accepts the previous value too while a window is open, and the
+	// factory deliberately does not reach for it: the window exists so the two
+	// sides can move in either order, not so a retired value keeps working.
+	it('dials with the current value, never the one the rotation retired', async () => {
+		const { factory, secrets } = factoryOn('http');
+		secrets.seed(SP.credentialRef, 'the-rotated-one');
 
-			await factory.for(SP);
-			await factory.for(SP);
+		const node = (await factory.for(SP)) as HttpExitNode;
 
-			expect(read).toHaveBeenCalledTimes(1);
-		});
-
-		it('reads again once the window closes, which is how a rotation lands', async () => {
-			const { factory, secrets, clock } = factoryOn('http');
-			await factory.for(SP);
-			secrets.seed(SP.credentialRef, 'the-rotated-one');
-
-			clock.advance(301);
-			const node = (await factory.for(SP)) as HttpExitNode;
-
-			expect(JSON.stringify(node)).not.toContain('the-sp-credential');
-		});
-
-		// Caching the absence would make "create the secret" take five minutes to
-		// take effect, which is exactly when the operator is watching.
-		it('never caches a ref that resolved to nothing', async () => {
-			const { factory, secrets } = factoryOn('http', {});
-			const read = vi.spyOn(secrets, 'read');
-
-			await expect(factory.for(SP)).rejects.toThrow();
-			await expect(factory.for(SP)).rejects.toThrow();
-
-			expect(read).toHaveBeenCalledTimes(2);
-		});
-
-		it('keeps two refs apart, or one node would answer with another credential', async () => {
-			const { factory, secrets } = factoryOn('http');
-			const read = vi.spyOn(secrets, 'read');
-
-			await factory.for(SP);
-			await factory.for(FRA);
-			await factory.for(SP);
-
-			expect(read).toHaveBeenCalledTimes(2);
-		});
+		expect(JSON.stringify(node)).not.toContain('the-sp-credential');
 	});
 });
 

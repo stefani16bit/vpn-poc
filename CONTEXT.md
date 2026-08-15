@@ -525,6 +525,28 @@ enviar: repetir é inofensivo, perder não seria.
 **Driver** — o valor de ambiente que escolhe qual adapter é montado
 (`CACHE_DRIVER=redis`).
 
+**Segredo** — um valor que autentica alguém e que a aplicação **lê, nunca
+escreve**. Ele mora no cofre e é alcançado por uma **referência de credencial**;
+o que atravessa o processo é o valor, o que atravessa uma linha de banco ou um
+arquivo de ambiente é sempre o nome.
+
+**Janela de rotação** — o intervalo em que **dois** valores do mesmo segredo
+valem: o **corrente**, que é o que passamos a emitir, e o **anterior**, que é o
+que já está em circulação. Trocar sem janela não é rotação, é revogação da frota
+inteira de uma vez — todo access token emitido morre no mesmo instante, e todo
+nó recusa o chamador até que os dois lados reiniciem juntos.
+
+São exatamente dois, e isso é a restrição, não uma configuração. Um terceiro
+valor **aposenta** o mais antigo: quem ainda apresenta um valor de duas rotações
+atrás é recusado, e é essa recusa que faz a janela ter fim. Uma janela sem fim
+aceitaria para sempre a credencial que alguém rotacionou justamente por
+suspeitar dela.
+
+Quem fecha a janela é uma pessoa, não um relógio: escrever o valor novo a abre,
+escrever o seguinte a fecha. O sistema não sabe quanto tempo ela deve durar —
+sabe que enquanto ela está aberta as duas metades podem se mover em ordens
+diferentes, que é a única razão de ela existir.
+
 **Conformance suite** — a bateria de testes que define o que a porta promete,
 compartilhada por todos os adapters (`@vpn/testing/contracts`).
 

@@ -4318,3 +4318,99 @@ teste que envelhece um nó agora contamina todos os seguintes. E os peers do
 `MemoryExitNode` precisam ser limpos: o fake é cacheado por **id** de nó, o id
 agora é fixo, e o mapa de peers passa a acumular pelo arquivo inteiro. Um e2e
 rodado duas vezes seguidas sem resetar o banco é o que prova as duas.
+
+---
+
+### DEC-101 — O segredo sai do ambiente, e a porta passa a nomear a janela de rotação
+
+**Data:** 2026-08-14 · **Status:** accepted · **Supersedes:** DEC-098 (parcial)
+
+**Contexto.** A DEC-098 criou `ISecretStore` com **um método de leitura** e um
+consumidor: a credencial de cada nó. Dois segredos ficaram de fora, e ficaram no
+**ambiente** — `AUTH_JWT_SECRET` e `STRIPE_WEBHOOK_SECRET`. Um segredo no
+ambiente aparece em `docker inspect`, no `ps` de quem tiver o PID e em todo dump
+de configuração colado num chamado.
+
+O primeiro tinha um problema pior que o lugar. `AccessTokenService` o capturava
+no **construtor** (`this.#secret = new TextEncoder().encode(...)`), então trocá-lo
+invalidava todo access token em circulação de uma vez — e o access token não é
+revogável (`CONTEXT.md`), então não havia nem o consolo de a sessão sobreviver:
+todo mundo caía junto, no meio do que estava fazendo.
+
+Os dois itens do roadmap eram **um desenho**. `ISecretStore` mora no submodule
+publicado; tirar os segredos do ambiente contra o `read()` de então e só depois
+descobrir que a rotação precisa de dois valores custaria dois bumps quebrados,
+dois ciclos de publicação e dois `consumer-check`.
+
+**Decisão.** `read(ref)` devolve `{ current, previous } | null`. Um método,
+um bump. `AUTH_JWT_SECRET` e `STRIPE_WEBHOOK_SECRET` viram
+`AUTH_JWT_SECRET_REF` e `STRIPE_WEBHOOK_SECRET_REF`. `AccessTokenService` assina
+com o corrente e verifica contra os dois. `SECRETS_DRIVER` perde `memory`.
+
+**Rationale.** Um método e não um `read()` ao lado de um `readAll()`. Um `read`
+que devolve calado só o valor corrente, ao lado de um irmão que sabe da janela, é
+**exatamente a forma que produziu o problema**: um valor capturado, e ninguém
+reparando por meses. Com a janela no tipo de retorno, nenhum chamador pode
+ignorar que ela existe — quem quer só o corrente escreve `.current` e diz isso.
+
+`{ current, previous }` corresponde a `AWSCURRENT`/`AWSPREVIOUS` sem nomear a
+AWS, e é o que o provider **garante**. Uma lista prometeria mais do que ele
+entrega, e um número de versões configurável seria uma escolha que nada no
+sistema saberia fazer.
+
+A janela tem fim, e é isso que a suíte de conformidade cobra: um terceiro valor
+aposenta o primeiro. Sem essa asserção, "aceita dois" e "aceita todos os que já
+existiram" passam pelos mesmos testes — e um segredo que alguém rotacionou
+justamente por suspeitar dele continuaria valendo para sempre.
+
+**A verificação com o valor anterior passa pelo mesmo `jwtVerify`**, issuer e
+audience incluídos. Um fallback que só reconfere a assinatura aceitaria um token
+emitido por qualquer sistema que compartilhasse o segredo aposentado, e nada
+ficaria vermelho. Três testes negativos fixam isso, e um quarto fixa que a
+expiração **não** cai no fallback: `ERR_JWT_EXPIRED` não depende de qual chave
+assinou, e tentar a próxima troca "sua sessão acabou" por "seu token não é
+válido" — a única mensagem que manda o usuário para o suporte.
+
+**Sem caminho de fallback**, na mesma leitura que a DEC-098 fez para o nó.
+`SECRETS_DRIVER` perde `memory` porque um driver de memória semeado do ambiente
+manteria o ambiente como fonte de segredo — o oposto exato do que esta decisão
+faz. O e2e passa a apontar para o localstack que o devstack já sobe; ele já
+dependia dele para todo o resto.
+
+O cache saiu da `ExitNodeFactory` e virou `CachingSecretStore`, um decorator no
+token. As invariantes da DEC-098 vão junto, palavra por palavra: chaveado pela
+**referência** e não pelo consumidor, em processo e **nunca** no `ICacheStore`, e
+a ausência nunca cacheada. O que mudou é que agora há dois consumidores, e
+escrever o mesmo `Map` duas vezes é o que uma revisão pega.
+
+**O segredo do webhook é resolvido na construção do provider, nunca por
+requisição.** A assinatura cobre os bytes exatos recebidos, e qualquer coisa que
+releia ou reserialize o corpo para buscar um segredo de outro jeito falha só
+contra o provider real — nunca contra uma fixture.
+`verifyWebhookSignature(rawBody, sig)` continua **síncrona** e continua recebendo
+a mesma string; o que ela ganhou foi tentar os dois valores, porque o Stripe
+entrega dois enquanto um endpoint secret está sendo trocado.
+
+**Consequências.** `AdapterFactory` passa a aceitar `T | Promise<T>`. É uma linha
+no `registry.ts` e o Nest já aguarda um `useFactory`, mas é o que permite um
+adapter que precisa de um segredo antes de existir.
+
+Rotacionar o segredo do webhook **pede um restart da API**. É mais do que havia
+e menos do que o JWT ganhou, e o roadmap só pedia rotação do JWT.
+
+`ExitNodeFactory` lê `.current` e nunca `.previous`. O nó aceita os dois durante
+a janela (DEC-102), e alcançar a metade aposentada aqui a manteria viva depois do
+ponto em que alguém deliberadamente parou de publicá-la.
+
+O devstack passa a semear `poc-vpn/auth/jwt-secret` **duas vezes**, com o valor
+aposentado primeiro. Uma janela que precisa ser arranjada antes de poder ser
+conferida é uma janela que nada confere; assim o `check.sh` a afirma a cada
+rodada, e "um token assinado antes da rotação" é um estado em que esta stack está
+sempre, em vez de um parágrafo num log de decisões.
+
+`make check` passa de 53 para **56**. `@vpn/ports` vai a 0.16.0 e `@vpn/testing`
+a 0.17.0.
+
+O que **não** mudou: `IBillingProvider` e `IExitNode`. Se a rotação tivesse
+chegado a qualquer uma das duas, o segredo teria vazado para a porta — o mesmo
+teste que a DEC-098 já tinha escrito para a credencial do nó.

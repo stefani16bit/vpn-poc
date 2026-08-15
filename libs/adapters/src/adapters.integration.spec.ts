@@ -217,21 +217,33 @@ describe('SecretsManagerSecretStore', () => {
 	// Namespaced per run, and never under poc-vpn/exit-node/*: those are devstack
 	// fixtures that check.sh asserts on, and a suite that borrowed one would take
 	// a node offline to prove a point about a port.
-	const namespace = `it-secrets-${Date.now()}`;
+	//
+	// Per test as well as per run, because a name here carries history: a second
+	// write is a rotation, so a ref one case left behind makes the next case read
+	// a previous value it never seeded. The fake gets this for free by being new
+	// each time, and the real store has to be told.
+	const run = `it-secrets-${Date.now()}`;
 	const created = new Set<string>();
+	let test = 0;
 
-	describeSecretStoreContract('SecretsManagerSecretStore', () => ({
-		store: { read: (ref) => store.read(`${namespace}/${ref}`) },
-		seed: async (ref, value) => {
-			const id = `${namespace}/${ref}`;
-			created.add(id);
+	describeSecretStoreContract('SecretsManagerSecretStore', () => {
+		const namespace = `${run}/${(test += 1)}`;
 
-			await client
-				.send(new CreateSecretCommand({ Name: id, SecretString: value }))
-				.catch(() => client.send(new PutSecretValueCommand({ SecretId: id, SecretString: value })));
-		},
-		forget: (ref) => forget(`${namespace}/${ref}`),
-	}));
+		return {
+			store: { read: (ref) => store.read(`${namespace}/${ref}`) },
+			seed: async (ref, value) => {
+				const id = `${namespace}/${ref}`;
+				created.add(id);
+
+				await client
+					.send(new CreateSecretCommand({ Name: id, SecretString: value }))
+					.catch(() =>
+						client.send(new PutSecretValueCommand({ SecretId: id, SecretString: value })),
+					);
+			},
+			forget: (ref) => forget(`${namespace}/${ref}`),
+		};
+	});
 
 	// DeleteSecret is soft by default: without the force flag the name is only
 	// scheduled for deletion, and the next run of this suite fails to recreate it

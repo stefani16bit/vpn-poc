@@ -302,9 +302,9 @@ várias accounts, e a dica lida sob a policy de `devices` subcontaria todo
 endereço que outra account já ocupa (DEC-092).
 
 **A credencial do nó não é uma coluna de texto.** `credential_ref` aponta para
-onde o segredo vive; no devstack é o `.env`, e em produção é o Secrets Manager que
-o roadmap já prevê. Guardar o token na linha o colocaria em todo backup e em todo
-`SELECT *`.
+onde o segredo vive, e isso é o Secrets Manager nos dois lados — o localstack do
+devstack e a conta de verdade. Guardar o token na linha o colocaria em todo backup
+e em todo `SELECT *`. DEC-098.
 
 ## Idempotência
 
@@ -383,7 +383,7 @@ produto:
 ## Como validar
 
 ```bash
-make up && make check                    # 53/53, e as cinco regiões entram aqui
+make up && make check                    # 56/56, e as cinco regiões entram aqui
 pnpm verify
 pnpm --filter @vpn-poc/adapters test:integration
 pm2 stop worker && pnpm --filter @vpn-poc/api test:e2e && pm2 start worker

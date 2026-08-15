@@ -26,22 +26,40 @@ awslocal sqs create-queue \
 
 awslocal sns create-topic --name poc-vpn-domain-events --region "$REGION"
 
+# A write is a rotation: Secrets Manager moves AWSCURRENT to the new version and
+# AWSPREVIOUS to the one it displaced, and the version before that keeps no label
+# at all. So calling this twice for one name leaves both halves of a window, and
+# calling it a third time retires the first value.
+#
+# `set -eu` above is load-bearing: an unset variable fails the seed loudly
+# instead of writing an empty secret that 401s much later.
+seed_secret() {
+	awslocal secretsmanager create-secret \
+		--name "$1" --secret-string "$2" --region "$REGION" >/dev/null 2>&1 ||
+		awslocal secretsmanager put-secret-value \
+			--secret-id "$1" --secret-string "$2" --region "$REGION" >/dev/null
+}
+
 # One credential per exit node, under the name its exit_nodes row points at.
 # The values come from the compose file, which hands the same interpolation to
 # the node itself — so what is stored here is what the node was started with,
 # and neither can drift from the other.
-#
-# `set -eu` above is load-bearing: an unset variable fails the seed loudly
-# instead of writing an empty secret that 401s much later.
-seed_exit_node_credential() {
-	awslocal secretsmanager create-secret \
-		--name "poc-vpn/exit-node/$1" --secret-string "$2" --region "$REGION" >/dev/null 2>&1 ||
-		awslocal secretsmanager put-secret-value \
-			--secret-id "poc-vpn/exit-node/$1" --secret-string "$2" --region "$REGION" >/dev/null
-}
+seed_secret poc-vpn/exit-node/sa "$EXIT_NODE_API_TOKEN_SA"
+seed_secret poc-vpn/exit-node/na "$EXIT_NODE_API_TOKEN_NA"
+seed_secret poc-vpn/exit-node/eu "$EXIT_NODE_API_TOKEN_EU"
+seed_secret poc-vpn/exit-node/as "$EXIT_NODE_API_TOKEN_AS"
+seed_secret poc-vpn/exit-node/af "$EXIT_NODE_API_TOKEN_AF"
 
-seed_exit_node_credential sa "$EXIT_NODE_API_TOKEN_SA"
-seed_exit_node_credential na "$EXIT_NODE_API_TOKEN_NA"
-seed_exit_node_credential eu "$EXIT_NODE_API_TOKEN_EU"
-seed_exit_node_credential as "$EXIT_NODE_API_TOKEN_AS"
-seed_exit_node_credential af "$EXIT_NODE_API_TOKEN_AF"
+# The signing secret, seeded twice with the retired value first, so the devstack
+# permanently carries an open rotation window. A window somebody has to arrange
+# before it can be checked is a window nothing checks; this way check.sh asserts
+# it every run, and a token signed before a rotation is a state that exists here
+# rather than a paragraph in a decision log.
+#
+# Re-running converges: the second write puts CURRENT back on top of PREVIOUS.
+seed_secret poc-vpn/auth/jwt-secret "$AUTH_JWT_SECRET_PREVIOUS"
+seed_secret poc-vpn/auth/jwt-secret "$AUTH_JWT_SECRET_CURRENT"
+
+# Seeded even though BILLING_DRIVER is memory here (DEC-009): what the assertion
+# proves is that the ref resolves, which is the chain that breaks in a deploy.
+seed_secret poc-vpn/billing/stripe-webhook-secret "$STRIPE_WEBHOOK_SECRET_FIXTURE"

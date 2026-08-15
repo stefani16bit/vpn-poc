@@ -30,7 +30,6 @@ import {
 	MemoryBillingProvider,
 	MemoryCacheStore,
 	MemoryEmailSender,
-	MemorySecretStore,
 	MemoryObjectStorage,
 	MemoryJobQueue,
 	MemorySmsSender,
@@ -42,6 +41,7 @@ import { ScryptPasswordHasher } from './crypto/ScryptPasswordHasher.js';
 import { SystemClock } from './crypto/SystemClock.js';
 import { SmtpEmailSender } from './email/SmtpEmailSender.js';
 import { ExitNodeFactory } from './network/exit-node.factory.js';
+import { CachingSecretStore } from './secrets/CachingSecretStore.js';
 import { SecretsManagerSecretStore } from './secrets/SecretsManagerSecretStore.js';
 import { NoopErrorReporter, SentryErrorReporter } from './observability/reporters.js';
 import { defineAdapter, toProviders, tokensOf } from './registry.js';
@@ -57,6 +57,17 @@ export const SMTP_TRANSPORT: unique symbol = Symbol.for('vpn.smtp-transport');
 
 type DatabaseConnection = ReturnType<typeof createDatabase>;
 
+// Both halves of the window, newest first, so a signature signed with either is
+// accepted while an endpoint secret is being replaced. A ref that resolves to
+// nothing yields nothing rather than an empty string: the provider refuses to be
+// built without a secret, and that failure names the ref.
+async function webhookSecretsOf(secrets: ISecretStore, ref: string): Promise<readonly string[]> {
+	const versions = await secrets.read(ref);
+	if (!versions) return [];
+
+	return versions.previous === null ? [versions.current] : [versions.current, versions.previous];
+}
+
 const infrastructure: Provider[] = [
 	{ provide: ENV, useFactory: (): Env => loadEnv() },
 
@@ -65,12 +76,11 @@ const infrastructure: Provider[] = [
 	// node to inject. DEC-090.
 	{
 		provide: ExitNodeFactory,
-		inject: [ENV, SECRET_STORE, CLOCK],
-		useFactory: (env: Env, secrets: ISecretStore, clock: IClock) =>
+		inject: [ENV, SECRET_STORE],
+		useFactory: (env: Env, secrets: ISecretStore) =>
 			new ExitNodeFactory({
 				driver: env.EXIT_NODE_DRIVER,
 				secrets,
-				clock,
 				clientAllowedIps: env.EXIT_NODE_CLIENT_ALLOWED_IPS,
 			}),
 	},
@@ -164,12 +174,19 @@ export const ADAPTERS = [
 	defineAdapter<IBillingProvider>({
 		token: BILLING_PROVIDER,
 		driver: (env) => env.BILLING_DRIVER,
-		inject: [CLOCK],
+		inject: [CLOCK, SECRET_STORE],
 		drivers: {
-			stripe: ({ env }) =>
+			// Resolved once, here, and never per request: the signature covers the
+			// exact bytes received, and anything that re-reads the body to fetch a
+			// secret differently fails only against the real provider. The cost is
+			// that rotating this one takes a restart, which DEC-101 says out loud.
+			stripe: async ({ env, resolve }) =>
 				new StripeBillingProvider({
 					apiKey: env.STRIPE_API_KEY ?? '',
-					webhookSecret: env.STRIPE_WEBHOOK_SECRET ?? '',
+					webhookSecrets: await webhookSecretsOf(
+						resolve<ISecretStore>(SECRET_STORE),
+						env.STRIPE_WEBHOOK_SECRET_REF ?? '',
+					),
 					apiBase: env.STRIPE_API_BASE,
 				}),
 			memory: ({ resolve }) => new MemoryBillingProvider(resolve<IClock>(CLOCK)),
@@ -193,16 +210,24 @@ export const ADAPTERS = [
 	// Region and endpoint come from the storage block rather than SECRETS_ twins:
 	// one AWS account is one set of coordinates, and a second copy is a second
 	// thing to point at the wrong place.
+	//
+	// No memory driver, and that is the decision rather than an omission: the
+	// signing secret and the node credentials are read through this token, and an
+	// in-memory store seeded from the environment would keep the environment as a
+	// source of secrets — which is exactly what DEC-101 removes. DEC-098.
 	defineAdapter<ISecretStore>({
 		token: SECRET_STORE,
 		driver: (env) => env.SECRETS_DRIVER,
+		inject: [CLOCK],
 		drivers: {
-			aws: ({ env }) =>
-				new SecretsManagerSecretStore({
-					region: env.AWS_REGION,
-					endpoint: env.AWS_ENDPOINT_URL,
+			aws: ({ env, resolve }) =>
+				new CachingSecretStore({
+					inner: new SecretsManagerSecretStore({
+						region: env.AWS_REGION,
+						endpoint: env.AWS_ENDPOINT_URL,
+					}),
+					clock: resolve<IClock>(CLOCK),
 				}),
-			memory: () => new MemorySecretStore(),
 		},
 	}),
 

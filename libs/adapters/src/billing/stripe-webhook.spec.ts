@@ -7,7 +7,7 @@ const PERIOD_END = 1786310000;
 
 const provider = new StripeBillingProvider({
 	apiKey: 'sk_test_unit',
-	webhookSecret: 'whsec_unit',
+	webhookSecrets: ['whsec_unit'],
 });
 
 function event(type: string, object: unknown): string {

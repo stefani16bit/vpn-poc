@@ -19,7 +19,7 @@ export const databaseEnvSchema = z.object({
 });
 
 export const authEnvSchema = z.object({
-	AUTH_JWT_SECRET: z.string().min(32, 'AUTH_JWT_SECRET must be at least 32 characters'),
+	AUTH_JWT_SECRET_REF: z.string().trim().min(1).default('poc-vpn/auth/jwt-secret'),
 	AUTH_ACCESS_TOKEN_TTL: secondsSchema.default(900),
 	AUTH_REFRESH_TOKEN_TTL: secondsSchema.default(2_592_000),
 	AUTH_PASSWORD_RESET_TTL: secondsSchema.default(3600),
@@ -46,7 +46,7 @@ export const billingEnvSchema = z.object({
 	BILLING_DRIVER: z.enum(['stripe', 'memory']).default('memory'),
 	STRIPE_API_KEY: z.string().optional(),
 	STRIPE_API_BASE: z.string().url().optional(),
-	STRIPE_WEBHOOK_SECRET: z.string().optional(),
+	STRIPE_WEBHOOK_SECRET_REF: z.string().trim().min(1).optional(),
 	STRIPE_PRICE_ID: z.string().optional(),
 	STRIPE_PRICE_ID_YEARLY: z.string().optional(),
 });
@@ -58,8 +58,11 @@ export const storageEnvSchema = z.object({
 	S3_BUCKET: z.string().optional(),
 });
 
+// One driver, and no default worth calling a fallback: the signing secret and
+// every node credential are read through this store, so an environment that
+// cannot reach it has no business booting. DEC-101.
 export const secretsEnvSchema = z.object({
-	SECRETS_DRIVER: z.enum(['aws', 'memory']).default('memory'),
+	SECRETS_DRIVER: z.enum(['aws']).default('aws'),
 });
 
 export const queueEnvSchema = z.object({
@@ -88,7 +91,7 @@ export function assertDriverConfiguration(env: {
 	BILLING_DRIVER: string;
 	STRIPE_API_KEY?: string | undefined;
 	STRIPE_API_BASE?: string | undefined;
-	STRIPE_WEBHOOK_SECRET?: string | undefined;
+	STRIPE_WEBHOOK_SECRET_REF?: string | undefined;
 	STRIPE_PRICE_ID?: string | undefined;
 	STRIPE_PRICE_ID_YEARLY?: string | undefined;
 	STORAGE_DRIVER: string;
@@ -118,7 +121,8 @@ export function assertDriverConfiguration(env: {
 	}
 	if (env.BILLING_DRIVER === 'stripe') {
 		if (!env.STRIPE_API_KEY) missing.push('STRIPE_API_KEY (BILLING_DRIVER=stripe)');
-		if (!env.STRIPE_WEBHOOK_SECRET) missing.push('STRIPE_WEBHOOK_SECRET (BILLING_DRIVER=stripe)');
+		if (!env.STRIPE_WEBHOOK_SECRET_REF)
+			missing.push('STRIPE_WEBHOOK_SECRET_REF (BILLING_DRIVER=stripe)');
 		if (!env.STRIPE_PRICE_ID) missing.push('STRIPE_PRICE_ID (BILLING_DRIVER=stripe)');
 		if (!env.STRIPE_PRICE_ID_YEARLY) missing.push('STRIPE_PRICE_ID_YEARLY (BILLING_DRIVER=stripe)');
 	}

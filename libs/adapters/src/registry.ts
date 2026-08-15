@@ -7,7 +7,10 @@ export interface AdapterDeps {
 	readonly resolve: <T>(token: symbol) => T;
 }
 
-export type AdapterFactory<T> = (deps: AdapterDeps) => T;
+// Promise-returning because an adapter may need a secret before it can be
+// built, and a secret is a round trip. Nest awaits a useFactory, so the
+// difference stays inside this file.
+export type AdapterFactory<T> = (deps: AdapterDeps) => T | Promise<T>;
 
 export interface AdapterSpec<T> {
 	readonly token: symbol;

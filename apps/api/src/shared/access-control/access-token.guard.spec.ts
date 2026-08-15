@@ -3,7 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Env } from '@vpn-poc/env';
-import { FixedClock } from '@vpn/testing/fakes';
+import { FixedClock, MemorySecretStore } from '@vpn/testing/fakes';
 
 import { AppError } from '../errors/app-error.js';
 import { AccessTokenService } from './access-token.service.js';
@@ -14,7 +14,8 @@ import type { AuthenticatedRequest } from './authenticated-request.js';
 const SECRET = 'a-secret-that-is-at-least-32-characters-long';
 
 // The guard reaches Env only through AccessTokenService, which reads two fields.
-const env = { AUTH_JWT_SECRET: SECRET, AUTH_ACCESS_TOKEN_TTL: 900 } as Env;
+const REF = 'poc-vpn/auth/jwt-secret';
+const env = { AUTH_JWT_SECRET_REF: REF, AUTH_ACCESS_TOKEN_TTL: 900 } as Env;
 
 function contextFor(request: Partial<AuthenticatedRequest>, handler: () => void): ExecutionContext {
 	return {
@@ -44,7 +45,11 @@ describe('AccessTokenGuard', () => {
 
 	beforeEach(() => {
 		// jose validates exp against wall time; see access-token.service.spec.ts.
-		tokens = new AccessTokenService(env, new FixedClock(new Date()));
+		tokens = new AccessTokenService(
+			env,
+			new FixedClock(new Date()),
+			new MemorySecretStore({ [REF]: SECRET }),
+		);
 		reflector = new Reflector();
 		guard = new AccessTokenGuard(tokens, reflector);
 

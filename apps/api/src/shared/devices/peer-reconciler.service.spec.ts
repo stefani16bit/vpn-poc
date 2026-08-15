@@ -72,11 +72,7 @@ function pending(
 }
 
 async function reconciler(rows: readonly StoredDevice[] = [], fleet = [nodeRow(SAO_PAULO)]) {
-	const nodes = new ExitNodeFactory({
-		driver: 'memory',
-		secrets: new MemorySecretStore(),
-		clock: new FixedClock(),
-	});
+	const nodes = new ExitNodeFactory({ driver: 'memory', secrets: new MemorySecretStore() });
 	const clock = new FixedClock(NOW);
 
 	const markProvisioned = vi.fn(() => Promise.resolve());

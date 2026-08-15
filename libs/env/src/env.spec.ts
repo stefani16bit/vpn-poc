@@ -10,7 +10,6 @@ import { loadEnv, loadWorkspaceDotenv, resetEnvCache } from './index.js';
 const minimal = {
 	WEB_ORIGIN: 'http://127.0.0.1:5173',
 	DATABASE_URL: 'postgres://user:pass@127.0.0.1:25432/db',
-	AUTH_JWT_SECRET: 'x'.repeat(32),
 };
 
 describe('loadEnv', () => {
@@ -30,18 +29,35 @@ describe('loadEnv', () => {
 	it('reports every problem in a single error', () => {
 		let message = '';
 		try {
-			loadEnv({ source: { AUTH_JWT_SECRET: 'too-short' } });
+			loadEnv({ source: { API_PORT: '3000' } });
 		} catch (error) {
 			message = (error as Error).message;
 		}
 		expect(message).toContain('WEB_ORIGIN');
 		expect(message).toContain('DATABASE_URL');
-		expect(message).toContain('AUTH_JWT_SECRET');
 	});
 
-	it('rejects a JWT secret short enough to brute-force offline', () => {
-		expect(() => loadEnv({ source: { ...minimal, AUTH_JWT_SECRET: 'short' } })).toThrow(
-			/AUTH_JWT_SECRET/,
+	// The negative that keeps item 1 from quietly regressing: the signing secret
+	// is not a key here any more, so a value under this name reaches nothing. A
+	// schema that grew it back would fail here rather than in a review.
+	it('carries no signing secret, only the ref where it lives', () => {
+		const env = loadEnv({ source: { ...minimal, AUTH_JWT_SECRET: 'x'.repeat(32) } });
+
+		expect(env).not.toHaveProperty('AUTH_JWT_SECRET');
+		expect(env.AUTH_JWT_SECRET_REF).toBe('poc-vpn/auth/jwt-secret');
+	});
+
+	it('refuses a blank ref, which would resolve to nothing at boot', () => {
+		expect(() => loadEnv({ source: { ...minimal, AUTH_JWT_SECRET_REF: '   ' } })).toThrow(
+			/AUTH_JWT_SECRET_REF/,
+		);
+	});
+
+	// One driver, so there is no offline path that reads secrets from the
+	// environment — the thing this whole change removes.
+	it('has no memory driver for the secret store', () => {
+		expect(() => loadEnv({ source: { ...minimal, SECRETS_DRIVER: 'memory' } })).toThrow(
+			/SECRETS_DRIVER/,
 		);
 	});
 
@@ -81,11 +97,7 @@ describe('loadEnv and the dotenv files', () => {
 		const { root, pkg } = workspace();
 		writeFileSync(
 			join(root, '.env.local'),
-			[
-				'WEB_ORIGIN=http://root.example',
-				`DATABASE_URL=${minimal.DATABASE_URL}`,
-				`AUTH_JWT_SECRET=${minimal.AUTH_JWT_SECRET}`,
-			].join('\n'),
+			['WEB_ORIGIN=http://root.example', `DATABASE_URL=${minimal.DATABASE_URL}`].join('\n'),
 		);
 
 		try {
@@ -117,10 +129,7 @@ describe('loadEnv and the dotenv files', () => {
 
 	it('lets .env.local win over .env', () => {
 		const { root, pkg } = workspace();
-		const required = [
-			`DATABASE_URL=${minimal.DATABASE_URL}`,
-			`AUTH_JWT_SECRET=${minimal.AUTH_JWT_SECRET}`,
-		];
+		const required = [`DATABASE_URL=${minimal.DATABASE_URL}`];
 		writeFileSync(
 			join(root, '.env'),
 			['WEB_ORIGIN=http://committed.example', ...required].join('\n'),
@@ -171,17 +180,17 @@ describe('assertDriverConfiguration', () => {
 		expect(message).toContain('SMTP_PORT');
 	});
 
-	it('demands a webhook secret when the billing driver is stripe', () => {
+	it('demands a webhook secret ref when the billing driver is stripe', () => {
 		expect(() =>
 			assertDriverConfiguration({ ...base, BILLING_DRIVER: 'stripe', STRIPE_API_KEY: 'sk_test' }),
-		).toThrow(/STRIPE_WEBHOOK_SECRET/);
+		).toThrow(/STRIPE_WEBHOOK_SECRET_REF/);
 	});
 
 	const stripe = {
 		...base,
 		BILLING_DRIVER: 'stripe',
 		STRIPE_API_KEY: 'sk_test',
-		STRIPE_WEBHOOK_SECRET: 'whsec_test',
+		STRIPE_WEBHOOK_SECRET_REF: 'poc-vpn/billing/stripe-webhook-secret',
 		STRIPE_PRICE_ID: 'price_monthly',
 		STRIPE_PRICE_ID_YEARLY: 'price_yearly',
 	};

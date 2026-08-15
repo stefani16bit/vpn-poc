@@ -13,7 +13,7 @@ import type {
 
 export interface StripeBillingProviderOptions {
 	readonly apiKey: string;
-	readonly webhookSecret: string;
+	readonly webhookSecrets: readonly string[];
 	readonly apiBase?: string | undefined;
 }
 
@@ -21,9 +21,16 @@ const ACCOUNT_METADATA_KEY = 'account_id';
 
 export class StripeBillingProvider implements IBillingProvider {
 	readonly #stripe: Stripe;
-	readonly #webhookSecret: string;
+	readonly #webhookSecrets: readonly string[];
 
 	constructor(options: StripeBillingProviderOptions) {
+		if (options.webhookSecrets.length === 0) {
+			throw new Error(
+				'StripeBillingProvider refuses to be built without a webhook secret: STRIPE_WEBHOOK_SECRET_REF resolved to nothing',
+			);
+		}
+
+
 		this.#stripe = new Stripe(options.apiKey, {
 			...(options.apiBase
 				? {
@@ -34,7 +41,7 @@ export class StripeBillingProvider implements IBillingProvider {
 				: {}),
 			apiVersion: '2025-02-24.acacia',
 		});
-		this.#webhookSecret = options.webhookSecret;
+		this.#webhookSecrets = options.webhookSecrets;
 	}
 
 	async createCheckout(request: CheckoutRequest): Promise<CheckoutSession> {
@@ -84,13 +91,20 @@ export class StripeBillingProvider implements IBillingProvider {
 		return toSubscription(updated);
 	}
 
+	// Synchronous, and handed the same string it was always handed: the signature
+	// covers the exact bytes received, so the secrets are resolved before this
+	// object exists rather than fetched here. Both halves of the rotation window
+	// are tried, because Stripe hands out two while an endpoint secret is being
+	// replaced and either can arrive first.
 	verifyWebhookSignature(rawBody: string, signatureHeader: string): boolean {
-		try {
-			this.#stripe.webhooks.constructEvent(rawBody, signatureHeader, this.#webhookSecret);
-			return true;
-		} catch {
-			return false;
-		}
+		return this.#webhookSecrets.some((secret) => {
+			try {
+				this.#stripe.webhooks.constructEvent(rawBody, signatureHeader, secret);
+				return true;
+			} catch {
+				return false;
+			}
+		});
 	}
 
 	parseWebhookEvent(rawBody: string): NormalizedBillingEvent | null {
