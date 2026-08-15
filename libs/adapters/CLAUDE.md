@@ -70,11 +70,16 @@ precisar mudar, a credencial vazou para a porta.
 - Não importe de `apps/` — o lint bloqueia (`type:adapter` só depende de
   `type:lib`).
 - Não adicione um método a uma porta sem estender a suíte de conformidade
-  primeiro. Os dois adapters têm que passar — com **uma** exceção conhecida e
-  escrita: `describeBillingProviderContract` não roda contra o
-  `StripeBillingProvider`, porque ela começa por `createCheckout` e o localstripe
-  não implementa `/v1/checkout/sessions` (DEC-009). Enquanto a suíte não for
-  partida em checkout e ciclo de vida, o que o Stripe faz com uma subscription é
-  pinado à mão em `stripe.integration.spec.ts`. DEC-060.
+  primeiro. Os dois adapters têm que passar.
+
+  A suíte de billing é **quatro** — checkout, ciclo de vida, webhook e arquivo de
+  fatura —, partida ao longo do que um provider consegue responder. O
+  `StripeBillingProvider` roda **ciclo de vida e webhook**; não roda checkout
+  (localstripe não tem `/v1/checkout/sessions`) nem arquivo de fatura (nada que
+  ele serve carrega `invoice_pdf`). Os dois ausentes são medidos e nomeados na
+  DEC-104, e nenhum deles é um `skip` dentro de uma suíte que depois se declara
+  verde — que é o que a DEC-009 recusou. As harnesses são estreitas de propósito:
+  registrar uma suíte que o adapter não sabe alimentar é erro de compilação.
+
 - Não faça um adapter revalidar o que a porta já promete; a suíte é o contrato.
 - Não use string como token de DI. `Symbol.for('vpn.*')`, em `@vpn/ports`.

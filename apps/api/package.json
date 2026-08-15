@@ -40,7 +40,7 @@
     "@types/express": "^5.0.0",
     "@types/supertest": "^6.0.2",
     "@vpn/config": "^0.1.0",
-    "@vpn/testing": "^0.17.0",
+    "@vpn/testing": "^0.18.0",
     "supertest": "^7.0.0",
     "vite-node": "^6.0.0"
   },

@@ -4542,3 +4542,63 @@ recusa dos dois atalhos, para que ela não precise ser redescoberta.
 
 O roadmap continua com a linha **aberta**. Adiar não é entregar, e um `[x]` aqui
 seria a única mentira que este arquivo já teria contado.
+
+---
+
+### DEC-104 — A suíte de billing é partida pelo que um provider consegue responder
+
+**Data:** 2026-08-14 · **Status:** accepted · **Supersedes:** DEC-060 (o parágrafo final), DEC-009 (a consequência)
+
+**Contexto.** `describeBillingProviderContract` nunca rodou contra o
+`StripeBillingProvider`. A razão está escrita desde a DEC-009 e repetida na
+DEC-060: a suíte **começa** por `createCheckout`, e o localstripe não implementa
+`/v1/checkout/sessions`. Registrar o adapter real faria o bloco de checkout
+falhar por limitação do mock, não do adapter — então cancelar e retomar ficaram
+pinados à mão, e o contrato inteiro do provider real ficou por conferir.
+
+O roadmap pedia partir em **dois**: checkout e ciclo de vida. Medido, dois não
+bastam. O localstripe responde `/v1/invoices`, mas nada que ele serve carrega
+`invoice_pdf` — então `fetchInvoicePdf` também não passa, e ele estava no mesmo
+bloco que a normalização de fatura, que é pura e passa.
+
+**Decisão.** Quatro suítes, cada uma com **a sua harness**: `checkout`,
+`lifecycle`, `webhook` e `invoice archive`. O Stripe registra **lifecycle** e
+**webhook**.
+
+**Rationale.** A linha do corte não é temática, é **o que o provider consegue ser
+perguntado**. Normalizar uma fatura paga é _parsing_: precisa de um corpo assinado
+e de mais nada. Buscar o PDF precisa de um provider que guarde documento. Estavam
+no mesmo bloco por assunto, e é essa vizinhança que fazia o Stripe perder as seis
+asserções de normalização junto com as duas de download.
+
+**As harnesses são estreitas de propósito.** `BillingWebhookHarness` não tem
+`invoicedExternalId`, então um registro que não sabe produzir uma fatura não
+compila contra a suíte de arquivo. "Quais destas este adapter enfrenta" vira erro
+de compilação em vez de um parágrafo que alguém precisa manter — e um `skip`
+dentro de uma suíte que depois se declara verde é precisamente o que a DEC-009
+recusou ao dizer que **uma passagem parcial não é uma**.
+
+Os dois ausentes ficam nomeados e medidos, aqui e no `libs/adapters/CLAUDE.md`.
+Isso é o oposto do que havia: antes, "a suíte não roda contra o Stripe" era uma
+frase; agora são duas suítes de quatro, com a razão de cada uma.
+
+O Stripe não emite webhook nenhum contra o localstripe, então as fixtures da
+suíte de webhook são construídas e assinadas à mão com
+`Stripe.webhooks.generateTestHeaderString`. Não é uma lacuna: verificação e
+parsing são **puros**, então uma fixture assinada pelo SDK de verdade exercita
+exatamente o código que uma entrega exercitaria.
+
+**Consequências.** `stripe.integration.spec.ts` perde os testes que a suíte
+passou a cobrir — cancelar no fim do período e retomar estavam pinados à mão só
+porque a suíte não podia ser registrada, e a DEC-060 dizia isso em voz alta.
+Sobrou o que a suíte **não** afirma: a leitura de volta contra um payload real
+(com o `currentPeriodEnd` revivido), a subscription inexistente, o período
+preservado ao retomar — que o contrato não tem como pedir, porque o fake é livre
+para inventar um período e um provider real não — e o cancelamento imediato, que
+é de suporte e exclusão e por isso fica fora do contrato de propósito.
+
+`@vpn/testing` vai a 0.18.0. A suíte de adapters passa de 103 para **123**.
+
+Quando existir um mock com Checkout, ou quando a suíte rodar contra a conta em
+test mode, as outras duas entram sem nada mudar de forma: elas já existem, com
+harness própria, e o que falta é um provider que as saiba alimentar.

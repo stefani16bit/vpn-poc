@@ -78,6 +78,14 @@ perdido. O `check.sh` fecha e reabre uma janela de verdade a cada rodada e afirm
 que o **PID do `httpd` não mudou**. mTLS, o item vizinho, foi adiado por escrito,
 com os dois atalhos recusados e o motivo de cada um. DEC-102, DEC-103.
 
+E a suíte de billing finalmente enfrenta o Stripe. Ela é quatro agora — checkout,
+ciclo de vida, webhook e arquivo de fatura —, partida pelo que um provider
+consegue responder, com harness estreita cada uma: registrar uma suíte que o
+adapter não sabe alimentar virou erro de compilação. O que o Stripe não enfrenta é
+medido e nomeado, nunca um `skip` dentro de uma suíte que depois se declara verde.
+Junto veio o SDK, cinco majors de uma vez, e ele custou duas linhas — as duas
+sendo a DEC-057 se pagando. DEC-104, DEC-105.
+
 | Suíte                                                         | Testes   | Precisa do devstack |
 | ------------------------------------------------------------- | -------- | ------------------- |
 | `packages/` — portas, contratos, i18n, fakes                  | 332      | não                 |
@@ -135,12 +143,14 @@ DEC-094, e o guard do laço em `apps/worker`.
       atrás, então campo novo não existe para nós e os tipos descrevem um passado.
       Subir são cinco majors de mudança de tipos, e o alvo natural é a versão
       default da conta.
-- [ ] **A suíte de conformidade de billing não roda contra o Stripe.** Ela começa
-      por `createCheckout`, e o localstripe não implementa `/v1/checkout/sessions`
-      (DEC-009), então registrar o adapter real faria o bloco de checkout falhar
-      por limitação do mock. O conserto é partir a suíte em dois — checkout e ciclo
-      de vida — para que o Stripe passe pelo segundo; hoje cancelar e retomar são
-      pinados à mão em `stripe.integration.spec.ts`. DEC-060.
+- [x] ~~**A suíte de conformidade de billing não roda contra o Stripe.**~~ Ela é
+      **quatro** agora — checkout, ciclo de vida, webhook e arquivo de fatura —,
+      partida pelo que um provider consegue responder, e o Stripe enfrenta as duas
+      do meio. Dois blocos não bastavam: o localstripe não serve `invoice_pdf`
+      nenhum, e `fetchInvoicePdf` dividia bloco com a normalização de fatura, que é
+      pura e passa. Os dois ausentes são medidos e nomeados, e nenhum é um `skip`
+      dentro de uma suíte que depois se declara verde. Cancelar e retomar deixaram
+      de ser pinados à mão. DEC-104.
 - [x] ~~**O agente do nó não tem autenticação.**~~ O plano de controle exige
       credencial, cobrada pelo `httpd` do nó antes de qualquer CGI rodar, e
       `EXIT_NODE_DRIVER=http` sem token falha no boot. A porta não mudou, então
