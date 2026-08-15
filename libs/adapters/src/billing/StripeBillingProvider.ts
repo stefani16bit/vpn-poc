@@ -30,7 +30,6 @@ export class StripeBillingProvider implements IBillingProvider {
 			);
 		}
 
-
 		this.#stripe = new Stripe(options.apiKey, {
 			...(options.apiBase
 				? {
@@ -39,7 +38,7 @@ export class StripeBillingProvider implements IBillingProvider {
 						protocol: protocolOf(options.apiBase),
 					}
 				: {}),
-			apiVersion: '2025-02-24.acacia',
+			apiVersion: '2026-07-29.dahlia',
 		});
 		this.#webhookSecrets = options.webhookSecrets;
 	}
@@ -226,15 +225,21 @@ function periodEndOf(subscription: Stripe.Subscription): Date | null {
 	return seconds === null ? null : new Date(seconds * 1000);
 }
 
+// Both reads are structural now. The root form stopped existing in the SDK types
+// when we moved to dahlia, but it did not stop arriving: an endpoint keeps the
+// version it was created with forever, so a payload shaped the old way is a
+// delivery we can still get tomorrow. Reading it through the type would have made
+// upgrading the SDK silently drop the older half. DEC-057, DEC-105.
 function subscriptionMetadataOf(invoice: Stripe.Invoice): Stripe.Metadata | null {
 	const parent = propertyOf(invoice, 'parent');
 	const nested = propertyOf(propertyOf(parent, 'subscription_details'), 'metadata');
+	const root = propertyOf(propertyOf(invoice, 'subscription_details'), 'metadata');
 
-	if (nested !== undefined && typeof nested === 'object' && nested !== null) {
-		return nested as Stripe.Metadata;
+	for (const candidate of [nested, root]) {
+		if (typeof candidate === 'object' && candidate !== null) return candidate as Stripe.Metadata;
 	}
 
-	return invoice.subscription_details?.metadata ?? null;
+	return null;
 }
 
 // The SDK types each field where the API version it was built against puts it, and

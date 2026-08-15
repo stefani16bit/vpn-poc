@@ -105,8 +105,8 @@ importers:
         specifier: ^0.26.0
         version: 0.26.0
       '@vpn/ports':
-        specifier: ^0.15.0
-        version: 0.15.0
+        specifier: ^0.16.0
+        version: 0.16.0
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -157,8 +157,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(vitest@4.1.10)
       '@vpn/testing':
-        specifier: ^0.16.0
-        version: 0.16.0(vitest@4.1.10)
+        specifier: ^0.18.0
+        version: 0.18.0(vitest@4.1.10)
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
@@ -291,8 +291,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/env
       '@vpn/ports':
-        specifier: ^0.15.0
-        version: 0.15.0
+        specifier: ^0.16.0
+        version: 0.16.0
       nestjs-pino:
         specifier: ^4.3.0
         version: 4.6.1(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(pino-http@10.5.0)(pino@9.14.0)(rxjs@7.8.2)
@@ -304,8 +304,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(vitest@4.1.10)
       '@vpn/testing':
-        specifier: ^0.16.0
-        version: 0.16.0(vitest@4.1.10)
+        specifier: ^0.18.0
+        version: 0.18.0(vitest@4.1.10)
       vite-node:
         specifier: ^6.0.0
         version: 6.0.0(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)(yaml@2.9.0)
@@ -356,11 +356,11 @@ importers:
         specifier: ^0.26.0
         version: 0.26.0
       '@vpn/ports':
-        specifier: ^0.15.0
-        version: 0.15.0
-      '@vpn/testing':
         specifier: ^0.16.0
-        version: 0.16.0(vitest@4.1.10)
+        version: 0.16.0
+      '@vpn/testing':
+        specifier: ^0.18.0
+        version: 0.18.0(vitest@4.1.10)
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
@@ -371,8 +371,8 @@ importers:
         specifier: ^6.9.16
         version: 6.10.1
       stripe:
-        specifier: ^17.5.0
-        version: 17.7.0
+        specifier: ^22.5.0
+        version: 22.5.0(@types/node@22.20.1)
     devDependencies:
       '@types/nodemailer':
         specifier: ^6.4.17
@@ -3947,11 +3947,11 @@ packages:
   '@vpn/i18n@0.26.0':
     resolution: {integrity: sha512-DkK42AJQwz9WeE+nM89voZ1Xk9xFStbYJiWVT6/L+NPHCFq3EHTnpNyjQ9LFUyKPQUjHinN1EIS+kx7ED7lmYw==}
 
-  '@vpn/ports@0.15.0':
-    resolution: {integrity: sha512-JZY6vb57GIXJ+2hiCkDVRaaJUio6KcP4bl6nMN9WYkG2CGrdoC+8Cwr0Q96mRoKcBYj1iKCLTz8nQNZrRtVT8A==}
+  '@vpn/ports@0.16.0':
+    resolution: {integrity: sha512-69KJUIp5pmnlf8WzowGSQTZD4jM//6DILdnr5K7dtPzMWjiFY3vmF3pUwKBILfItVDjV4SmN0LFOQIZX3jR6WQ==}
 
-  '@vpn/testing@0.16.0':
-    resolution: {integrity: sha512-C7LZWcETmC4eNmEVqofPLMBFg1YF8YjO1B6O2Att+qK0EwehfgxYD4LiJDNY2XWzAzQ7SNcf4Xg9z6O4j3qZ9w==}
+  '@vpn/testing@0.18.0':
+    resolution: {integrity: sha512-KLnY6wcGj36iHIFwDkzZCuboZ7C/DyNdRP39XT8O2UKjD5aaBf6GZVllp5jhXhUfttinG2X+yavL+JshhhlOrQ==}
     peerDependencies:
       vitest: '>=2'
     peerDependenciesMeta:
@@ -7135,9 +7135,14 @@ packages:
     resolution: {integrity: sha512-1tB5mhVo7U+ETBKNf92xT4hrQa3pm0MZ0PQvuDnWgAAGHDsfp4lPSpiS6psrSiet87wyGPh9ft6wmhOMQ0hDiw==}
     engines: {node: '>=14.16'}
 
-  stripe@17.7.0:
-    resolution: {integrity: sha512-aT2BU9KkizY9SATf14WhhYVv2uOapBWX0OFWF4xvcj1mPaNotlSc2CsxpS4DS46ZueSppmCF5BX1sNYBtwBvfw==}
-    engines: {node: '>=12.*'}
+  stripe@22.5.0:
+    resolution: {integrity: sha512-QVwMwriC0bbySx6R4dpsvJ0W//GojC1kwWVS6rPSoVqDUIZX4Hy3TaUrd2AZeXEAaKbfWIjQjvo3vKAReHZ0vQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/node': '>=18'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
 
   strtok3@10.3.5:
     resolution: {integrity: sha512-ki4hZQfh5rX0QDLLkOCj+h+CVNkqmp/CMf8v8kZpkNVK6jGQooMytqzLZYUVYIZcFZ6yDB70EfD8POcFXiF5oA==}
@@ -11448,11 +11453,11 @@ snapshots:
     dependencies:
       '@vpn/contracts': 0.23.0
 
-  '@vpn/ports@0.15.0': {}
+  '@vpn/ports@0.16.0': {}
 
-  '@vpn/testing@0.16.0(vitest@4.1.10)':
+  '@vpn/testing@0.18.0(vitest@4.1.10)':
     dependencies:
-      '@vpn/ports': 0.15.0
+      '@vpn/ports': 0.16.0
     optionalDependencies:
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@8.2.0(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)(yaml@2.9.0))
 
@@ -15111,10 +15116,9 @@ snapshots:
 
   strip-json-comments@5.0.3: {}
 
-  stripe@17.7.0:
-    dependencies:
+  stripe@22.5.0(@types/node@22.20.1):
+    optionalDependencies:
       '@types/node': 22.20.1
-      qs: 6.15.3
 
   strtok3@10.3.5:
     dependencies:

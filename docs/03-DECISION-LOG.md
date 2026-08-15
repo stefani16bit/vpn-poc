@@ -4602,3 +4602,59 @@ para inventar um período e um provider real não — e o cancelamento imediato,
 Quando existir um mock com Checkout, ou quando a suíte rodar contra a conta em
 test mode, as outras duas entram sem nada mudar de forma: elas já existem, com
 harness própria, e o que falta é um provider que as saiba alimentar.
+
+---
+
+### DEC-105 — O SDK e a versão de API vão para `dahlia`
+
+**Data:** 2026-08-14 · **Status:** accepted · **Amends:** DEC-057
+
+**Contexto.** `stripe` estava no 17 e a versão de API fixada era
+`2025-02-24.acacia` — de 18 meses atrás. A DEC-057 fez o **parser** aguentar as
+duas formas de payload, então não era urgente; mas as **nossas chamadas**
+continuavam falando aquela versão, então campo novo não existia para nós e os
+tipos descreviam um passado.
+
+**Decisão.** `stripe@^22.5.0`, e `apiVersion: '2026-07-29.dahlia'`.
+
+**Rationale.** O roadmap dizia "o alvo natural é a versão default da conta", e a
+DEC-057 tinha medido essa default como `2026-04-22.dahlia`. **Esse alvo não é
+alcançável, e a razão é do SDK:** `stripe-node` tipa `apiVersion` como
+`LatestApiVersion`, que é `typeof ApiVersion` — um literal só, o da versão com
+que o SDK foi construído. No 22.5.0 ele é `2026-07-29.dahlia`. Nomear outra
+string exigiria um cast, e um cast aqui esconderia justamente a divergência que
+ele estaria contornando.
+
+Então a versão de API não se escolhe separada do SDK: **mover o SDK é como se
+chega à versão nova**, e o número no código passa a ser uma consequência
+verificável em vez de uma escolha solta.
+
+22.5.0 é o **piso**, não só o mais recente. A migração de tipos do v22 derrubou
+`Stripe.LatestApiVersion`, `Stripe.StripeConfig` e `Stripe.errors.*` — que este
+adapter usa — e o próprio CHANGELOG do 22.5.0 os restaura, dizendo que a queda
+foi acidental.
+
+**Cinco majors custaram duas linhas**, e as duas são a DEC-057 se pagando.
+`periodEndOf` já lia estruturalmente e não mudou. `subscriptionMetadataOf` lia a
+forma antiga **pelo tipo** (`invoice.subscription_details?.metadata`), e esse
+campo deixou de existir nos tipos do dahlia — então a leitura virou estrutural
+como a outra. Nada mais no adapter se moveu.
+
+**A subida não obsoleta a DEC-057, e essa é a parte que importa.** Um endpoint de
+webhook guarda para sempre a versão com que foi criado, então um payload em forma
+acacia pode chegar amanhã, de um endpoint criado ano passado, e uma reentrega
+chega na versão de quando o evento nasceu. Os pares de fixture acacia/dahlia em
+`stripe-webhook.spec.ts` **ficam**. Apagá-los seria a troca de "um bug silencioso
+por outro" que a DEC-057 recusou por escrito — e o erro de tipo acima é a prova
+de que o risco era real: ler pelo tipo teria feito a atualização do SDK derrubar
+a metade antiga em silêncio.
+
+**Consequências.** O que **não** é provado localmente: o comportamento do Stripe
+de verdade sob a versão nova. A suíte de integração alcança o localstripe, que
+implementa um subconjunto, e o resto é puro. É a mesma categoria do clique humano
+na página hospedada que o roadmap já registra — dito em voz alta em vez de
+implicado por uma suíte verde.
+
+`STRIPE_WEBHOOK_SECRET_REF` e a versão nova são independentes: um endpoint criado
+hoje nasce em dahlia, e rotacionar o segredo dele não muda a versão que ele
+guarda.

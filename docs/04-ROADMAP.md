@@ -88,18 +88,18 @@ sendo a DEC-057 se pagando. DEC-104, DEC-105.
 
 | Suíte                                                         | Testes   | Precisa do devstack |
 | ------------------------------------------------------------- | -------- | ------------------- |
-| `packages/` — portas, contratos, i18n, fakes                  | 332      | não                 |
+| `packages/` — portas, contratos, i18n, fakes                  | 339      | não                 |
 | `libs/env`                                                    | 23       | não                 |
-| `libs/adapters` — render de e-mail/SMS, redação, webhook, nós | 36       | não                 |
-| `apps/api` — kernel, serviços, controllers                    | 650      | não                 |
-| `apps/web` — store, telas, normalização de erro, locale       | 306      | não                 |
+| `libs/adapters` — render de e-mail/SMS, redação, webhook, nós | 45       | não                 |
+| `apps/api` — kernel, serviços, controllers                    | 652      | não                 |
+| `apps/web` — store, telas, normalização de erro, locale       | 293      | não                 |
 | `apps/worker` — o laço não esqueceu nenhuma varredura         | 10       | não                 |
 | `infra` — validação de config CDK                             | 11       | não                 |
-| **Subtotal `pnpm verify`**                                    | **1368** | **não**             |
-| `libs/adapters` — as mesmas suítes contra os serviços reais   | 93       | sim                 |
-| `apps/api` — RLS, transações, o endereço por nó e o trigger   | 81       | sim                 |
-| `apps/api` — fluxo completo mais a matriz de locale           | 160      | sim                 |
-| **Total**                                                     | **1702** |                     |
+| **Subtotal `pnpm verify`**                                    | **1373** | **não**             |
+| `libs/adapters` — as mesmas suítes contra os serviços reais   | 123      | sim                 |
+| `apps/api` — RLS, transações, o endereço por nó e o trigger   | 78       | sim                 |
+| `apps/api` — fluxo completo mais a matriz de locale           | 163      | sim                 |
+| **Total**                                                     | **1737** |                     |
 
 Cobertura com piso aplicado, e o piso só sobe (DEC-028): `apps/api` em
 94/87/88/93 (linhas/funções/ramos/statements), `apps/web` em 97/95/92/96.
@@ -137,12 +137,16 @@ DEC-094, e o guard do laço em `apps/worker`.
       `invoice.payment_failed` aplicado, com o e-mail de dunning na caixa.
       **Achou dois bugs, os dois corrigidos na DEC-057.** Falta só o clique humano
       na página hospedada, que nenhum teste automatiza.
-- [ ] **`stripe` está no 17 e o npm no 22; a versão de API que fixamos é de
-      2025-02.** Não é urgente: a DEC-057 fez o parser aguentar as duas formas de
-      payload. Mas as **nossas chamadas** continuam falando uma versão de 18 meses
-      atrás, então campo novo não existe para nós e os tipos descrevem um passado.
-      Subir são cinco majors de mudança de tipos, e o alvo natural é a versão
-      default da conta.
+- [x] ~~**`stripe` está no 17 e o npm no 22; a versão de API que fixamos é de
+      2025-02.**~~ `stripe@^22.5.0` e `apiVersion: '2026-07-29.dahlia'`. "A versão
+      default da conta" **não era alcançável**: o SDK tipa `apiVersion` como um
+      literal só — o da versão com que ele foi construído —, então mover o SDK é
+      como se chega à versão nova, e nomear outra string exigiria um cast que
+      esconderia a divergência. 22.5.0 é o piso e não só o mais recente: o v22
+      derrubou `Stripe.errors.*` e `Stripe.LatestApiVersion` por acidente e o
+      22.5.0 os restaura. **Cinco majors custaram duas linhas**, as duas sendo a
+      DEC-057 se pagando — e os pares de fixture acacia/dahlia **ficam**, porque um
+      endpoint guarda para sempre a versão com que nasceu. DEC-105.
 - [x] ~~**A suíte de conformidade de billing não roda contra o Stripe.**~~ Ela é
       **quatro** agora — checkout, ciclo de vida, webhook e arquivo de fatura —,
       partida pelo que um provider consegue responder, e o Stripe enfrenta as duas
@@ -485,11 +489,14 @@ plane que ainda não existe.
 
 ```bash
 make up && make check                                # devstack: 65/65
-pnpm --filter @vpn-poc/api test:e2e                  # 122, o fluxo inteiro
-pnpm --filter @vpn-poc/api test:integration          # 65, RLS e formas de SQL
-pnpm --filter @vpn-poc/adapters test:integration     # 90, adapters reais
+pnpm --filter @vpn-poc/api test:e2e                  # 163, o fluxo inteiro
+pnpm --filter @vpn-poc/api test:integration          # 78, RLS e formas de SQL
+pnpm --filter @vpn-poc/adapters test:integration     # 123, adapters reais
 pnpm dev                                             # api :3000, web :5173
 ```
+
+Pare o worker antes do e2e (`pm2 stop worker`): os dois disputam o mesmo
+`outbox`, e o sintoma é um teste diferente vermelho a cada corrida.
 
 Depois, no navegador: cadastro → mailpit em <http://localhost:28025> → confirmar
 → entrar → esqueci a senha → redefinir → entrar com a senha nova → assinar.
