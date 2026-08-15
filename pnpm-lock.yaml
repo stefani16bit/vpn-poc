@@ -20,6 +20,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.10
         version: 4.1.10(vitest@4.1.10)
+      '@vpn/contracts':
+        specifier: ^0.24.0
+        version: 0.24.0
       concurrently:
         specifier: ^9.1.0
         version: 9.2.4
@@ -99,11 +102,11 @@ importers:
         specifier: workspace:*
         version: link:../../libs/env
       '@vpn/contracts':
-        specifier: ^0.23.0
-        version: 0.23.0
+        specifier: ^0.24.0
+        version: 0.24.0
       '@vpn/i18n':
-        specifier: ^0.26.0
-        version: 0.26.0
+        specifier: ^0.27.0
+        version: 0.27.0
       '@vpn/ports':
         specifier: ^0.16.0
         version: 0.16.0
@@ -194,11 +197,11 @@ importers:
         specifier: ^2.5.0
         version: 2.12.0(react-redux@9.3.0(@types/react@19.2.18)(react@19.2.8)(redux@5.0.1))(react@19.2.8)
       '@vpn/contracts':
-        specifier: ^0.23.0
-        version: 0.23.0
+        specifier: ^0.24.0
+        version: 0.24.0
       '@vpn/i18n':
-        specifier: ^0.26.0
-        version: 0.26.0
+        specifier: ^0.27.0
+        version: 0.27.0
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -350,11 +353,11 @@ importers:
         specifier: workspace:*
         version: link:../env
       '@vpn/contracts':
-        specifier: ^0.23.0
-        version: 0.23.0
+        specifier: ^0.24.0
+        version: 0.24.0
       '@vpn/i18n':
-        specifier: ^0.26.0
-        version: 0.26.0
+        specifier: ^0.27.0
+        version: 0.27.0
       '@vpn/ports':
         specifier: ^0.16.0
         version: 0.16.0
@@ -3941,11 +3944,11 @@ packages:
       vitest:
         optional: true
 
-  '@vpn/contracts@0.23.0':
-    resolution: {integrity: sha512-OBi8vkKHYaKEonREr9e/XkIWdIvQF//maPaqMS1WbBLwQ6xiKPQ5DdcniVvcRwJZ5GJ38nAvcUikgPLNzqFFLg==}
+  '@vpn/contracts@0.24.0':
+    resolution: {integrity: sha512-3Ol7B8VL9Z28Q7qBLWmFI2ngaE1dgh0dUqKVCgj9gWVkCKClWODba65KNzZDr01yQA2nz7W7k54kdY+hH/GdpA==}
 
-  '@vpn/i18n@0.26.0':
-    resolution: {integrity: sha512-DkK42AJQwz9WeE+nM89voZ1Xk9xFStbYJiWVT6/L+NPHCFq3EHTnpNyjQ9LFUyKPQUjHinN1EIS+kx7ED7lmYw==}
+  '@vpn/i18n@0.27.0':
+    resolution: {integrity: sha512-P96kq0aLdnC+1v19E8/6Krgsobn/YPKxjYfQguDFphf9rOQb0srsKLxElQJHXRUhoIOtd4czNymKUX12E5Dirg==}
 
   '@vpn/ports@0.16.0':
     resolution: {integrity: sha512-69KJUIp5pmnlf8WzowGSQTZD4jM//6DILdnr5K7dtPzMWjiFY3vmF3pUwKBILfItVDjV4SmN0LFOQIZX3jR6WQ==}
@@ -11445,13 +11448,13 @@ snapshots:
     optionalDependencies:
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@8.2.0(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)(yaml@2.9.0))
 
-  '@vpn/contracts@0.23.0':
+  '@vpn/contracts@0.24.0':
     dependencies:
       zod: 3.25.76
 
-  '@vpn/i18n@0.26.0':
+  '@vpn/i18n@0.27.0':
     dependencies:
-      '@vpn/contracts': 0.23.0
+      '@vpn/contracts': 0.24.0
 
   '@vpn/ports@0.16.0': {}
 
