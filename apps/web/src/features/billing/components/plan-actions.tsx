@@ -13,18 +13,22 @@ export function PlanActions({
 	onSubscribe,
 	onCancel,
 	onResume,
+	preselected,
 }: {
 	subscription: SubscriptionResponse | undefined;
 	pending: boolean;
 	onSubscribe: (cadence: Cadence) => void;
 	onCancel: () => void;
 	onResume: () => void;
+	preselected?: Cadence | undefined;
 }): ReactNode {
 	const t = useTranslator();
 	const status = subscription?.status ?? 'none';
 
 	if (status === 'none' || status === 'canceled') {
-		return <SubscribeButtons pending={pending} onSubscribe={onSubscribe} />;
+		return (
+			<SubscribeButtons pending={pending} onSubscribe={onSubscribe} preselected={preselected} />
+		);
 	}
 
 	if (subscription?.cancelAtPeriodEnd) {

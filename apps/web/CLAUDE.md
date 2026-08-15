@@ -27,6 +27,17 @@ refresh — então a landing só linka.
 Sessão em `unknown` renderiza o cabeçalho deslogado, não `<Loading />`: a landing
 é lida por anônimos, e é o único lugar do app onde `unknown` **não** vira espera.
 
+## Cadência pretendida
+
+`lib/intended-cadence.ts` — o clique na landing grava, `/account` lê,
+`SubscribeButtons` nomeia e reordena. Fica em `lib/` porque feature não importa
+feature e as duas pontas são features diferentes.
+
+Não existe `clear`: a janela de 24h limita o envelhecimento, e `PlanActions` já
+para de oferecer os botões quando existe assinatura. Limpar no handler apagaria a
+frase junto com um 402. A leitura é no render e não muta nada — é por isso que o
+StrictMode não é problema aqui. Ver DEC-109.
+
 ## Sessão
 
 `auth-slice` é uma máquina de três estados — `unknown | authenticated |

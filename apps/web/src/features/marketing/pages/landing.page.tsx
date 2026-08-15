@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button.tsx';
 import { Card, CardContent, CardHeader } from '@/components/ui/card.tsx';
 import { LanguagePicker } from '@/i18n/language-picker.tsx';
 import { useLocale } from '@/i18n/locale-context.tsx';
+import { storeIntendedCadence } from '@/lib/intended-cadence.js';
 
 const TIER = 'pro';
 
@@ -127,7 +128,10 @@ export function LandingPage(): ReactNode {
 									asChild
 									variant={cadence === 'monthly' ? 'default' : 'outline'}
 								>
-									<Link to={signedIn ? '/account' : '/signup'}>
+									<Link
+										to={signedIn ? '/account' : '/signup'}
+										onClick={() => storeIntendedCadence(cadence)}
+									>
 										{t(CTA_KEY_BY_CADENCE[cadence])}
 									</Link>
 								</Button>

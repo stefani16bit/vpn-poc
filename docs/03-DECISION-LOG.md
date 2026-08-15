@@ -4773,3 +4773,49 @@ visitante da landing é anônimo, e fazer um leitor anônimo esperar é falhar n
 único trabalho que a página tem. E os títulos dos cartões são `<h2>`/`<h3>` de
 verdade, não `CardTitle` — que é uma `div`. Numa página que um estranho lê com
 leitor de tela, o esboço do documento é conteúdo.
+
+---
+
+### DEC-109 — A cadência pretendida é uma preferência do navegador
+
+**Data:** 2026-08-15 · **Status:** accepted
+
+**Contexto.** Quem escolhe um plano na landing ainda não tem conta. Entre o
+clique e a tela onde dá para assinar existem o cadastro, um e-mail de verificação
+e o login — e nada disso carregava a escolha.
+
+**Decisão.** `lib/intended-cadence.ts`, gravando `{ cadence, at }` em
+`localStorage['poc-vpn.cadence']` no **clique da landing**. `/account` lê, e
+`SubscribeButtons` nomeia a escolha e põe aquele botão primeiro. Vale 24h.
+
+**Rationale.** Um escritor e um leitor. Escrever no clique — e não na página de
+cadastro, a partir de um `?cadence=` — é o que cobre também o visitante que já
+tem sessão e vai direto para `/account` sem passar pelo cadastro. Um parâmetro na
+URL exigiria que o leitor reconciliasse duas origens, e nada mais leria o
+parâmetro.
+
+`localStorage` e não `sessionStorage`: o link do e-mail abre uma aba que a aba do
+cadastro não gerou, e `sessionStorage` é por contexto de navegação. Ele cobriria
+exatamente zero pessoas, porque ninguém consegue entrar sem sair para o e-mail.
+
+**As 24h espelham o link que a preferência acompanha** — `checkInboxExpiry` diz
+"o link expira em 24 horas". Uma preferência que sobrevive ao link que a criou já
+está velha pelo que o próprio app afirma. E a janela é o que dispensa um `clear`:
+limpar no handler de assinatura apagaria a frase junto com um 402, e
+`PlanActions` já para de renderizar os botões assim que existe assinatura.
+
+**O que não é coberto, de propósito.** Verificar o e-mail em outro navegador
+perde a escolha. Cobrir isso exigiria uma coluna no servidor, e aí a preferência
+viraria estado com dono, ciclo de vida e alguém para expirá-la. Perder não custa
+nada: `/account` mostra os dois planos de qualquer jeito, e a landing agora mostra
+os dois preços. É uma economia de um clique, não uma reserva.
+
+**Nada dispara checkout sozinho.** Seria um redirect para fora da origem saindo
+de um efeito, e o StrictMode roda efeito duas vezes. A leitura acontece no render
+e não muta nada, então a dupla execução é inofensiva por construção, não por
+guarda.
+
+O ganho é **nomeado**: a tela diz "você escolheu o plano anual antes de criar a
+conta" e reordena os botões. Só trocar o `variant` seria uma memória que ninguém
+percebe — depois de um desvio de minutos por outra aba, um botão com ênfase
+diferente lê como estilo, não como lembrança.

@@ -21,6 +21,7 @@ import { SubscriptionStatus } from '@/features/billing/components/subscription-s
 import { useStartCheckout } from '@/features/billing/hooks/use-start-checkout.js';
 import { LanguagePicker } from '@/i18n/language-picker.tsx';
 import { useTranslator } from '@/i18n/locale-context.tsx';
+import { readIntendedCadence } from '@/lib/intended-cadence.js';
 
 export function BillingPage() {
 	const t = useTranslator();
@@ -75,6 +76,7 @@ export function BillingPage() {
 									onSubscribe={(cadence) => void checkout.start(cadence)}
 									onCancel={() => void cancelSubscription()}
 									onResume={() => void resumeSubscription()}
+									preselected={readIntendedCadence() ?? undefined}
 								/>
 							</>
 						)}
