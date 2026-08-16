@@ -205,8 +205,18 @@ hospedada, assinatura do webhook, normalização do evento.
 ```bash
 stripe login                       # uma vez, contra sua conta em test mode
 pnpm billing:prices                # cria produto e os dois preços, imprime os ids
-stripe listen --forward-to 127.0.0.1:3000/billing/webhook
+pnpm dev:stripe                    # encaminha os webhooks para a API local
 ```
+
+**`pnpm dev:stripe`, e não `stripe listen` direto.** O `listen` sem argumento usa
+a conta que o último `stripe login` gravou na config da CLI, que não é
+necessariamente aquela a que a `STRIPE_API_KEY` pertence — uma sandbox e a conta
+que a hospeda são **duas contas**. Um listener na conta errada registra o
+endpoint dela, e os eventos disparam na conta certa sem ter para onde ir: nada é
+encaminhado, e nem a CLI nem a API registram coisa alguma. O sintoma é silêncio
+absoluto depois de uma compra que o dashboard mostra concluída, e
+`pending_webhooks=0` no evento é como se confirma. O script passa a `--api-key`
+que o app usa, então as duas pontas não têm como divergir.
 
 **`127.0.0.1` e não `localhost`, e aqui isso não é estilo.** A CLI do Stripe
 resolve `localhost` e tenta `::1` primeiro, exatamente como o Node faz (DEC-032).
@@ -217,20 +227,39 @@ uso". O sintoma é a CLI reportando **404 em todo evento**, encaminhado para um
 processo que não é este, com a assinatura nunca ativando e nada aparecendo no log
 da API. `netstat -ano | grep :3000` mostra os dois donos.
 
-No `.env`, com o `whsec_...` que o `listen` imprimiu:
+No `.env`:
 
 ```bash
 BILLING_DRIVER=stripe
 STRIPE_API_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_WEBHOOK_SECRET_REF=poc-vpn/billing/stripe-webhook-secret
 STRIPE_PRICE_ID=price_...          # do billing:prices
 STRIPE_PRICE_ID_YEARLY=price_...
 # STRIPE_API_BASE fica fora: ele só existe para o mock
 ```
 
-Reinicie a API (ela lê o `.env` no boot) e assine com o cartão `4242 4242 4242
-4242`, qualquer validade futura, qualquer CVC. A CLI mostra
-`customer.subscription.created` sendo encaminhado, e a página passa a **Ativa**.
+**O `whsec_...` não entra em `.env` nenhum.** Desde a DEC-101 o que o ambiente
+carrega é o `_REF` — o **nome** do segredo no cofre —, e o valor mora no
+Secrets Manager. Quem o coloca lá é o `dev:infra`: com `BILLING_DRIVER=stripe`
+ele lê o segredo de assinatura da CLI (`stripe listen --print-secret`, contra a
+`STRIPE_API_KEY`) e o exporta como `STRIPE_WEBHOOK_SECRET_FIXTURE`, que é o que
+o `01-resources.sh` semeia. Não há nada a sincronizar à mão, e não há como o
+listener assinar com um segredo que a API não tem.
+
+Isso é feito no `dev.sh` e não no `.env` por um motivo que custou uma tarde: o
+compose resolve `${VARS}` contra o **diretório do arquivo compose**, que é
+`devstack/`. O `.env` da raiz não chega a interpolação nenhuma a menos que seja
+passado com `--env-file`, e sem isso um valor posto ali é silenciosamente
+trocado pelo default do `docker-compose.yml` — a semente e a API discordam, e o
+único sintoma é `403` em todo evento encaminhado. O `dev.sh` passa os dois
+arquivos que o `loadEnv` lê.
+
+Suba na ordem — `pnpm dev:infra`, depois `pnpm dev:apps`, depois
+`pnpm dev:stripe` — e assine com o cartão `4242 4242 4242 4242`, qualquer
+validade futura, qualquer CVC. A CLI mostra `customer.subscription.created`
+sendo encaminhado com `[200]`, e a página passa a **Ativa**. A ordem importa
+porque o adapter resolve o segredo **uma vez**, no boot: uma API que subiu antes
+da semente segue com o valor velho até reiniciar.
 
 Para a dunning, sem tocar em nada à mão:
 
