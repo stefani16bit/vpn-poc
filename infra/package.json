@@ -10,11 +10,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.174.0",
-    "constructs": "^10.4.2"
+    "aws-cdk-lib": "^2.265.0",
+    "constructs": "^10.8.1"
   },
   "devDependencies": {
-    "aws-cdk": "^2.174.0"
+    "aws-cdk": "^2.1136.0"
   },
   "nx": {
     "tags": [

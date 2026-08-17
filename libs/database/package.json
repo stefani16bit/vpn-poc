@@ -13,12 +13,12 @@
   },
   "dependencies": {
     "@vpn-poc/env": "workspace:*",
-    "drizzle-orm": "^0.38.3",
-    "postgres": "^3.4.5"
+    "drizzle-orm": "^0.38.4",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
-    "dotenv": "^16.4.7",
-    "drizzle-kit": "^0.30.1"
+    "dotenv": "^16.6.1",
+    "drizzle-kit": "^0.30.6"
   },
   "nx": {
     "tags": [

@@ -8,12 +8,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@codegenie/serverless-express": "^4.16.0",
+    "@codegenie/serverless-express": "^4.17.1",
     "@vpn-poc/api": "workspace:*",
     "reflect-metadata": "^0.2.2"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.147"
+    "@types/aws-lambda": "^8.10.162"
   },
   "nx": {
     "tags": [
