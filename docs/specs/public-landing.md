@@ -14,13 +14,15 @@ vivem num script manual que semeia o Stripe.
 
 ## Escopo
 
-**Entra.** Uma página pública em `/` com banner, três cartões de valor e um
-cartão de plano com os dois preços. A conta se muda para `/account`. O preço vira
+**Entra.** Uma página pública em `/` com cabeçalho próprio, banner, três cartões
+de valor e os dois preços, um cartão por cadência. A conta se muda para
+`/account`. O preço vira
 um fato compartilhado em `@vpn/contracts`, e o script de seed passa a lê-lo em vez
 de repeti-lo. A cadência escolhida no clique atravessa o cadastro e reaparece
 nomeada em `/account`.
 
-**Não entra.** SEO e `<meta name="description">`. Carregar a cadência entre
+**Não entra.** SEO e `<meta name="description">`. Páginas de termos, privacidade
+ou status — o rodapé não inventa link para rota que não existe. Carregar a cadência entre
 navegadores diferentes. Disparar checkout sozinho depois do login. `?cadence=` na
 URL. Segundo tier, trial, ou preço em outra moeda. Nada muda na API.
 
@@ -99,6 +101,54 @@ Dado    um PLAN_PRICES que discorda do preço já semeado no provider
 Quando  pnpm billing:prices roda
 Então   ele falha mostrando os dois valores, em vez de imprimir "reused"
 ```
+
+## Layout
+
+A landing não usa o enquadramento do app. Pela DEC-110, `/` fica fora da rota de
+layout que monta o `ThemeToggle` e o container centralizado, e monta o próprio
+`<main id="main">`.
+
+```
+cabeçalho fixo   marca · Produto · Preços · idioma · tema · Entrar/Criar conta
+banner           eyebrow · título · texto · [Criar conta] [Ver preços]
+#product         os três cartões de valor
+#pricing         título · subtítulo · cartão mensal · cartão anual
+rodapé           © à esquerda, as mesmas âncoras à direita
+```
+
+```
+Dado    um visitante em /
+Quando  ele rola a página
+Então   o cabeçalho acompanha, e "Produto" e "Preços" saltam para as seções
+```
+
+```
+Dado    um visitante em /
+Quando  ele usa o "pular para o conteúdo"
+Então   chega no <main> da própria landing — o shell do app não renderizou
+```
+
+```
+Dado    um visitante em qualquer rota que não a landing
+Quando  a tela renderiza
+Então   o enquadramento centralizado e o botão de tema são os de sempre
+```
+
+O seletor de idioma e o botão de tema vivem no cabeçalho da landing, e não acima
+dele: fora da rota de layout não existe mais um lugar global para eles. O seletor
+ganha uma forma compacta — sem rótulo visível, com nome acessível no gatilho —
+porque a forma empilhada é de formulário.
+
+```
+Dado    um visitante na seção de preços
+Quando  ele compara as duas cadências
+Então   o cartão anual vem marcado como o melhor valor
+E       diz quantos meses ele economiza
+```
+
+Os meses economizados são calculados de `PLAN_PRICES` — `(mensal × 12 − anual) /
+mensal` —, nunca escritos na tradução. É a DEC-107 de novo: mudar o preço no
+contracts não pode deixar uma frase de vendas mentindo.
 
 ## Portas afetadas
 

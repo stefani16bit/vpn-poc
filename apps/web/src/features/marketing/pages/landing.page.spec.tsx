@@ -1,8 +1,8 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ENTITLEMENTS } from '@vpn/contracts';
+import { ENTITLEMENTS, PLAN_PRICES } from '@vpn/contracts';
 
 import { sessionCleared, sessionResolved } from '@/app/store/auth-slice.js';
 import { readIntendedCadence } from '@/lib/intended-cadence.js';
@@ -78,13 +78,15 @@ describe('LandingPage', () => {
 	it('reads the plan limits off the shared map rather than restating them', () => {
 		render(signedOut());
 
-		expect(screen.getByText(`${ENTITLEMENTS.pro.seats} users`)).toBeInTheDocument();
+		// Once per cadence card: the two cadences buy the same plan, and a card
+		// that omitted the limits would read as the cheaper tier of a lineup.
+		expect(screen.getAllByText(`${ENTITLEMENTS.pro.seats} users`)).toHaveLength(2);
+		expect(screen.getAllByText(`${ENTITLEMENTS.pro.devicesPerUser} devices per user`)).toHaveLength(
+			2,
+		);
 		expect(
-			screen.getByText(`${ENTITLEMENTS.pro.devicesPerUser} devices per user`),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText(`${ENTITLEMENTS.pro.monthlyTrafficGb} GB of traffic per month`),
-		).toBeInTheDocument();
+			screen.getAllByText(`${ENTITLEMENTS.pro.monthlyTrafficGb} GB of traffic per month`),
+		).toHaveLength(2);
 	});
 
 	it('offers signing in as plainly as signing up, since an existing address gets no link', () => {
@@ -135,5 +137,57 @@ describe('LandingPage', () => {
 
 		expect(screen.getByRole('link', { name: 'Start monthly' })).toHaveAttribute('href', '/signup');
 		expect(screen.getByRole('link', { name: 'Start yearly' })).toHaveAttribute('href', '/signup');
+	});
+
+	it('lets the header jump to the two sections the page is made of', () => {
+		render(signedOut());
+
+		const header = within(screen.getByRole('banner'));
+
+		expect(header.getByRole('link', { name: 'Product' })).toHaveAttribute('href', '#product');
+		expect(header.getByRole('link', { name: 'Pricing' })).toHaveAttribute('href', '#pricing');
+	});
+
+	it('keeps language and theme in its own header, having left the app frame behind', () => {
+		render(signedOut());
+
+		const header = within(screen.getByRole('banner'));
+
+		expect(header.getByRole('combobox', { name: 'Language' })).toBeInTheDocument();
+		expect(header.getByRole('button', { name: /Theme/ })).toBeInTheDocument();
+	});
+
+	it('offers a way down to the prices next to the call to action', () => {
+		render(signedOut());
+
+		expect(screen.getByRole('link', { name: 'See pricing' })).toHaveAttribute('href', '#pricing');
+	});
+
+	it('marks the yearly card as the better buy, in months read off the price map', () => {
+		render(signedOut());
+
+		const { monthly, yearly } = PLAN_PRICES.pro;
+		const months = Math.round(
+			(monthly.amountCents * 12 - yearly.amountCents) / monthly.amountCents,
+		);
+
+		expect(screen.getByText('Best value')).toBeInTheDocument();
+		expect(screen.getByText(`${months} months free`)).toBeInTheDocument();
+	});
+
+	it('names each cadence card, so a price is never a number on its own', () => {
+		render(signedOut());
+
+		expect(screen.getByRole('heading', { name: 'Monthly' })).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'Yearly' })).toBeInTheDocument();
+	});
+
+	it('closes with a footer that repeats the way back up', () => {
+		render(signedOut());
+
+		const footer = within(screen.getByRole('contentinfo'));
+
+		expect(footer.getByText(`© ${new Date().getFullYear()} poc-vpn`)).toBeInTheDocument();
+		expect(footer.getByRole('link', { name: 'Pricing' })).toHaveAttribute('href', '#pricing');
 	});
 });

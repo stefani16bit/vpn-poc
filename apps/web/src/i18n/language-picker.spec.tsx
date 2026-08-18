@@ -19,6 +19,13 @@ describe('LanguagePicker', () => {
 		expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument();
 	});
 
+	it('drops the visible label when compact, keeping the accessible name', () => {
+		renderWithProviders(<LanguagePicker compact />, { locale: 'en' });
+
+		expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument();
+		expect(screen.queryByText('Language')).not.toBeInTheDocument();
+	});
+
 	it('shows the active language in its own name', () => {
 		renderWithProviders(<LanguagePicker />, { locale: 'en' });
 		expect(screen.getByRole('combobox')).toHaveTextContent('English');
