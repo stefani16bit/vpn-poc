@@ -4819,3 +4819,39 @@ O ganho é **nomeado**: a tela diz "você escolheu o plano anual antes de criar 
 conta" e reordena os botões. Só trocar o `variant` seria uma memória que ninguém
 percebe — depois de um desvio de minutos por outra aba, um botão com ênfase
 diferente lê como estilo, não como lembrança.
+
+---
+
+### DEC-110 — A landing sai do chrome do app, por uma rota de layout
+
+**Data:** 2026-08-18 · **Status:** accepted · **Amends:** DEC-108
+
+**Contexto.** `app.tsx` montava o chrome do app acima do `<Router/>`: a fileira
+do `ThemeToggle` e um `<main id="main" className="flex justify-center px-4 pb-12">`.
+Toda rota herdava esse enquadramento, inclusive a única que não é do app.
+
+Uma landing tem um esqueleto próprio — cabeçalho fixo, divisores de seção e
+rodapé, todos de ponta a ponta — e nada disso sobrevive dentro de um container
+centralizado com `px-4`. A borda inferior do cabeçalho pararia a 40px de cada
+margem.
+
+**Decisão.** O chrome vira `components/layout/app-shell.tsx`, um `<Outlet/>` com
+o que `app.tsx` tinha. Em `router.tsx`, `/` fica fora dele e todas as outras
+rotas entram numa rota de layout sem path. A landing monta o próprio
+`<main id="main">`.
+
+**Rationale.** A alternativa era a landing furar o container com margens
+negativas — `-mx-4` no cabeçalho, no rodapé e em cada divisor, mais um
+`max-w-none` em algum ponto acima. Isso é o layout de uma página descrito no
+vocabulário de outra, e quebra silenciosamente quando o padding do `app.tsx`
+mudar.
+
+O elemento decisivo é o `<main id="main">`: ele tem de existir uma vez por tela,
+e o skip link do `app.tsx` aponta para ele. Uma rota de layout dá exatamente essa
+garantia — ou o shell renderiza, ou a landing, nunca os dois. Duplicar o `id`
+seria um documento com dois landmarks principais, que é pior do que o problema
+de estilo que a margem negativa resolveria.
+
+**O que a DEC-108 continua dizendo.** A landing segue em `features/marketing`, e
+os bullets de entitlements seguem reescritos em vez de extraídos — agora nos dois
+cartões de cadência. O que muda é só onde ela é enquadrada.
