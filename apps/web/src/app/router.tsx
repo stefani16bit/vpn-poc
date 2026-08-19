@@ -4,6 +4,7 @@ import { DEVICE_PERMISSIONS } from '@vpn/contracts';
 
 import { RequirePermission } from '@/app/access/require-permission.tsx';
 import { RequireSubscription } from '@/app/access/require-subscription.tsx';
+import { AppShell } from '@/components/layout/app-shell.tsx';
 import { RequireAuth } from '@/features/auth/components/require-auth.tsx';
 import { ForgotPasswordPage } from '@/features/auth/pages/forgot-password.page.tsx';
 import { LoginPage } from '@/features/auth/pages/login.page.tsx';
@@ -22,96 +23,100 @@ import { UsersPage } from '@/features/users/pages/users.page.tsx';
 export function Router() {
 	return (
 		<Routes>
+			{/* Outside the frame below: the landing brings its own header, footer and
+			    main landmark, and none of it survives a centred container. DEC-110. */}
 			<Route path="/" element={<LandingPage />} />
 
-			<Route path="/login" element={<LoginPage />} />
-			<Route path="/signup" element={<SignupPage />} />
-			<Route path="/forgot-password" element={<ForgotPasswordPage />} />
-			<Route path="/reset-password" element={<ResetPasswordPage />} />
+			<Route element={<AppShell />}>
+				<Route path="/login" element={<LoginPage />} />
+				<Route path="/signup" element={<SignupPage />} />
+				<Route path="/forgot-password" element={<ForgotPasswordPage />} />
+				<Route path="/reset-password" element={<ResetPasswordPage />} />
 
-			{/* Reachable while unverified: it is the screen that fixes that. */}
-			<Route path="/verify-email" element={<VerifyEmailPage />} />
+				{/* Reachable while unverified: it is the screen that fixes that. */}
+				<Route path="/verify-email" element={<VerifyEmailPage />} />
 
-			<Route
-				path="/account"
-				element={
-					<RequireAuth>
-						<BillingPage />
-					</RequireAuth>
-				}
-			/>
+				<Route
+					path="/account"
+					element={
+						<RequireAuth>
+							<BillingPage />
+						</RequireAuth>
+					}
+				/>
 
-			<Route
-				path="/keys"
-				element={
-					<RequireAuth>
-						<RequireSubscription>
-							<RequirePermission anyOf={DEVICE_PERMISSIONS}>
-								<KeysPage />
+				<Route
+					path="/keys"
+					element={
+						<RequireAuth>
+							<RequireSubscription>
+								<RequirePermission anyOf={DEVICE_PERMISSIONS}>
+									<KeysPage />
+								</RequirePermission>
+							</RequireSubscription>
+						</RequireAuth>
+					}
+				/>
+
+				<Route
+					path="/users"
+					element={
+						<RequireAuth>
+							<RequireSubscription>
+								<RequirePermission anyOf={['users.read']}>
+									<UsersPage />
+								</RequirePermission>
+							</RequireSubscription>
+						</RequireAuth>
+					}
+				/>
+
+				<Route
+					path="/permissions"
+					element={
+						<RequireAuth>
+							<RequireSubscription>
+								<RequirePermission anyOf={['permissions.manage']}>
+									<PermissionsPage />
+								</RequirePermission>
+							</RequireSubscription>
+						</RequireAuth>
+					}
+				/>
+
+				{/* Before the catch-all below, which exists for an unknown subpath. */}
+				<Route
+					path="/billing/invoices"
+					element={
+						<RequireAuth>
+							<RequirePermission anyOf={['billing.manage']}>
+								<InvoicesPage />
 							</RequirePermission>
-						</RequireSubscription>
-					</RequireAuth>
-				}
-			/>
+						</RequireAuth>
+					}
+				/>
 
-			<Route
-				path="/users"
-				element={
-					<RequireAuth>
-						<RequireSubscription>
-							<RequirePermission anyOf={['users.read']}>
-								<UsersPage />
-							</RequirePermission>
-						</RequireSubscription>
-					</RequireAuth>
-				}
-			/>
+				<Route
+					path="/billing/success"
+					element={
+						<RequireAuth>
+							<CheckoutSuccessPage />
+						</RequireAuth>
+					}
+				/>
+				<Route
+					path="/billing/cancel"
+					element={
+						<RequireAuth>
+							<CheckoutCancelPage />
+						</RequireAuth>
+					}
+				/>
 
-			<Route
-				path="/permissions"
-				element={
-					<RequireAuth>
-						<RequireSubscription>
-							<RequirePermission anyOf={['permissions.manage']}>
-								<PermissionsPage />
-							</RequirePermission>
-						</RequireSubscription>
-					</RequireAuth>
-				}
-			/>
-
-			{/* Before the catch-all below, which exists for an unknown subpath. */}
-			<Route
-				path="/billing/invoices"
-				element={
-					<RequireAuth>
-						<RequirePermission anyOf={['billing.manage']}>
-							<InvoicesPage />
-						</RequirePermission>
-					</RequireAuth>
-				}
-			/>
-
-			<Route
-				path="/billing/success"
-				element={
-					<RequireAuth>
-						<CheckoutSuccessPage />
-					</RequireAuth>
-				}
-			/>
-			<Route
-				path="/billing/cancel"
-				element={
-					<RequireAuth>
-						<CheckoutCancelPage />
-					</RequireAuth>
-				}
-			/>
-
-			{/* Never to the landing: a signed-out typo still has to reach the login. */}
-			<Route path="/billing/*" element={<Navigate to="/account" replace />} />
-			<Route path="*" element={<Navigate to="/account" replace />} />
+				{/* Never to the landing: a signed-out typo still has to reach the login. */}
+				<Route path="/billing/*" element={<Navigate to="/account" replace />} />
+				<Route path="*" element={<Navigate to="/account" replace />} />
+			</Route>
 		</Routes>
 	);
 }

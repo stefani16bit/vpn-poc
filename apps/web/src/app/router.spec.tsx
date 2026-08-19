@@ -83,6 +83,21 @@ describe('Router', () => {
 		expect(await screen.findByText('Devices and keys')).toBeInTheDocument();
 	});
 
+	it('gives the landing the whole page, with no app frame around it', () => {
+		renderAt('/');
+
+		expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+		expect(screen.getAllByRole('main')).toHaveLength(1);
+	});
+
+	it('frames every other route, and never stacks a second main landmark', async () => {
+		renderAt('/account');
+
+		expect(await screen.findByText('Your account')).toBeInTheDocument();
+		expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+		expect(screen.getAllByRole('main')).toHaveLength(1);
+	});
+
 	it('sends a signed-out visitor from the checkout return to the login screen', async () => {
 		const store = makeStore();
 		store.dispatch(sessionCleared());

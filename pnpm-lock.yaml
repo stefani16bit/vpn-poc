@@ -105,8 +105,8 @@ importers:
         specifier: ^0.24.0
         version: 0.24.0
       '@vpn/i18n':
-        specifier: ^0.27.0
-        version: 0.27.0
+        specifier: ^0.28.0
+        version: 0.28.0
       '@vpn/ports':
         specifier: ^0.16.0
         version: 0.16.0
@@ -200,8 +200,8 @@ importers:
         specifier: ^0.24.0
         version: 0.24.0
       '@vpn/i18n':
-        specifier: ^0.27.0
-        version: 0.27.0
+        specifier: ^0.28.0
+        version: 0.28.0
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -356,8 +356,8 @@ importers:
         specifier: ^0.24.0
         version: 0.24.0
       '@vpn/i18n':
-        specifier: ^0.27.0
-        version: 0.27.0
+        specifier: ^0.28.0
+        version: 0.28.0
       '@vpn/ports':
         specifier: ^0.16.0
         version: 0.16.0
@@ -3943,8 +3943,8 @@ packages:
   '@vpn/contracts@0.24.0':
     resolution: {integrity: sha512-3Ol7B8VL9Z28Q7qBLWmFI2ngaE1dgh0dUqKVCgj9gWVkCKClWODba65KNzZDr01yQA2nz7W7k54kdY+hH/GdpA==}
 
-  '@vpn/i18n@0.27.0':
-    resolution: {integrity: sha512-P96kq0aLdnC+1v19E8/6Krgsobn/YPKxjYfQguDFphf9rOQb0srsKLxElQJHXRUhoIOtd4czNymKUX12E5Dirg==}
+  '@vpn/i18n@0.28.0':
+    resolution: {integrity: sha512-V/plVPrpdfrLgu3JgFIruv9Z21/5kDssDueY9BC6YUjSyMndEBxcl6tggY9GcxwqfyVkNbRr9AXojg7kJN2y1Q==}
 
   '@vpn/ports@0.16.0':
     resolution: {integrity: sha512-xSFvj+43cYLHCSdbrqDSvo15XXJdY7VgyrZ45xvahKF4DidMedWLOZqWWvH0ckXlU1OEbcBWeTWcxXwWsG4o3w==}
@@ -11412,7 +11412,7 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@vpn/i18n@0.27.0':
+  '@vpn/i18n@0.28.0':
     dependencies:
       '@vpn/contracts': 0.24.0
 

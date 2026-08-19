@@ -19,6 +19,11 @@ Os dois catch-all — `*` e `/billing/*` — apontam para `/account` e **não** 
 faziam; mandá-los para a raiz faria o typo de quem está logado desembocar fora
 do app, e os e-mails de cobrança linkam `/billing`.
 
+Só `/` fica fora de `AppShell`, a rota de layout que monta o `ThemeToggle` e o
+container centralizado. A landing traz cabeçalho, rodapé e o próprio
+`<main id="main">` — o skip link do `app.tsx` aponta para um id que existe uma
+vez por tela porque ou o shell renderiza, ou ela. Ver DEC-110.
+
 `features/marketing` não faz chamada de rede: preço e limites vêm de
 `PLAN_PRICES` e `ENTITLEMENTS`, e os CTAs são `Link`. Um clique deslogado em
 `useStartCheckout` falharia em silêncio — sem sessão o `base-query` nem tenta
